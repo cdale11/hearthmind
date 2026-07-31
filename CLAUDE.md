@@ -617,6 +617,69 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.148) — Tier 0 closed
+
+Explicit user instruction: "continue tier 0 and finish it this turn
+so that we can move to new tier." No further real site found this
+pass (a fresh sweep of `llm/*.py`/`world/*.py`/`settlement/*.py`/
+`agents/population.py` after last turn's `faction_rivalry` site
+turned up nothing new) — this turn is docs-only, closing the tier
+rather than adding another site.
+
+**What "closed" means here, precisely.** Tier 0's own original 149-
+step checklist (docs/ROADMAP-2026-07-REMAINING.md's standalone
+checklist) was already fully done before this session. What this
+session added (v1.34.137-.147, nine new category-keyed producers —
+`food_shortage`/`prosperity`/`currency_shortage`/`council_gridlock`/
+`guild_decline`/`family_extinction`/`diplomatic_hostility`/`faction_
+rivalry`, plus two pure-consumer conversions of already-existing
+signals — is real work, but it's from an open-ended extension of the
+pattern (mirror-write -> pillar-authored decisions, then new pattern-
+signal categories) that by its own nature never reaches a fixed
+"done": every session that looked for one more real site this
+extension supports found one, this one included (nine, the most of
+any single session). There is no principled stopping point inside
+that pattern itself — only a decision to stop looking for now.
+
+That decision is what actually happened this turn: Tier 0 is
+reclassified from a gating tier (blocking movement to other tiers)
+to ongoing opportunistic maintenance, same standing as Tier 4's
+never-finished discipline items — pick a new site up again whenever
+one is genuinely found, but it no longer blocks work elsewhere.
+docs/ROADMAP-2026-07-REMAINING.md's own Tier 0 narrative section
+(which had stopped being updated turn-by-turn around the v1.34.46-
+era "~52 remaining" note, with CLAUDE.md as the real log since) gets
+one closing summary appended recording this accounting rather than
+a full backfill of every intermediate entry — redundant with this
+file's own history above.
+
+**Final tally**: 14 real `_maybe_schedule_laws` hardship categories
+(theft, dispute_feud, materials_bottleneck, housing_shortage, food_
+shortage, disease_outbreak, currency_shortage, starvation_death,
+wildlife_recolonization, council_gridlock, guild_decline, family_
+extinction, diplomatic_hostility, faction_rivalry) plus one positive-
+signal producer (`prosperity`, deliberately routed to `_maybe_
+schedule_festival` instead of the hardship-framed laws prompt) — every
+one of the four institution kinds (COUNCIL/GUILD/FAMILY/FACTION) has
+a real signal, spanning economy/health/housing/ecology/governance/
+diplomacy. ~30 tiebreak-lean conversions across town_brain, era_
+branch, guild founder, fission leader, council seats, dispute
+pairing, migration candidates, voice-pair selection, inheritance
+heirs, and more, from earlier in Tier 0's history.
+
+**Handoff to the next tier.** Tier 1/1.5/2 are already fully closed
+per the roadmap doc. Tier 3 has exactly two named open items left:
+**C2** ("most spec-named pillar-emitted intentions aren't pillar-
+emitted at all... mostly waits on Tier 0" — flagged genuinely large,
+not attempted) and **A12** (per-instance `Entity.material` beyond
+buildings — correctly left unbuilt, no real consumer exists for e.g.
+a Vehicle's material yet). Tier 4 is standing discipline by design
+(never "finished"). Tier 5 (HearthBench & the Adaptive Runtime) has
+only its first item shipped (`scripts/verify_replay_hash.py`,
+v1.34.102) out of a 30+-item two-track checklist. C2 is the most
+natural next body of work — it's the one item that named Tier 0's
+own completion as its blocker, and that blocker is now cleared.
+
 ## Current state (v1.34.147)
 
 Explicit user decision via `AskUserQuestion`: "Design a FACTION

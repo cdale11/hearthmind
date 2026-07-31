@@ -1236,7 +1236,11 @@ and any live council disposition, are never overridden. FAMILY/GUILD's
 branches are untouched (no equivalent soft/tiebreak point exists in
 either yet).
 
-Every other of the ~52 remaining Tier 0 sites stays mirror-write-only.
+Every other of the ~52 remaining Tier 0 sites stays mirror-write-only
+**as of this entry's own filing (v1.34.46-era)** — see the closing
+note at the end of this section (filed far later, v1.34.148) for how
+that figure actually played out: it was never a fixed list, and the
+tier closed on a different axis than "convert all 52" (see below).
 Converting further sites is real, un-scoped follow-up work — each needs
 its own judgment call about where in an existing decision a pillar
 lean can enter without overriding a hard/urgent branch — not another
@@ -2734,6 +2738,64 @@ separate two-part program, sequenced strictly AFTER Tiers 0-4)**
     territory with B2/B3's attention-scheduler cadences already
     shipped) — worth a fresh look at that overlap when Tier 5 actually
     starts, not assumed away here.
+
+**Tier 0 — CLOSED (v1.34.148, explicit user instruction: "continue
+tier 0 and finish it this turn so that we can move to new tier").**
+This document's own narrative above stopped being updated turn-by-
+turn around the v1.34.46-era "~52 remaining sites" note; CLAUDE.md's
+"Current state" log is the actual source of truth for everything
+that shipped after that point and is not backfilled here in full —
+only the closing accounting is recorded.
+
+Every one of this section's own original checklist steps (1-149,
+listed above) is done: every real settlement-scoped LLM job mirrors
+into its owning pillar; observe/interpret Emergence-tagging and
+attention-budget arbitration cover all 34 attention-scaled sites; B4
+inbox/outbox has a real arrow or a documented reason not to at every
+one of those sites; per-agent cognition has its volume-safe mirror;
+every named Nature causal-reasoning trigger is real. The mirror-write
+-> pillar-authored extension that followed (started v1.34.46) grew
+past its own original "~52 remaining, one at a time" framing into two
+different, both-real bodies of work, tracked by count in CLAUDE.md
+rather than here:
+
+1. **Tiebreak-lean conversions** — an existing deterministic decision
+   with a real primary signal and only an arbitrary tiebreak gets a
+   pillar-confidence lean as the tiebreak, never overriding the real
+   signal. ~30 of these shipped (town_brain, era_branch, guild
+   founder, fission leader, council seats, dispute pairing, migration
+   candidates, voice-pair selection, inheritance heirs, and more).
+2. **New category-keyed producer/consumer pairs** — this session
+   (v1.34.137-.147) shipped nine of these in one continuous run:
+   `food_shortage`/`disease_outbreak`(consumer-only)/`currency_
+   shortage`/`starvation_death`(consumer-only)/`wildlife_
+   recolonization`(consumer-only)/`prosperity`/`council_gridlock`/
+   `guild_decline`/`family_extinction`/`diplomatic_hostility`/
+   `faction_rivalry` — each a real `SimulationEngine._detect_*`
+   producer mirroring into `village_pillar.world_model`, most also
+   wired as a genuine new candidate in `_maybe_schedule_laws` (now 14
+   real hardship categories spanning economy, health, housing,
+   ecology, and all four institution kinds — COUNCIL/GUILD/FAMILY/
+   FACTION each have a real signal). `prosperity` is the one deliberate
+   exception: the first positive-signal producer, consumed by
+   `_maybe_schedule_festival`'s chance instead of the hardship-framed
+   `laws` prompt, since folding a positive signal into "a hardship the
+   village has genuinely lived through" would produce an incoherent
+   ask — a real design decision, not an oversight.
+
+**Why this is a real closure, not just stopping**: both remaining
+categories of Tier 0 work are, by construction, open-ended rather
+than a fixed checklist — every session that looked found at least one
+more real site (this one found nine), and there is no principled
+"done" state for "keep finding real signals to wire up." Reclassified
+here from a gating tier to ongoing opportunistic maintenance: pick it
+up again whenever a specific new signal is worth building, same as
+Tier 4's standing-discipline items, but it no longer blocks moving to
+another tier. Verification discipline for every site shipped this
+session: a direct production-path test through the real scheduling
+function for both producer and consumer (never a self-seeded stand-
+in), a 4000-tick LLM-disabled soak with a clean round-trip, `pyflakes`
+clean, no native module touched.
 
 ---
 
