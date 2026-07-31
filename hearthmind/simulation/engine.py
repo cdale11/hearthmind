@@ -145,6 +145,7 @@ from hearthmind.settlement.buildings import (
     CULTURE_LIST_MAX_STORED,
     CURRENCY_CAPACITY,
     CURRENCY_SHORTAGE_THRESHOLD,
+    DIPLOMATIC_HOSTILITY_THRESHOLD,
     cheapest_founding_cost,
     ERA_DESCRIPTIONS,
     FAMILY_FEUD_FESTIVAL_PENALTY,
@@ -1649,6 +1650,16 @@ class SimulationEngine:
         out the moment `_prune_extinct_families` evicts that family,
         same cap `Settlement.institutions` itself already holds
         (`INSTITUTION_LIST_MAX_STORED`)."""
+        self._diplomatic_hostility_flagged: "set[int]" = set()
+        """Tier 0, new producer: Village pillar's fourteenth category-
+        keyed `world_model` subject, back to a level-based/recoverable
+        shape (like `prosperity`/`currency_shortage`), reusing the
+        already-real `Settlement.relations` cross-settlement affinity
+        state — no new tracked data. Backs `_detect_diplomatic_
+        hostility`: any recorded relation with a sister settlement
+        drops below `buildings.DIPLOMATIC_HOSTILITY_THRESHOLD`. Never
+        persisted — same re-baseline-on-restart reasoning as every
+        other edge-trigger flag here."""
         self._hydrology_drought_flagged: bool = False
         """A11 (roadmap Stage IV step 15): edge-trigger flag for
         `_detect_hydrology_drought`, same "one observation on the
@@ -10193,6 +10204,7 @@ class SimulationEngine:
         "council_gridlock": "the council splitting into rival camps, unable to agree",
         "guild_decline": "a guild's craft dying out for want of a master",
         "family_extinction": "family lines dying out, one after another",
+        "diplomatic_hostility": "hostility with a neighboring settlement, again and again",
     }
 
     def _maybe_schedule_laws(self, events: list[str]) -> None:
@@ -10277,6 +10289,11 @@ class SimulationEngine:
             # producer half. Vanishing family lines can produce a real
             # inheritance/succession law.
             "family_extinction": target.pattern_signal_counts.get("family_extinction", 0),
+            # Tier 0, new producer: a genuine THIRTEENTH option — see
+            # `_detect_diplomatic_hostility`'s mirror for the producer
+            # half. Sustained hostility with a neighbor can produce a
+            # real border-defense/militia law.
+            "diplomatic_hostility": target.pattern_signal_counts.get("diplomatic_hostility", 0),
         }
         # Tier 0 (25th site): a genuine tie in real occurrence count
         # breaks toward whichever category village_pillar's new
@@ -11141,6 +11158,7 @@ class SimulationEngine:
         self._detect_council_gridlock()
         self._detect_guild_decline()
         self._detect_family_extinction()
+        self._detect_diplomatic_hostility()
 
     def _detect_metric_highlights(self, population_total: int) -> None:
         """§5 "Anomaly/highlight log" (docs/IDEAS-2026-07-EMERGENCE.md):
@@ -11671,6 +11689,50 @@ class SimulationEngine:
                     min(1.0, prior_confidence + 0.1), status="observation", source="family_extinction",
                     revises_id=existing["id"] if existing else None,
                 )
+
+    def _detect_diplomatic_hostility(self) -> None:
+        """Tier 0, new producer. Village pillar's fourteenth category-
+        keyed `world_model` subject — back to the level-based/
+        recoverable shape (`prosperity`/`currency_shortage`), and the
+        first to reuse already-real `Settlement.relations` (no new
+        tracked data): a settlement's own affinity reading for at
+        least one sister settlement has dropped below `buildings.
+        DIPLOMATIC_HOSTILITY_THRESHOLD` — deeper than `llm/
+        diplomacy.py`'s own "cold" narration tone (-0.3), a genuine
+        crisis. Same edge-triggered discipline as every sibling
+        detector. Riding the same daily-metrics cadence. Only ever
+        fires in a multi-settlement world (a settlement with no
+        recorded relations has an empty dict, never crosses the
+        threshold).
+
+        Real new consumer: `_maybe_schedule_laws`'s `candidates` dict
+        gains a genuine THIRTEENTH option — sustained hostility with a
+        neighbor can now produce a real border-defense/militia law."""
+        for settlement in self.world.settlements:
+            if not settlement.name:
+                continue
+            hostile = any(v < DIPLOMATIC_HOSTILITY_THRESHOLD for v in settlement.relations.values())
+            was_flagged = settlement.id in self._diplomatic_hostility_flagged
+            if hostile and not was_flagged:
+                self._diplomatic_hostility_flagged.add(settlement.id)
+                settlement.pattern_signal_counts["diplomatic_hostility"] = (
+                    settlement.pattern_signal_counts.get("diplomatic_hostility", 0) + 1
+                )
+                self._append_emergence(
+                    "bottleneck", "settlement",
+                    f"{settlement.name}'s standing with a neighbor has turned genuinely hostile.",
+                    pillars=("village",), magnitude=0.5, settlement=settlement.name,
+                )
+                existing = self.world.village_pillar.find_world_model_entry("diplomatic_hostility")
+                prior_confidence = existing["confidence"] if existing else 0.3
+                self.world.village_pillar.upsert_world_model(
+                    self.world.clock.tick_count, "diplomatic_hostility",
+                    f"{settlement.name} keeps falling into hostility with its neighbors.",
+                    min(1.0, prior_confidence + 0.1), status="observation", source="diplomatic_hostility",
+                    revises_id=existing["id"] if existing else None,
+                )
+            elif not hostile and was_flagged:
+                self._diplomatic_hostility_flagged.discard(settlement.id)
 
     def _detect_hydrology_drought(self) -> None:
         """A22 Emergence API, A11's real consumer beyond farm yield

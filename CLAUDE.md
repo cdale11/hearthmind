@@ -617,6 +617,32 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.146)
+
+Explicit user instruction: "Continue tier 0." Village pillar's
+fourteenth category-keyed `world_model` producer, back to the level-
+based/recoverable shape (`prosperity`/`currency_shortage`) rather than
+the one-shot `family_extinction` — and the first to reuse already-real
+`Settlement.relations` cross-settlement affinity state, no new tracked
+data. New `SimulationEngine._detect_diplomatic_hostility` (daily-
+metrics cadence, edge-triggered): any recorded relation with a sister
+settlement drops below new `buildings.DIPLOMATIC_HOSTILITY_THRESHOLD`
+(-0.5, deliberately deeper than `llm/diplomacy.py`'s own "cold"
+narration tone of -0.3, since this backs a real hardship signal, not
+just prompt wording). Only ever fires in a multi-settlement world — an
+empty `relations` dict never crosses the threshold, verified directly.
+
+New real consumer: `_maybe_schedule_laws`'s `candidates` dict gains a
+genuine THIRTEENTH option — sustained hostility with a neighbor can
+now produce a real border-defense/militia law.
+
+Verified: a direct production-path test for the producer (forms on a
+forced-hostile relation, clears on recovery, never flags an empty
+relations dict), a production-path test for the consumer through the
+real `_maybe_schedule_laws`, a 4000-tick LLM-disabled soak with clean
+round-trip, `pyflakes` clean. No native module touched. Tier 0 now has
+fifty real converted sites.
+
 ## Current state (v1.34.145)
 
 Explicit user instruction: "Continue tier 0" — followed my own

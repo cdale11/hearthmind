@@ -1816,6 +1816,13 @@ def seed_relation(origin_temperament: float, rng) -> float:
     return clamp(RELATION_SEED_BASE + origin_temperament * RELATION_SEED_TEMPERAMENT_WEIGHT + jitter, -1.0, 1.0)
 
 
+DIPLOMATIC_HOSTILITY_THRESHOLD = -0.5
+"""Tier 0, new producer: a cross-settlement relation this cold reads as
+a genuine diplomatic crisis, not just `llm/diplomacy.py`'s own "cold"
+narration tone (-0.3) — deeper than merely chilly, since this backs a
+real settlement-wide law/hardship signal (`SimulationEngine._detect_
+diplomatic_hostility`), not just how a narration prompt is worded."""
+
 RELATION_MARKET_INFLUENCE = 0.1
 """Max swing from `market_relation_factor` at a fully warm (+1.0) or
 fully cold (-1.0) average relation — a 10% price nudge, the same order
