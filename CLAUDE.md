@@ -617,7 +617,38 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
-## Current state (v1.34.131)
+## Current state (v1.34.132)
+
+Explicit user instruction: "Continue tier 0 and parallely you can
+audit too." Docs-only — broadened v1.34.131's self-audit to every
+`subject_confidence(...)` consumer in `simulation/engine.py`, checking
+specifically for the "provably always zero" bug class (a consumer
+reading a pillar/subject a real producer never writes to) rather than
+the weaker "fuzzy substring/word-overlap match sometimes misses"
+class this project already knowingly accepts at several sites
+(`_village_priority_lean`'s growth/caution keyword scan, the omen
+subject lean — both explicitly documented in their own docstrings as
+best-effort, correctly 0.0 when nothing matches).
+
+No further hard bugs found. The FAMILY/COUNCIL institution-name
+lookups (`_maybe_tick_composite_reactions`' feuding-pair tiebreak,
+`_maybe_schedule_institution_belief`'s target lean, `_maybe_schedule_
+rule_proposal`'s stuck-institution tiebreak) all read `village_pillar.
+subject_confidence(institution.name)` — confirmed these already sit in
+the same accepted "no guaranteed producer, honest best-effort" class
+(the feuding-pair site's own comment already says so: "never a real
+priority signal here — there isn't one"), NOT the provable-zero class
+the two v1.34.131 fixes were. GUILD's version of the same lookup is
+structurally sound and unaffected: `institution.name` for a GUILD is
+literally the skill string, a real substring match against the
+guild-founding mirror's `"the {skill} guild"` subject.
+
+Every `humans_pillar.subject_confidence(agent.name)` site (the large
+majority of Tier 0's converted sites) is backed by the real, confirmed
+per-agent producer (v1.34.98). Every `nature_pillar.subject_
+confidence(species)` site is backed by the real species-keyed producer
+(v1.34.107). No new site converted this pass — the audit itself was
+the work.
 
 Explicit user instruction: "Continue tier 0." Self-audit, not a new
 site: re-checked this session's own three prior conversions
