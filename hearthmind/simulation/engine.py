@@ -668,6 +668,28 @@ THRESHOLD`=0.75). Only ever supplies a MISSING `pressure_signal` (see
 — a real, fresh, threshold-crossing occurrence count is never
 overridden by conviction, only the "no specific problem" fallback is."""
 
+VILLAGE_INSTITUTION_REORGANIZE_CONVICTION_THRESHOLD = 0.85
+"""C2 "Intention channel" (Mind -> Body, Tier 3, "reorganize
+institution"): the bar `village_pillar`'s confidence about a SPECIFIC
+declining guild (keyed by that guild's own `Institution.name`, the
+skill it formed around) must clear before `_detect_guild_decline`
+genuinely RENAMES the guild to a different skill its own living
+members have actually mastered — a real restructuring around a new
+purpose, not a fresh institution. No dissolution mechanism exists
+anywhere in this codebase (institutions persist until pruned by
+`INSTITUTION_LIST_MAX_STORED`), so reorganizing in place — preserving
+membership/beliefs/history — is the safe, mechanically real shape this
+intention can take without inventing a second, riskier mechanism.
+Same bar as every other override-class C2 slice (`VILLAGE_LAND_USE_
+CONVICTION_THRESHOLD`/`VILLAGE_CUSTOM_CONVICTION_THRESHOLD`). Body
+stays authoritative: a rename only ever fires when the guild is
+ALREADY genuinely declining (per `_detect_guild_decline`'s own
+same-tick check) AND at least one of its own living members already
+holds real mastery in the candidate skill AND that skill has no guild
+of its own yet in the settlement — conviction alone, with no real
+alternate-skill master among the guild's own membership, can never
+manufacture a reorganization."""
+
 GOVERNOR_DRIFT_MIN_SAMPLES = 5
 GOVERNOR_DRIFT_RATIO = 2.0
 """Vision doc item 1.4's own worked example ("wildfires feel too rare
@@ -11847,7 +11869,14 @@ class SimulationEngine:
         Real new consumer: `_maybe_schedule_laws`'s `candidates` dict
         gains a genuine ELEVENTH option — a dying craft can now
         produce a real apprenticeship/guild-support law, same shape
-        every prior category-keyed producer established."""
+        every prior category-keyed producer established.
+
+        C2 "reorganize institution" (Tier 3): once `village_pillar`
+        holds strong conviction about a SPECIFIC declining guild's own
+        name (`VILLAGE_INSTITUTION_REORGANIZE_CONVICTION_THRESHOLD`),
+        that guild is renamed in place to a different skill one of its
+        own living members has actually mastered — see
+        `_maybe_reorganize_guild`."""
         for settlement in self.world.settlements:
             if not settlement.name:
                 continue
@@ -11862,6 +11891,8 @@ class SimulationEngine:
                     a.skills.get(guild.name, 0.0) >= GUILD_SKILL_MASTERY_THRESHOLD for a in living_members
                 )
                 if not has_master:
+                    if self._maybe_reorganize_guild(settlement, guild, living_members):
+                        continue  # reorganized in place — no longer declining
                     declining = True
                     break
             was_flagged = settlement.id in self._guild_decline_flagged
@@ -11885,6 +11916,61 @@ class SimulationEngine:
                 )
             elif not declining and was_flagged:
                 self._guild_decline_flagged.discard(settlement.id)
+
+    def _maybe_reorganize_guild(self, settlement, guild, living_members: list) -> bool:
+        """C2 "Intention channel" (Mind -> Body, Tier 3), "reorganize
+        institution" — the sixth C2 slice. Called from `_detect_guild_
+        decline`'s own per-guild loop the moment a guild is found to
+        have no living master left in its own named skill. Returns
+        True if the guild was genuinely renamed in place (and should
+        therefore no longer count as declining this tick), False if
+        Body doesn't support a reorganization (conviction too low, or
+        no real alternate-skill master exists among the guild's own
+        living membership).
+
+        `village_pillar`'s conviction is read against the guild's OWN
+        name (`subject_confidence(guild.name)`) — this fuzzy-matches
+        `_maybe_schedule_guild_founding`'s existing `"the {skill}
+        guild"` mirror (the guild's own founding belief), so a guild
+        the village has held strong, lasting conviction about since it
+        was founded is the one that gets a real second chance rather
+        than quietly dissolving. Body stays authoritative throughout:
+        conviction alone can never invent a master that doesn't exist,
+        and a skill already claimed by another guild in the same
+        settlement is never a valid target — this only ever
+        redirects an already-real capability the guild's own surviving
+        members hold toward a purpose that still has demand for it."""
+        conviction = self.world.village_pillar.subject_confidence(guild.name)
+        if conviction < VILLAGE_INSTITUTION_REORGANIZE_CONVICTION_THRESHOLD:
+            return False
+        claimed_skills = {
+            inst.name for inst in settlement.institutions
+            if inst.kind is InstitutionKind.GUILD and inst.id != guild.id
+        }
+        candidate_skill = None
+        for skill in (SKILL_FARMING, SKILL_CONSTRUCTION, SKILL_MEDICINE):
+            if skill == guild.name or skill in claimed_skills:
+                continue
+            if any(a.skills.get(skill, 0.0) >= GUILD_SKILL_MASTERY_THRESHOLD for a in living_members):
+                candidate_skill = skill
+                break
+        if candidate_skill is None:
+            return False
+        old_name = guild.name
+        guild.name = candidate_skill
+        self._log(
+            "institution_reorganized",
+            f"{settlement.name}'s {old_name} guild reorganized around {candidate_skill} — "
+            "the craft carried on by new hands, in a new direction.",
+        )
+        existing = self.world.village_pillar.find_world_model_entry(f"the {old_name} guild")
+        if existing is not None:
+            self.world.village_pillar.upsert_world_model(
+                self.world.clock.tick_count, existing["subject"], existing["belief"], 1.0,
+                status="observation", source="institution_reorganize_confirmed",
+                revises_id=existing["id"],
+            )
+        return True
 
     def _detect_family_extinction(self) -> None:
         """Tier 0, new producer (explicit user decision: "FAMILY-level

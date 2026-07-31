@@ -178,6 +178,8 @@ const CATEGORY_META = {
   council_seat_contested: { icon: "👑" },
   guild_formed: { icon: "🔨" },
   guild_joined: { icon: "🔨" },
+  institution_reorganized: { icon: "🔁" }, // C2 "reorganize institution": a declining guild renamed around a skill its own surviving members actually mastered
+
   faction_formed: { icon: "🚩" },
   illness: { icon: "🤒" },
   recovery: { icon: "💊" },

@@ -617,6 +617,68 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.155)
+
+Explicit user instruction: "continue tier 3 c2 with the next intention"
+— C2's sixth slice, "reorganize institution." No dissolution mechanism
+exists anywhere in this codebase (institutions persist until pruned
+only by `INSTITUTION_LIST_MAX_STORED`), so a genuine "reorganize"
+needed a shape that doesn't require inventing one: `_detect_guild_
+decline`'s own existing per-tick check (a GUILD with no living member
+still holding `GUILD_SKILL_MASTERY_THRESHOLD` in its own named skill)
+now, once `village_pillar` holds strong conviction about that SPECIFIC
+guild's name, RENAMES it in place to a different skill one of its own
+living members has actually mastered — restructuring around a new
+purpose while preserving membership/beliefs/history, rather than
+dissolving and re-founding. `Institution.name` for a GUILD literally
+IS the skill, and guild-membership-by-skill is rebuilt fresh every
+tick from `.name` with no caching, so the rename carries zero
+dangling-reference risk.
+
+New `VILLAGE_INSTITUTION_REORGANIZE_CONVICTION_THRESHOLD=0.85`
+(engine.py, same bar as every other override-class C2 slice). The
+conviction read (`village_pillar.subject_confidence(guild.name)`)
+deliberately fuzzy-matches `_maybe_schedule_guild_founding`'s existing
+`"the {skill} guild"` mirror — the guild's own founding belief — so a
+guild the village has held lasting conviction about since it was
+founded is the one that gets a real second chance. Body stays
+authoritative throughout: the guild must already be genuinely
+declining this same tick, the candidate skill must not already be
+claimed by another guild in the settlement, and at least one of the
+declining guild's own LIVING members must already hold real mastery in
+it — conviction alone, with no real alternate-skill master among the
+guild's own membership, can never manufacture a reorganization (a
+declining guild with no qualifying alternate simply stays declining,
+same as before this slice). New `_maybe_reorganize_guild` helper,
+called from `_detect_guild_decline`'s existing per-guild loop; a
+successful reorganization means that guild no longer counts as
+declining this tick (skips `pattern_signal_counts["guild_decline"]`'s
+increment for it), closing the loop by reinforcing the guild-founding
+mirror entry (keyed by the OLD skill name) to full confidence in
+place. New `institution_reorganized` event category (🔁).
+
+Verified: a production-path test confirming a genuine reorganization
+fires (rename, event, mirror reinforced to confidence 1.0 in place, no
+longer counted as declining); a negative case for conviction below
+threshold; a negative case for no qualifying alternate-skill master
+among the guild's own living members; a positive case confirming a
+skill already claimed by another guild in the settlement is correctly
+skipped in favor of the next eligible one; a regression test
+confirming ordinary `guild_decline` detection/`pattern_signal_counts`/
+mirror behavior is unchanged when no reorganization is possible; a
+4000-tick LLM-disabled soak with clean round-trip; `pyflakes` clean
+(only the four known pre-existing findings remain). No native module
+touched.
+
+C2 now has six of eight named intentions shipped (invent tech, change
+law, propose experiment, shift land use, set custom, reorganize
+institution). Two remain open: domesticate (no existing mechanism at
+all — the largest remaining lift), build (currently baked into a
+continuous per-tick colocation-triggered roll in `_maybe_start_
+construction`, the same function "shift land use" already touches —
+a future slice needs to think carefully about how it differs from
+that existing WHAT-override).
+
 ## Current state (v1.34.154)
 
 Explicit user instruction: "continue tier 3 c2 with the next intention"
@@ -665,6 +727,9 @@ C2 now has five of eight named intentions shipped (invent tech, change
 law, propose experiment, shift land use, set custom). Three remain
 open: reorganize institution, domesticate, build — each still needing
 its own design decision per the v1.34.151 audit.
+
+(Superseded by v1.34.155 above: reorganize institution has since
+shipped.)
 
 ## Current state (v1.34.153)
 

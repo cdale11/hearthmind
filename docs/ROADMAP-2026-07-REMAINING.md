@@ -3912,7 +3912,7 @@ flagged in case a fresh audit disagrees.
 CLOSED. Salience-ranking (the one real gap found) is shipped.
 
 ### C2 — Intention channel (Mind → Body)
-**Started, v1.34.149-.154.** Five of eight named intentions shipped.
+**Started, v1.34.149-.155.** Six of eight named intentions shipped.
 
 "Invent tech" (v1.34.149): Innovation pillar's own leading open
 (`status="hypothesis"`) `world_model` belief genuinely INITIATES an
@@ -3984,24 +3984,45 @@ override reinforces the driving hardship subject to full confidence in
 place. See `SimulationEngine._maybe_schedule_ontology_proposal`,
 `VILLAGE_CUSTOM_CONVICTION_THRESHOLD`.
 
-All five slices share the same real distinction from every Tier 0
+"Reorganize institution" (v1.34.155): no dissolution mechanism exists
+anywhere in this codebase (institutions persist until pruned only by
+`INSTITUTION_LIST_MAX_STORED`), so this slice took a different shape
+than the original v1.34.151 audit's own framing (which looked for a
+WHETHER-gate on `_maybe_schedule_institution_belief` and found none) —
+`_detect_guild_decline`'s existing per-tick check (a GUILD with no
+living member still holding `GUILD_SKILL_MASTERY_THRESHOLD` in its own
+named skill) now, once `village_pillar` holds strong conviction about
+that SPECIFIC guild's name, RENAMES it in place to a different skill
+one of its own living members has actually mastered — restructuring
+around a new purpose while preserving membership/beliefs/history,
+rather than dissolving and re-founding. The conviction read
+deliberately fuzzy-matches `_maybe_schedule_guild_founding`'s existing
+`"the {skill} guild"` mirror. Body stays authoritative: the guild must
+already be genuinely declining, the candidate skill must not already
+be claimed by another guild in the settlement, and at least one of the
+guild's own living members must already hold real mastery in it — a
+declining guild with no qualifying alternate simply stays declining.
+Closes the loop: a successful reorganization reinforces the guild-
+founding mirror entry (keyed by the OLD skill name) to full confidence
+in place. See `SimulationEngine._maybe_reorganize_guild`,
+`VILLAGE_INSTITUTION_REORGANIZE_CONVICTION_THRESHOLD`.
+
+All six slices share the same real distinction from every Tier 0
 site — Tier 0 only ever broke a tie or nudged an outcome that would
 happen anyway; C2 changes WHETHER (or, for "shift land use"/"set
-custom," WHAT) the event is.
+custom"/"reorganize institution," WHAT) the event is.
 
-Three of the spec's eight named pillar-emitted intentions remain
-unbuilt: reorganize institution, domesticate, build. A v1.34.151 audit
-found no equally clean next slice for any of these — "build" is baked
-into a continuous per-tick physical mechanic (`_maybe_start_
-construction`'s colocation-triggered roll) rather than a discrete
-gated cognition job; "domesticate" has no existing mechanism to extend
-at all (a genuine new-mechanism build, not a slice); "reorganize
-institution" maps onto `_maybe_schedule_institution_belief`, which
-already fires unconditionally every cycle with no real WHETHER-gate
-left to bypass — a genuine slice there needs its own design decision.
-Not a validation gap (every Body-touching write that DOES exist today
-is validated) — a coverage gap. Resume on future explicit direction
-naming a specific intention.
+Two of the spec's eight named pillar-emitted intentions remain
+unbuilt: domesticate, build. "Build" is baked into a continuous
+per-tick physical mechanic (`_maybe_start_construction`'s colocation-
+triggered roll, the same function "shift land use" already touches —
+a future slice needs to think carefully about how it differs from
+that existing WHAT-override) rather than a discrete gated cognition
+job; "domesticate" has no existing mechanism to extend at all (a
+genuine new-mechanism build, not a slice) — the largest remaining
+lift. Not a validation gap (every Body-touching write that DOES exist
+today is validated) — a coverage gap. Resume on future explicit
+direction naming a specific intention.
 
 ### C3 — Player ↔ Pillar chat
 **CLOSED, v1.34.103.** "Pillars may initiate contact" shipped: `Pillar.
