@@ -118,6 +118,8 @@ PRESSURE_SIGNAL_LABELS: dict[str, str] = {
     "disease_outbreak": "sickness spreading through the village",
     "wildlife_recolonization": "wildlife pressing back into the land",
     "nature_adaptation": "the land itself changing under them",
+    "housing_shortage": "too many people packed into too few homes",
+    "food_shortage": "the granaries running dangerously low",
 }
 """B5 "Innovation as conscious scientist" (roadmap Stage III step 12):
 plain-language phrasing for `Settlement.pattern_signal_counts`' keys

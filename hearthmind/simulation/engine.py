@@ -1574,6 +1574,18 @@ class SimulationEngine:
         the capacity/population math. Never persisted — same re-
         baseline-on-restart reasoning as every other edge-trigger flag
         here."""
+        self._food_shortage_flagged: "set[int]" = set()
+        """Tier 0, new producer: settlement ids currently flagged food-
+        short — edge-triggered, same shape as `_housing_shortage_
+        flagged`. Backs `_detect_food_shortage`, Village pillar's
+        sixth category-keyed `world_model` subject (literal `"food_
+        shortage"`), reusing `Population._granary_fill_ratio` (already
+        computed for `_maybe_migrate`'s hunger-driven pull signal) and
+        `world.reactions.FOOD_SHORTAGE_FILL_THRESHOLD` (already the
+        exact threshold `_maybe_tick_composite_reactions`' inline
+        `food_shortage_now` check uses) rather than duplicating either.
+        Never persisted — same re-baseline-on-restart reasoning as
+        every other edge-trigger flag here."""
         self._hydrology_drought_flagged: bool = False
         """A11 (roadmap Stage IV step 15): edge-trigger flag for
         `_detect_hydrology_drought`, same "one observation on the
@@ -10106,6 +10118,7 @@ class SimulationEngine:
         "dispute_feud": "repeated bitter disputes boiling into feuds",
         "materials_bottleneck": "running short on materials again and again",
         "housing_shortage": "too many people packed into too few homes",
+        "food_shortage": "the granaries running dangerously low",
     }
 
     def _maybe_schedule_laws(self, events: list[str]) -> None:
@@ -10135,6 +10148,10 @@ class SimulationEngine:
             # — see `_detect_housing_shortage`'s mirror for the
             # producer half.
             "housing_shortage": target.pattern_signal_counts.get("housing_shortage", 0),
+            # Tier 0, new producer: a genuine FIFTH option, same shape
+            # — see `_detect_food_shortage`'s mirror for the producer
+            # half.
+            "food_shortage": target.pattern_signal_counts.get("food_shortage", 0),
         }
         # Tier 0 (25th site): a genuine tie in real occurrence count
         # breaks toward whichever category village_pillar's new
@@ -10993,6 +11010,7 @@ class SimulationEngine:
         self._detect_settlement_bottlenecks()
         self._detect_occupation_shortage()
         self._detect_housing_shortage()
+        self._detect_food_shortage()
 
     def _detect_metric_highlights(self, population_total: int) -> None:
         """§5 "Anomaly/highlight log" (docs/IDEAS-2026-07-EMERGENCE.md):
@@ -11190,6 +11208,56 @@ class SimulationEngine:
                 )
             elif not overcrowded and was_flagged:
                 self._housing_shortage_flagged.discard(settlement.id)
+
+    def _detect_food_shortage(self) -> None:
+        """Tier 0, new producer (explicit user instruction: "continue
+        tier 0"). Village pillar's sixth category-keyed `world_model`
+        subject, same shape as `_detect_housing_shortage` — reuses
+        `Population._granary_fill_ratio` (population's hunger-driven
+        migration pull signal) and `world.reactions.FOOD_SHORTAGE_FILL_
+        THRESHOLD` (the exact threshold `_maybe_tick_composite_
+        reactions`'s own inline `food_shortage_now` check already uses
+        for the "Desperate Times" combination) rather than duplicating
+        either. Same edge-triggered discipline: one `bottleneck`
+        observation the tick a settlement first crosses into a real
+        granary shortfall, silence while it stays there, silent
+        recovery once it eases. Riding the same daily-metrics cadence
+        as its siblings, no new polling loop.
+
+        Real new consumer: `_maybe_schedule_laws`'s `candidates` dict
+        gains a genuine FIFTH option (not just a tiebreak input) —
+        `"food_shortage"` can now win the `pattern_key` pick outright
+        and produce a real law, same shape `housing_shortage` already
+        established there. Also automatically strengthens `_maybe_
+        schedule_ontology_proposal`'s pressure-signal scan, which reads
+        every `pattern_signal_counts` key, no separate wiring needed."""
+        for settlement in self.world.settlements:
+            if not settlement.name:
+                continue
+            fill = self.world.population._granary_fill_ratio(settlement)
+            shortage = fill < reactions.FOOD_SHORTAGE_FILL_THRESHOLD
+            was_flagged = settlement.id in self._food_shortage_flagged
+            if shortage and not was_flagged:
+                self._food_shortage_flagged.add(settlement.id)
+                settlement.pattern_signal_counts["food_shortage"] = (
+                    settlement.pattern_signal_counts.get("food_shortage", 0) + 1
+                )
+                self._append_emergence(
+                    "bottleneck", "settlement",
+                    f"{settlement.name}'s granaries are running dangerously low.",
+                    pillars=("village",), magnitude=0.6, settlement=settlement.name,
+                    data={"granary_fill": round(fill, 3)},
+                )
+                existing = self.world.village_pillar.find_world_model_entry("food_shortage")
+                prior_confidence = existing["confidence"] if existing else 0.3
+                self.world.village_pillar.upsert_world_model(
+                    self.world.clock.tick_count, "food_shortage",
+                    f"{settlement.name} keeps running short on food.",
+                    min(1.0, prior_confidence + 0.1), status="observation", source="food_shortage",
+                    revises_id=existing["id"] if existing else None,
+                )
+            elif not shortage and was_flagged:
+                self._food_shortage_flagged.discard(settlement.id)
 
     def _detect_hydrology_drought(self) -> None:
         """A22 Emergence API, A11's real consumer beyond farm yield

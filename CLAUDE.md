@@ -617,6 +617,37 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.137)
+
+Explicit user instruction: "Continue tier 0." Village pillar's seventh
+category-keyed `world_model` subject, same shape as `_detect_housing_
+shortage` — this one keyed by the literal `"food_shortage"` string.
+New `SimulationEngine._detect_food_shortage` (daily-metrics cadence,
+edge-triggered) reuses `Population._granary_fill_ratio` (already
+computed for `_maybe_migrate`'s hunger-driven pull signal) and
+`world.reactions.FOOD_SHORTAGE_FILL_THRESHOLD` (the exact threshold
+`_maybe_tick_composite_reactions`'s own inline `food_shortage_now`
+check already uses for the "Desperate Times" combination) rather than
+duplicating either.
+
+New real consumer: `_maybe_schedule_laws`'s `candidates` dict gains a
+genuine FIFTH option — `"food_shortage"` can now win the `pattern_key`
+pick outright and produce a real law, same shape `housing_shortage`
+already established. Also strengthens `_maybe_schedule_ontology_
+proposal`'s pressure-signal scan for free (it already reads every
+`pattern_signal_counts` key). Added `"housing_shortage"`/`"food_
+shortage"` entries to `llm/ontology.py`'s `PRESSURE_SIGNAL_LABELS` for
+consistent wording there too.
+
+Verified: a direct production-path test for the producer (forms/
+revises in place on a forced empty-granary settlement, clears once
+granaries fill), a production-path test for the consumer (a lone
+`food_shortage` signal at threshold wins outright and grounds the
+real `laws` prompt, ticking the clock to the job's real staggered
+day-of-month), a 4000-tick LLM-disabled soak with clean round-trip,
+`pyflakes` clean. No native module touched. Tier 0 now has forty-one
+real converted sites.
+
 ## Current state (v1.34.136)
 
 Explicit user instruction: "Continue tier 0." Same bug class as
