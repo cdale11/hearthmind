@@ -678,6 +678,22 @@ settlement realistically has a handful of live factions at once, not
 hundreds, so this stays a curated, meaningful list rather than
 approaching FAMILY's scale."""
 
+FACTION_RIVALRY_THRESHOLD = -0.3
+"""Tier 0, new producer: two FACTION institutions' living members read
+as genuinely rival when their average cross-membership relationship
+drops below this — shallower than `DISPUTE_RELATIONSHIP_THRESHOLD`
+(-0.6, a single worst PAIR) since an average across many member-pairs
+regresses toward zero far more than one festering pair does; same
+"-0.3 reads as genuinely cold" precedent `llm/diplomacy.py`'s own
+narration-tone band already uses. See `SimulationEngine._detect_
+faction_rivalry`."""
+
+FACTION_RIVALRY_MIN_MEMBERS = 2
+"""Each FACTION side needs at least this many LIVING members before
+`_detect_faction_rivalry` trusts the average — a single-member "faction"
+comparison is really just one person's opinion of another, already
+covered by ordinary dispute detection, not a real factional signal."""
+
 DEBT_PER_TRADE_FRACTION = 0.5
 """Phase L "Economy depth" (docs/VISION-2026-07.md, "Society & Power"):
 a barter recipient owes the giver this fraction of the traded amount,

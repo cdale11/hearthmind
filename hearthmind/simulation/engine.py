@@ -117,6 +117,8 @@ from hearthmind.persistence.snapshot import (
 )
 from hearthmind.agents.population import (
     DISPUTE_COOLDOWN_TICKS,
+    FACTION_RIVALRY_MIN_MEMBERS,
+    FACTION_RIVALRY_THRESHOLD,
     FISSION_MATERIALS_SHARE,
     FISSION_MIN_DISTANCE,
     GUILD_SKILL_MASTERY_THRESHOLD,
@@ -1660,6 +1662,20 @@ class SimulationEngine:
         drops below `buildings.DIPLOMATIC_HOSTILITY_THRESHOLD`. Never
         persisted — same re-baseline-on-restart reasoning as every
         other edge-trigger flag here."""
+        self._faction_rivalry_flagged: "set[int]" = set()
+        """Tier 0, new producer (explicit user decision via
+        `AskUserQuestion`: "Design a FACTION rivalry signal") — this
+        session's first genuinely-new-mechanism producer, not a
+        rewiring of already-existing state. Village pillar's fifteenth
+        category-keyed `world_model` subject, a FOURTH institution-
+        scoped one. Backs `_detect_faction_rivalry`: two FACTION
+        institutions in the same settlement, each with at least
+        `Population.FACTION_RIVALRY_MIN_MEMBERS` living members, whose
+        average cross-membership relationship reads below `Population.
+        FACTION_RIVALRY_THRESHOLD` — real sustained inter-faction
+        hostility, not one soured pair (already covered by ordinary
+        dispute detection). Never persisted — same re-baseline-on-
+        restart reasoning as every other edge-trigger flag here."""
         self._hydrology_drought_flagged: bool = False
         """A11 (roadmap Stage IV step 15): edge-trigger flag for
         `_detect_hydrology_drought`, same "one observation on the
@@ -10205,6 +10221,7 @@ class SimulationEngine:
         "guild_decline": "a guild's craft dying out for want of a master",
         "family_extinction": "family lines dying out, one after another",
         "diplomatic_hostility": "hostility with a neighboring settlement, again and again",
+        "faction_rivalry": "two factions turning on each other, again and again",
     }
 
     def _maybe_schedule_laws(self, events: list[str]) -> None:
@@ -10294,6 +10311,11 @@ class SimulationEngine:
             # half. Sustained hostility with a neighbor can produce a
             # real border-defense/militia law.
             "diplomatic_hostility": target.pattern_signal_counts.get("diplomatic_hostility", 0),
+            # Tier 0, explicit user decision via `AskUserQuestion`: a
+            # genuine FOURTEENTH option — see `_detect_faction_
+            # rivalry`'s mirror for the producer half. Sustained
+            # factional strife can produce a real reconciliation law.
+            "faction_rivalry": target.pattern_signal_counts.get("faction_rivalry", 0),
         }
         # Tier 0 (25th site): a genuine tie in real occurrence count
         # breaks toward whichever category village_pillar's new
@@ -11159,6 +11181,7 @@ class SimulationEngine:
         self._detect_guild_decline()
         self._detect_family_extinction()
         self._detect_diplomatic_hostility()
+        self._detect_faction_rivalry()
 
     def _detect_metric_highlights(self, population_total: int) -> None:
         """§5 "Anomaly/highlight log" (docs/IDEAS-2026-07-EMERGENCE.md):
@@ -11733,6 +11756,79 @@ class SimulationEngine:
                 )
             elif not hostile and was_flagged:
                 self._diplomatic_hostility_flagged.discard(settlement.id)
+
+    def _detect_faction_rivalry(self) -> None:
+        """Tier 0, new producer (explicit user decision via
+        `AskUserQuestion`: "Design a FACTION rivalry signal") — this
+        session's first genuinely-new-mechanism producer. Village
+        pillar's fifteenth category-keyed `world_model` subject, a
+        FOURTH institution-scoped one alongside `council_gridlock`/
+        `guild_decline`/`family_extinction`. Two FACTION institutions
+        in the same settlement, each with `Population.FACTION_
+        RIVALRY_MIN_MEMBERS`+ living members, whose average cross-
+        membership relationship (every living member of A's real
+        `Agent.relationships` reading toward every living member of B,
+        both directions) drops below `Population.FACTION_RIVALRY_
+        THRESHOLD` — real sustained hostility between whole factions,
+        not a single soured pair (already covered by ordinary dispute
+        detection). Same edge-triggered discipline as every sibling
+        detector. Riding the same daily-metrics cadence; O(members_a *
+        members_b) per pair, cheap since factions stay small by
+        construction (`FACTION_MAX_STORED`).
+
+        Real new consumer: `_maybe_schedule_laws`'s `candidates` dict
+        gains a genuine FOURTEENTH option — sustained factional strife
+        can now produce a real reconciliation/strife-management law."""
+        for settlement in self.world.settlements:
+            if not settlement.name:
+                continue
+            factions = [i for i in settlement.institutions if i.kind is InstitutionKind.FACTION]
+            rival = False
+            for idx, fac_a in enumerate(factions):
+                members_a = [
+                    a for a in self.world.population.agents if a.id in fac_a.member_agent_ids
+                ]
+                if len(members_a) < FACTION_RIVALRY_MIN_MEMBERS:
+                    continue
+                for fac_b in factions[idx + 1:]:
+                    members_b = [
+                        a for a in self.world.population.agents if a.id in fac_b.member_agent_ids
+                    ]
+                    if len(members_b) < FACTION_RIVALRY_MIN_MEMBERS:
+                        continue
+                    readings = [
+                        a.relationships.get(b.id, 0.0)
+                        for a in members_a for b in members_b
+                    ] + [
+                        b.relationships.get(a.id, 0.0)
+                        for a in members_a for b in members_b
+                    ]
+                    if readings and (sum(readings) / len(readings)) < FACTION_RIVALRY_THRESHOLD:
+                        rival = True
+                        break
+                if rival:
+                    break
+            was_flagged = settlement.id in self._faction_rivalry_flagged
+            if rival and not was_flagged:
+                self._faction_rivalry_flagged.add(settlement.id)
+                settlement.pattern_signal_counts["faction_rivalry"] = (
+                    settlement.pattern_signal_counts.get("faction_rivalry", 0) + 1
+                )
+                self._append_emergence(
+                    "bottleneck", "settlement",
+                    f"Two factions in {settlement.name} have grown genuinely hostile toward each other.",
+                    pillars=("village",), magnitude=0.5, settlement=settlement.name,
+                )
+                existing = self.world.village_pillar.find_world_model_entry("faction_rivalry")
+                prior_confidence = existing["confidence"] if existing else 0.3
+                self.world.village_pillar.upsert_world_model(
+                    self.world.clock.tick_count, "faction_rivalry",
+                    f"{settlement.name} keeps seeing its factions turn on each other.",
+                    min(1.0, prior_confidence + 0.1), status="observation", source="faction_rivalry",
+                    revises_id=existing["id"] if existing else None,
+                )
+            elif not rival and was_flagged:
+                self._faction_rivalry_flagged.discard(settlement.id)
 
     def _detect_hydrology_drought(self) -> None:
         """A22 Emergence API, A11's real consumer beyond farm yield

@@ -125,6 +125,7 @@ PRESSURE_SIGNAL_LABELS: dict[str, str] = {
     "guild_decline": "a guild's craft dying out for want of a master",
     "family_extinction": "family lines dying out, one after another",
     "diplomatic_hostility": "hostility with a neighboring settlement, again and again",
+    "faction_rivalry": "two factions turning on each other, again and again",
 }
 """B5 "Innovation as conscious scientist" (roadmap Stage III step 12):
 plain-language phrasing for `Settlement.pattern_signal_counts`' keys

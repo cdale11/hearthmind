@@ -617,6 +617,38 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.147)
+
+Explicit user decision via `AskUserQuestion`: "Design a FACTION
+rivalry signal" — this session's first genuinely-new-mechanism
+producer rather than a rewiring of already-existing state. Village
+pillar's fifteenth category-keyed `world_model` producer, a fourth
+institution-scoped one alongside `council_gridlock`/`guild_decline`/
+`family_extinction`. New `agents/population.py` constants `FACTION_
+RIVALRY_THRESHOLD` (-0.3, shallower than `DISPUTE_RELATIONSHIP_
+THRESHOLD`'s -0.6 since an averaged multi-pair reading regresses
+toward zero far more than one festering pair) and `FACTION_RIVALRY_
+MIN_MEMBERS` (2, so a comparison never reduces to just one person's
+opinion — already covered by ordinary dispute detection). New
+`SimulationEngine._detect_faction_rivalry` (daily-metrics cadence,
+edge-triggered): two FACTION institutions in the same settlement,
+each with enough living members, whose average cross-membership
+`Agent.relationships` reading (both directions) drops below
+threshold.
+
+New real consumer: `_maybe_schedule_laws`'s `candidates` dict gains a
+genuine FOURTEENTH option — sustained factional strife can now
+produce a real reconciliation law.
+
+Verified: a direct production-path test confirming neutral
+relationships never flag, a genuine cross-faction hostility forms/
+flags the entry, recovery clears it, and factions below the min-
+member floor never flag even at maximum hostility; a production-path
+test for the consumer through the real `_maybe_schedule_laws`; a
+4000-tick LLM-disabled soak with clean round-trip, `pyflakes` clean.
+No native module touched. Tier 0 now has fifty-one real converted
+sites.
+
 ## Current state (v1.34.146)
 
 Explicit user instruction: "Continue tier 0." Village pillar's
