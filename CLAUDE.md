@@ -617,6 +617,37 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.144)
+
+Explicit user instruction: "Continue tier 0," resolved via
+`AskUserQuestion` after a subject_confidence()-vs-producer cross-
+check found no new dead-consumer bugs: "GUILD-level signal."
+
+Village pillar's twelfth category-keyed `world_model` producer, a
+second institution-scoped one alongside `council_gridlock`. New
+`SimulationEngine._detect_guild_decline` (daily-metrics cadence,
+edge-triggered): a GUILD's `Institution.name` IS the exact skill it
+formed around — fires once no living member still holds `GUILD_
+SKILL_MASTERY_THRESHOLD` in that skill, i.e. the craft has genuinely
+died out among the guild's own membership. A freshly-founded guild
+can never trivially trigger this (formation itself requires real
+living masters); verified directly. Settlement-scoped, not per-guild
+— a settlement with multiple guilds flags if any one of them has
+declined.
+
+New real consumer: `_maybe_schedule_laws`'s `candidates` dict gains a
+genuine ELEVENTH option — a dying craft can now produce a real
+apprenticeship/guild-support law, same shape every prior category-
+keyed producer established.
+
+Verified: a production-path test confirming the flag never fires
+right at founding, fires once every member's skill genuinely drops
+below mastery, and clears once one member re-masters it; a
+production-path test for the consumer through the real `_maybe_
+schedule_laws`; a 4000-tick LLM-disabled soak with clean round-trip,
+`pyflakes` clean. No native module touched. Tier 0 now has forty-
+eight real converted sites.
+
 ## Current state (v1.34.143)
 
 Explicit user instruction: "Continue tier 0," resolved via

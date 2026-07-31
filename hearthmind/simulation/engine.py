@@ -119,6 +119,7 @@ from hearthmind.agents.population import (
     DISPUTE_COOLDOWN_TICKS,
     FISSION_MATERIALS_SHARE,
     FISSION_MIN_DISTANCE,
+    GUILD_SKILL_MASTERY_THRESHOLD,
     MAX_SETTLEMENTS,
     MIGRATION_BOND_THRESHOLD,
     MIGRATION_CHANCE_PER_TICK,
@@ -1622,6 +1623,19 @@ class SimulationEngine:
         is NOT gridlock, it simply has no politics yet). Never
         persisted — same re-baseline-on-restart reasoning as every
         other edge-trigger flag here."""
+        self._guild_decline_flagged: "set[int]" = set()
+        """Tier 0, new producer (explicit user decision via
+        `AskUserQuestion`: "GUILD-level signal"). Village pillar's
+        twelfth category-keyed `world_model` subject, a second
+        institution-scoped one alongside `_detect_council_gridlock`.
+        Backs `_detect_guild_decline`: a settlement's GUILD — whose
+        `Institution.name` IS the skill it was founded around (see
+        `Population._maybe_form_guild`) — has no living member left
+        who still holds `GUILD_SKILL_MASTERY_THRESHOLD` in that same
+        skill, i.e. the craft the guild was built around has genuinely
+        died out among its own membership. Never persisted — same
+        re-baseline-on-restart reasoning as every other edge-trigger
+        flag here."""
         self._hydrology_drought_flagged: bool = False
         """A11 (roadmap Stage IV step 15): edge-trigger flag for
         `_detect_hydrology_drought`, same "one observation on the
@@ -10164,6 +10178,7 @@ class SimulationEngine:
         "starvation_death": "hunger claiming lives again and again",
         "wildlife_recolonization": "wildlife pressing back into the land again and again",
         "council_gridlock": "the council splitting into rival camps, unable to agree",
+        "guild_decline": "a guild's craft dying out for want of a master",
     }
 
     def _maybe_schedule_laws(self, events: list[str]) -> None:
@@ -10238,6 +10253,11 @@ class SimulationEngine:
             # failing to agree can produce a real reform/succession
             # law.
             "council_gridlock": target.pattern_signal_counts.get("council_gridlock", 0),
+            # Tier 0, explicit user decision via `AskUserQuestion`: a
+            # genuine ELEVENTH option — see `_detect_guild_decline`'s
+            # mirror for the producer half. A dying craft can produce a
+            # real apprenticeship/guild-support law.
+            "guild_decline": target.pattern_signal_counts.get("guild_decline", 0),
         }
         # Tier 0 (25th site): a genuine tie in real occurrence count
         # breaks toward whichever category village_pillar's new
@@ -11100,6 +11120,7 @@ class SimulationEngine:
         self._detect_currency_shortage()
         self._detect_prosperity()
         self._detect_council_gridlock()
+        self._detect_guild_decline()
 
     def _detect_metric_highlights(self, population_total: int) -> None:
         """§5 "Anomaly/highlight log" (docs/IDEAS-2026-07-EMERGENCE.md):
@@ -11509,6 +11530,68 @@ class SimulationEngine:
                 )
             elif not gridlocked and was_flagged:
                 self._council_gridlock_flagged.discard(settlement.id)
+
+    def _detect_guild_decline(self) -> None:
+        """Tier 0, new producer (explicit user decision via
+        `AskUserQuestion`: "GUILD-level signal"). Village pillar's
+        twelfth category-keyed `world_model` subject — a second
+        institution-scoped one alongside `_detect_council_gridlock`.
+        A GUILD's `Institution.name` IS the skill it formed around
+        (`Population._maybe_form_guild`/`_maybe_deliberately_found_
+        guild` both name it that way); this fires once NO living
+        member still holds `GUILD_SKILL_MASTERY_THRESHOLD` in that
+        exact skill — the craft itself has genuinely died out among
+        the guild's own membership (whether every member has died, or
+        every survivor's skill has simply lapsed below mastery). A
+        freshly-founded guild always starts with real living masters
+        (guild formation itself requires it), so this can never
+        trivially fire the instant a guild forms. Settlement-scoped
+        (not per-guild) — same "flagged: set of settlement ids" shape
+        as every sibling detector; a settlement with MULTIPLE guilds
+        flags if ANY of them has declined. Riding the same
+        daily-metrics cadence.
+
+        Real new consumer: `_maybe_schedule_laws`'s `candidates` dict
+        gains a genuine ELEVENTH option — a dying craft can now
+        produce a real apprenticeship/guild-support law, same shape
+        every prior category-keyed producer established."""
+        for settlement in self.world.settlements:
+            if not settlement.name:
+                continue
+            declining = False
+            for guild in settlement.institutions:
+                if guild.kind is not InstitutionKind.GUILD or not guild.name:
+                    continue
+                living_members = [
+                    a for a in self.world.population.agents if a.id in guild.member_agent_ids
+                ]
+                has_master = any(
+                    a.skills.get(guild.name, 0.0) >= GUILD_SKILL_MASTERY_THRESHOLD for a in living_members
+                )
+                if not has_master:
+                    declining = True
+                    break
+            was_flagged = settlement.id in self._guild_decline_flagged
+            if declining and not was_flagged:
+                self._guild_decline_flagged.add(settlement.id)
+                settlement.pattern_signal_counts["guild_decline"] = (
+                    settlement.pattern_signal_counts.get("guild_decline", 0) + 1
+                )
+                self._append_emergence(
+                    "bottleneck", "settlement",
+                    f"{settlement.name}'s guild has no living master left to carry the craft on.",
+                    pillars=("village",), magnitude=0.5, settlement=settlement.name,
+                )
+                existing = self.world.village_pillar.find_world_model_entry("guild_decline")
+                prior_confidence = existing["confidence"] if existing else 0.3
+                self.world.village_pillar.upsert_world_model(
+                    self.world.clock.tick_count, "guild_decline",
+                    f"{settlement.name} keeps seeing its guilds lose their masters.",
+                    min(1.0, prior_confidence + 0.1), status="observation", source="guild_decline",
+                    revises_id=existing["id"] if existing else None,
+                )
+            elif not declining and was_flagged:
+                self._guild_decline_flagged.discard(settlement.id)
 
     def _detect_hydrology_drought(self) -> None:
         """A22 Emergence API, A11's real consumer beyond farm yield
