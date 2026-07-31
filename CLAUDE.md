@@ -617,6 +617,40 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.130)
+
+Explicit user instruction: "Continue tier 0," resolved via
+`AskUserQuestion` after a codebase-wide re-scan (population.py,
+llm/*.py, world/*.py, settlement/*.py) found no further real-signal-
+plus-arbitrary-tiebreak sites: "Design a new producer."
+
+Found a genuine, previously-unnoticed dead consumer rather than
+inventing a new mechanism from scratch: `era_branch.compute_branch`'s
+own `pillar_leans` param (Tier 0's SECOND site, v1.34.47) reads
+`innovation_pillar.subject_confidence(branch)` keyed by the literal
+branch name ("industrious"/"scholarly"/"devout"/"mercantile"/
+"agrarian") — but `_maybe_schedule_era_branch`'s own mirror has only
+ever written a per-SETTLEMENT subject (`"{name}'s tech-path lean"`),
+so that read was a permanent no-op across every settlement that ever
+hit a real branch tie (including the common all-zero case: a
+settlement entering its first branch-eligible era with nothing
+matching built yet). Added a second mirror entry keyed by the literal
+branch name itself, revised in place across every settlement that
+leans that way — a branch other settlements have already leaned into
+is now a real cross-settlement signal the next tied settlement can
+read, unblocking a two-and-a-half-year-old dead read.
+
+Verified: a production-path test through the real
+`_maybe_schedule_era_branch` (a genuine all-tied first-branch-era
+settlement; a seeded lean toward a branch other than the unleaned
+control's random pick flips the outcome to the leaned branch; the
+unleaned control reproduces the original random tiebreak), a
+producer-side test confirming the branch-keyed entry forms then
+revises in place (not duplicates) across two separate firings that
+land on the same branch, a 4000-tick LLM-disabled soak with clean
+round-trip, `pyflakes` clean. Tier 0 now has thirty-seven real
+converted sites.
+
 ## Current state (v1.34.129)
 
 Explicit user instruction: "Continue tier 0." Thirty-sixth

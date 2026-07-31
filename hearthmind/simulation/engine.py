@@ -6299,6 +6299,25 @@ class SimulationEngine:
                 self.world.clock.tick_count, f"{target.name or 'the village'}'s tech-path lean",
                 f"Leaning {branch} — {reason}", 1.0, status="observation", source="era_branch",
             )
+            # Tier 0 new-producer conversion (docs/ROADMAP-2026-07-
+            # REMAINING.md): this job's OWN `pillar_lean` read at the
+            # scheduling site above (`compute_branch`'s tiebreak, see
+            # `_maybe_schedule_era_branch`) keys off the literal branch
+            # name ("industrious"/"scholarly"/"devout"/"mercantile"/
+            # "agrarian") — but the mirror above only ever wrote a
+            # per-SETTLEMENT subject ("{name}'s tech-path lean"), so
+            # that read was a permanent no-op across every settlement
+            # that ever reached a real branch tie. A second entry, keyed
+            # by the literal branch name and revised in place across
+            # every settlement that leans that way, closes it — a
+            # branch other settlements have also leaned into is now a
+            # real signal the next tied settlement can read.
+            branch_existing = self.world.innovation_pillar.find_world_model_entry(branch)
+            self.world.innovation_pillar.upsert_world_model(
+                self.world.clock.tick_count, branch, f"A recurring lean toward {branch} — {reason}",
+                1.0, status="observation", source="era_branch",
+                revises_id=branch_existing["id"] if branch_existing is not None else None,
+            )
             self.world.innovation_pillar.remember(f"{target.name or 'The village'} is leaning {branch}: {reason}")
             self._append_emergence(
                 "opportunity", "innovation", f"{target.name or 'The village'} is leaning {branch}: {reason}",
