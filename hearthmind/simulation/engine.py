@@ -623,6 +623,29 @@ some. Crossing `_SUPPORTED_THRESHOLD`/`_REJECTED_THRESHOLD` transitions
 status — supported/rejected hypotheses stop being re-evaluated (the
 notebook itself is never pruned, only status-transitioned)."""
 
+REFLECTION_PILLAR_CONVICTION_EXPERIMENT_THRESHOLD = 0.8
+"""C2 "Intention channel" (Mind -> Body, docs/MASTERCHECKLIST-2026-07-
+22.md's Part C, Tier 3, "propose experiment"): the bar `reflection_
+pillar`'s own mirrored confidence in a still-OPEN hypothesis must clear
+for `_maybe_schedule_self_tuning` to genuinely INITIATE testing it
+early — the sandboxed self-tuning/advisory path (item 1.3's "test the
+hypothesis in a jar") normally only ever considers a hypothesis once
+`REFLECTION_SUPPORTED_THRESHOLD` is crossed through the slower, multi-
+cycle evidence-accumulation loop in `_reevaluate_reflection_
+hypotheses`. `reflection_pillar.world_model`'s mirrored confidence is a
+genuinely distinct signal from `reflection_notebook`'s own evolving
+`confidence` field — it's a one-time snapshot taken at proposal time
+that never re-syncs with the notebook's own reevaluation, so this
+captures "Reflection's own persisted conviction was already strong,
+independent of how the evidence has drifted since" rather than
+duplicating the notebook's own promotion math. Deliberately higher
+than `VILLAGE_PATTERN_CONVICTION_LAW_THRESHOLD` (0.75) — bypassing the
+Body-authoritative promotion process entirely, not just re-opening a
+reset counter, warrants a stricter bar. Still requires the notebook's
+own `confidence` to be above `REFLECTION_REJECTED_THRESHOLD` (evidence
+stays authoritative: an idea already trending toward rejection can
+never be force-tested purely on stale initial conviction)."""
+
 GOVERNOR_DRIFT_MIN_SAMPLES = 5
 GOVERNOR_DRIFT_RATIO = 2.0
 """Vision doc item 1.4's own worked example ("wildfires feel too rare
@@ -7886,6 +7909,46 @@ class SimulationEngine:
                 break
             if advisory_candidate is None:
                 advisory_candidate = entry
+        initiated_by_conviction = False
+        conviction_entry_id = None
+        if candidate is None and advisory_candidate is None:
+            # C2 "Intention channel" (Mind -> Body, docs/MASTERCHECKLIST-
+            # 2026-07-22.md's Part C, Tier 3, "propose experiment"):
+            # before giving up, check whether reflection_pillar's own
+            # persisted conviction about a still-OPEN hypothesis is
+            # strong enough to genuinely INITIATE testing it early,
+            # ahead of the normal multi-cycle promotion to "supported".
+            # This is the real intention — not a tiebreak among already-
+            # eligible candidates (every prior Tier 0 site only ever
+            # broke a tie), it changes WHETHER an experiment gets tested
+            # at all this cycle. Evidence still stays authoritative: an
+            # open hypothesis already trending toward rejection can
+            # never be force-tested purely on stale initial conviction.
+            convicted = [
+                e for e in self.world.reflection_notebook
+                if e.get("kind") == "hypothesis" and e.get("status") == "open"
+                and e.get("id") not in acted_hypothesis_ids
+                and e.get("confidence", 0.0) > REFLECTION_REJECTED_THRESHOLD
+                and self.world.reflection_pillar.subject_confidence(e.get("subject", ""))
+                >= REFLECTION_PILLAR_CONVICTION_EXPERIMENT_THRESHOLD
+            ]
+            # Scoped to the governor-mapped path only, not advisory —
+            # the sandboxed nudge is where "test the hypothesis in a
+            # jar" (item 1.3) actually applies; the advisory path has
+            # no sandboxed confirmation to close the loop against.
+            governor_convicted = [
+                e for e in convicted if self._governor_key_for_subject(e.get("subject", "")) is not None
+            ]
+            if governor_convicted:
+                entry = max(
+                    governor_convicted,
+                    key=lambda e: self.world.reflection_pillar.subject_confidence(e.get("subject", "")),
+                )
+                conviction_entry = self.world.reflection_pillar.find_world_model_entry(entry.get("subject", ""))
+                conviction_entry_id = conviction_entry["id"] if conviction_entry else None
+                initiated_by_conviction = True
+                candidate = entry
+                governor_key = self._governor_key_for_subject(entry.get("subject", ""))
         if candidate is None:
             if advisory_candidate is None:
                 return
@@ -7948,6 +8011,26 @@ class SimulationEngine:
                     self.world.clock.tick_count, hypothesis_subject, parsed["rationale"], 0.8,
                     status="observation", source="self_tuning",
                 )
+                # C2 "Intention channel": if this experiment was
+                # genuinely INITIATED by reflection_pillar's own
+                # standing conviction (see the scheduling site above),
+                # that conviction is now confirmed — a real, sandbox-
+                # validated adjustment followed from it, so its own
+                # mirror entry is reinforced to full confidence in
+                # place, closing the conviction -> experiment ->
+                # confirmation loop the same way invention's hypothesis
+                # and laws' conviction do.
+                if initiated_by_conviction and conviction_entry_id is not None:
+                    conviction_entry = next(
+                        (e for e in self.world.reflection_pillar.world_model if e["id"] == conviction_entry_id),
+                        None,
+                    )
+                    if conviction_entry is not None:
+                        self.world.reflection_pillar.upsert_world_model(
+                            self.world.clock.tick_count, conviction_entry["subject"], conviction_entry["belief"],
+                            1.0, status="observation", source="self_tuning_conviction_confirmed",
+                            revises_id=conviction_entry_id,
+                        )
                 self.world.reflection_pillar.remember(
                     f"Acted on my own hypothesis about {hypothesis_subject}: {parsed['rationale']}"
                 )

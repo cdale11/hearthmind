@@ -617,6 +617,68 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.151)
+
+Explicit user instruction: "continue tier 3 c2 with the next intention
+do as many this turn as possible" — C2's third slice, "propose
+experiment." `reflection_pillar`'s own persisted confidence in a
+still-OPEN hypothesis (not yet promoted to `status="supported"`
+through the normal slow, multi-cycle `_reevaluate_reflection_
+hypotheses` evidence loop) can now genuinely INITIATE testing it early
+via the sandboxed self-tuning path (item 1.3's "test the hypothesis in
+a jar") — `_maybe_schedule_self_tuning` no longer requires a hypothesis
+to reach `REFLECTION_SUPPORTED_THRESHOLD` before a genuinely convinced
+Reflection can act on it.
+
+New `REFLECTION_PILLAR_CONVICTION_EXPERIMENT_THRESHOLD=0.8` (engine.py,
+alongside `REFLECTION_SUPPORTED_THRESHOLD`/`REFLECTION_REJECTED_
+THRESHOLD`) — deliberately stricter than `VILLAGE_PATTERN_CONVICTION_
+LAW_THRESHOLD`'s 0.75, since this bypasses the Body-authoritative
+promotion process entirely rather than just re-opening a reset
+counter. `reflection_pillar.world_model`'s mirrored confidence (a
+one-time snapshot taken at proposal time, never re-synced with the
+notebook's own evolving `confidence`) is the genuinely distinct
+signal driving this — "Reflection's persisted conviction was already
+strong, independent of how fresh evidence has drifted since." Evidence
+still stays authoritative: an open hypothesis whose OWN notebook
+confidence has already dropped to/below `REFLECTION_REJECTED_
+THRESHOLD` can never be force-tested purely on stale initial
+conviction. Scoped to the governor-mapped path only (not the advisory
+path, which has no sandboxed confirmation to close a loop against).
+Closes the loop symmetrically with invention/laws: a real sandbox-
+validated adjustment that followed from a conviction-initiated attempt
+reinforces that pillar entry to full confidence in place.
+
+Verified: a production-path test confirming the conviction path fires
+on an OPEN (not "supported") hypothesis when pillar confidence
+qualifies; a production-path test through the real `apply()` closure
+(including awaiting the real sandboxed `_validate_and_tune` background
+task) confirming the seeding conviction entry is reinforced to
+confidence 1.0 in place; a negative case for low pillar confidence; a
+negative case for a hypothesis whose own notebook confidence already
+trends toward rejection (Body-authority regression guard); a negative
+case for a subject with no governor mapping at all (conviction alone
+can't manufacture a target); a regression test confirming the ordinary
+`status="supported"` path fires completely unchanged; a 4000-tick
+LLM-disabled soak with clean round-trip; `pyflakes` clean (only the
+four known pre-existing findings remain). No native module touched.
+
+C2 now has three of eight named intentions shipped (invent tech,
+change law, propose experiment). Five remain open: set custom,
+reorganize institution, shift land use, domesticate, build. A fourth
+slice was not attempted this turn after a deliberate audit of the
+remaining five found no equally clean fit: "build" is baked into a
+continuous per-tick physical mechanic (`_maybe_start_construction`'s
+colocation-triggered roll) rather than a discrete gated cognition job,
+"domesticate" has no existing mechanism to extend at all (a genuine
+new-mechanism build, not a slice), and "set custom"/"reorganize
+institution"/"shift land use" each map onto jobs (`_maybe_schedule_
+ontology_proposal`, `_maybe_schedule_rule_proposal`, `_maybe_schedule_
+institution_belief`) that already fire unconditionally every cycle —
+none has a real WHETHER-gate left to bypass, so a genuine C2 slice
+there needs its own design decision, not a mechanical repeat of this
+turn's pattern.
+
 ## Current state (v1.34.150)
 
 Explicit user instruction: "continue tier 3 c2 with the next intention"

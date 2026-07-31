@@ -3912,7 +3912,7 @@ flagged in case a fresh audit disagrees.
 CLOSED. Salience-ranking (the one real gap found) is shipped.
 
 ### C2 — Intention channel (Mind → Body)
-**Started, v1.34.149-.150.** Two of eight named intentions shipped.
+**Started, v1.34.149-.151.** Three of eight named intentions shipped.
 
 "Invent tech" (v1.34.149): Innovation pillar's own leading open
 (`status="hypothesis"`) `world_model` belief genuinely INITIATES an
@@ -3936,17 +3936,39 @@ from a conviction-initiated attempt reinforces that entry to full
 confidence in place. See `SimulationEngine._maybe_schedule_laws`,
 `buildings.VILLAGE_PATTERN_CONVICTION_LAW_THRESHOLD`.
 
-Both slices share the same real distinction from every Tier 0 site —
-Tier 0 only ever broke a tie or nudged an outcome that would happen
-anyway; C2 changes WHETHER the event happens at all.
+"Propose experiment" (v1.34.151): `reflection_pillar`'s own persisted
+confidence in a still-OPEN hypothesis (not yet promoted through the
+slow, multi-cycle `_reevaluate_reflection_hypotheses` evidence loop)
+can genuinely INITIATE testing it early via the sandboxed self-tuning
+path (item 1.3's "test the hypothesis in a jar") — bypassing the
+normal requirement that a hypothesis reach `REFLECTION_SUPPORTED_
+THRESHOLD` first. `reflection_pillar.world_model`'s mirrored
+confidence (a one-time proposal-time snapshot, distinct from the
+notebook's own evolving confidence) is the driving signal; an open
+hypothesis whose own notebook confidence has already dropped to/below
+`REFLECTION_REJECTED_THRESHOLD` can never be force-tested. Scoped to
+the governor-mapped path only. See `SimulationEngine._maybe_schedule_
+self_tuning`, `REFLECTION_PILLAR_CONVICTION_EXPERIMENT_THRESHOLD`.
 
-Six of the spec's eight named pillar-emitted intentions remain unbuilt
-(set custom, reorganize institution, shift land use, domesticate,
-build, propose experiment) — each still a separate deterministic/LLM
-mechanic untouched by the five-pillar refactor. Not a validation gap
-(every Body-touching write that DOES exist today is validated) — a
-coverage gap. Resume on future explicit direction naming a specific
-intention.
+All three slices share the same real distinction from every Tier 0
+site — Tier 0 only ever broke a tie or nudged an outcome that would
+happen anyway; C2 changes WHETHER the event happens at all.
+
+Five of the spec's eight named pillar-emitted intentions remain
+unbuilt: set custom, reorganize institution, shift land use,
+domesticate, build. A v1.34.151 audit of these five found no equally
+clean next slice — "build" is baked into a continuous per-tick
+physical mechanic (`_maybe_start_construction`'s colocation-triggered
+roll) rather than a discrete gated cognition job; "domesticate" has no
+existing mechanism to extend at all (a genuine new-mechanism build,
+not a slice); "set custom"/"reorganize institution"/"shift land use"
+each map onto jobs (`_maybe_schedule_ontology_proposal`, `_maybe_
+schedule_rule_proposal`, `_maybe_schedule_institution_belief`) that
+already fire unconditionally every cycle with no real WHETHER-gate
+left to bypass — a genuine slice there needs its own design decision.
+Not a validation gap (every Body-touching write that DOES exist today
+is validated) — a coverage gap. Resume on future explicit direction
+naming a specific intention.
 
 ### C3 — Player ↔ Pillar chat
 **CLOSED, v1.34.103.** "Pillars may initiate contact" shipped: `Pillar.
