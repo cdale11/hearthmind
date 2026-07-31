@@ -617,6 +617,65 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.153)
+
+Explicit user instruction: "continue tier 3 c2 with the next intention,"
+resolved via `AskUserQuestion` — "Shift land use." C2's fourth slice
+and the strongest form of intervention any C2 site has used so far:
+`village_pillar`'s own standing conviction about a real, already-
+tracked shortage (`food_shortage`/`housing_shortage`/`currency_
+shortage`) can now genuinely FORCE the settlement's next construction
+site to a specific kind — overriding `choose_building_kind`'s own
+weighted roll outright, not merely initiating a call that wouldn't
+otherwise happen (invention/laws/self_tuning) or leaning its odds
+(every Tier 0 site). This changes WHAT gets built at an already-
+decided site, the literal "shift land use."
+
+New `buildings.VILLAGE_LAND_USE_CONVICTION_THRESHOLD=0.85` (the
+highest bar of the four C2 slices, since overriding an already-decided
+outcome is a stronger intervention than initiating one) and `LAND_USE_
+SHIFT_TARGET_KIND` (a closed subject->kind map: food_shortage->
+PASTURE, housing_shortage->HUT, currency_shortage->WORKSHOP — all
+three deliberately UNGATED kinds in `choose_building_kind`, so an
+override can never produce an invalid building regardless of era/
+tradition/caravan/water-adjacency state). Computed once per tick in
+`World.tick()` (same "compute once over a small fixed set" discipline
+as `building_kind_pillar_lean`/`occupation_pillar_lean`), threaded
+through `Population.tick()` into `_maybe_start_construction`'s
+existing `kind = choose_building_kind(...)` call site. Deliberately
+bounded against runaway conversion: the override only applies while
+the settlement doesn't already have a standing/under-construction
+building of the target kind — a genuine one-time strategic
+reallocation of the next parcel of land, not a permanent override that
+would starve every other building kind while conviction stays high.
+
+Closes the loop the same way every other C2 slice does: once the
+override genuinely produces a real "construction_started" event
+naming the target kind (parsed off the same stable description
+template `_village_priority_lean`'s kind-momentum mirror already
+reuses), the driving shortage subject's own `village_pillar` entry is
+reinforced to full confidence in place.
+
+Verified: a direct unit test through the real `_maybe_start_construction`
+classmethod confirming the override fires, confirming it's a genuine
+one-time reallocation (no-op once the settlement already has the
+target kind, falling back to normal weighted choice), and a no-override
+regression case; a full production-path integration test through the
+real `World.tick()` (seeded conviction, real colocated founders, real
+materials/site-selection/settle-chance path) confirming a genuine
+PASTURE construction fires and the food_shortage conviction is
+reinforced to full confidence in place with no duplicate entry; two
+threshold-boundary checks (below-threshold conviction, zero conviction
+anywhere) both correctly yielding no override; a 4000-tick LLM-
+disabled soak with clean round-trip; `pyflakes` clean across all four
+touched files (only the four known pre-existing findings remain). No
+native module touched.
+
+C2 now has four of eight named intentions shipped (invent tech, change
+law, propose experiment, shift land use). Four remain open: set
+custom, reorganize institution, domesticate, build — each still
+needing its own design decision per the v1.34.151 audit.
+
 ## Current state (v1.34.152)
 
 Explicit user instruction: "fix the previous found flaws first,"

@@ -2025,6 +2025,7 @@ class Population:
         building_kind_pillar_lean: "dict[str, float] | None" = None,
         humans_lean: "Callable[[Agent], float] | None" = None,
         occupation_pillar_lean: "dict[str, float] | None" = None,
+        land_use_override_kind: "BuildingKind | None" = None,
     ) -> list[tuple[str, str]]:
         """Advance every agent by one tick: needs, foraging, movement,
         relationships, construction/repair, farming, birth, and death.
@@ -2332,6 +2333,7 @@ class Population:
                 construction_history=construction_history,
                 building_kind_pillar_lean=building_kind_pillar_lean,
                 humans_lean=humans_lean,
+                land_use_override_kind=land_use_override_kind,
             )
         )
         life_events.extend(
@@ -5556,6 +5558,7 @@ class Population:
         construction_history: dict[tuple[int, int], int] | None = None,
         building_kind_pillar_lean: "dict[str, float] | None" = None,
         humans_lean: "Callable[[Agent], float] | None" = None,
+        land_use_override_kind: "BuildingKind | None" = None,
     ) -> list[tuple[str, str]]:
         life_events: list[tuple[str, str]] = []
         settlements_by_id = {s.id: s for s in settlements}
@@ -5615,6 +5618,20 @@ class Population:
                 branch=settlement.era_branch,
                 pillar_lean=building_kind_pillar_lean,
             )
+            # C2 "Intention channel" (Mind -> Body, "shift land use"):
+            # `village_pillar`'s own conviction about a real shortage
+            # can genuinely FORCE this site's land use, overriding the
+            # weighted roll above outright — the strongest form of C2
+            # intervention so far, since it changes WHAT gets built at
+            # an already-decided site rather than initiating or biasing
+            # a decision. Only applies once (never while the settlement
+            # already has a standing/under-construction building of the
+            # target kind) — a genuine one-time reallocation, not a
+            # permanent override that would starve every other kind.
+            if land_use_override_kind is not None and not any(
+                b.kind is land_use_override_kind for b in settlement.buildings
+            ):
+                kind = land_use_override_kind
             cost = MATERIALS_COST_BY_KIND[kind]
             if settlement.materials < cost:
                 continue  # presence alone isn't enough — building needs material on site

@@ -14,7 +14,10 @@ from hearthmind.agents.population import Population
 from hearthmind.config import Config
 from hearthmind.economy.farms import FarmGrid, apply_carcass_decomposition_bonus, apply_nutrient_cycling
 from hearthmind.agents.occupations import ALL_OCCUPATIONS
-from hearthmind.settlement.buildings import BuildingKind, BuildingStage, Settlement, compute_resource_fill
+from hearthmind.settlement.buildings import (
+    BuildingKind, BuildingStage, Settlement, compute_resource_fill,
+    LAND_USE_SHIFT_TARGET_KIND, VILLAGE_LAND_USE_CONVICTION_THRESHOLD,
+)
 from hearthmind.settlement.naming import generate_settlement_name
 from hearthmind.time_system import SimClock
 from hearthmind.world.resources import ResourceGrid, ResourceKind
@@ -976,6 +979,23 @@ class World:
         occupation_pillar_lean = {
             occ: self.village_pillar.subject_confidence(occ) for occ in ALL_OCCUPATIONS
         }
+        # C2 "Intention channel" (Mind -> Body, "shift land use"): the
+        # single highest-confidence shortage subject that clears
+        # VILLAGE_LAND_USE_CONVICTION_THRESHOLD, if any, genuinely
+        # forces the settlement's next construction site to the mapped
+        # kind — see Population._maybe_start_construction's consumption.
+        # Computed once per tick over a fixed 3-entry vocabulary, same
+        # "compute once, small set" discipline as building_kind_pillar_
+        # lean/occupation_pillar_lean above.
+        land_use_override_kind = None
+        convicted_subject = max(
+            LAND_USE_SHIFT_TARGET_KIND, key=lambda s: self.village_pillar.subject_confidence(s), default=None,
+        )
+        if (
+            convicted_subject is not None
+            and self.village_pillar.subject_confidence(convicted_subject) >= VILLAGE_LAND_USE_CONVICTION_THRESHOLD
+        ):
+            land_use_override_kind = LAND_USE_SHIFT_TARGET_KIND[convicted_subject]
         population_events = self.population.tick(
             seed=self.config.seed, tick=self.clock.tick_count,
             building_kind_pillar_lean=building_kind_pillar_lean,
@@ -998,7 +1018,27 @@ class World:
             fields=self.fields,
             construction_history=self.construction_history,
             ownership_history=self.ownership_history,
+            land_use_override_kind=land_use_override_kind,
         )
+        # C2 "Intention channel" close-the-loop: if the override above
+        # genuinely produced a real construction this tick (its own
+        # "construction_started" event names the overridden kind — see
+        # engine.py's identical parsing precedent for the kind-momentum
+        # mirror), the shortage subject that drove it is confirmed —
+        # reinforced to full confidence in place, same shape invention/
+        # laws/self_tuning's conviction confirmations already use.
+        if land_use_override_kind is not None and any(
+            category == "construction_started"
+            and description.split(" construction", 1)[0].lower() == land_use_override_kind.value
+            for category, description in population_events
+        ):
+            existing = self.village_pillar.find_world_model_entry(convicted_subject)
+            if existing is not None:
+                self.village_pillar.upsert_world_model(
+                    self.clock.tick_count, convicted_subject, existing["belief"], 1.0,
+                    status="observation", source="land_use_shift_confirmed",
+                    revises_id=existing["id"],
+                )
         self.fields.step_population_density(
             [(a.x, a.y) for a in self.population.agents], self.config.width, self.config.height,
         )

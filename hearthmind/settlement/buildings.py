@@ -1064,6 +1064,41 @@ def choose_building_kind(
     return BuildingKind.HUT  # unreachable in practice; keeps the function total
 
 
+VILLAGE_LAND_USE_CONVICTION_THRESHOLD = 0.85
+"""C2 "Intention channel" (Mind -> Body, docs/MASTERCHECKLIST-2026-07-
+22.md's Part C, Tier 3, "shift land use"): the bar `village_pillar`'s
+own standing conviction about one of `LAND_USE_SHIFT_TARGET_KIND`'s
+shortage subjects must clear before it's trusted to genuinely FORCE
+the settlement's next construction site to that kind — a stronger
+intervention than every other C2 slice so far (invention/laws/
+self_tuning only ever INITIATE a call that would otherwise not
+happen; this one overrides an already-decided outcome, `choose_
+building_kind`'s own weighted roll), so it's held to the highest bar
+of the four. Deliberately never applied when the settlement already
+has a standing/under-construction building of the target kind (see
+`Population._maybe_start_construction`'s `land_use_override_kind`
+consumption) — this is a one-time strategic reallocation of what the
+NEXT parcel of land becomes, not a permanent override that would
+starve every other building kind forever while conviction stays high."""
+
+LAND_USE_SHIFT_TARGET_KIND = {
+    "food_shortage": BuildingKind.PASTURE,
+    "housing_shortage": BuildingKind.HUT,
+    "currency_shortage": BuildingKind.WORKSHOP,
+}
+"""Closed vocabulary for the "shift land use" C2 slice: each subject is
+an already-real `village_pillar.world_model` category (Tier 0
+producers `_detect_food_shortage`/`_detect_housing_shortage`/`_detect_
+currency_shortage`), mapped to a `BuildingKind` deliberately chosen
+because `choose_building_kind` never gates it behind era/tradition/
+caravan/water-adjacency — an override can never produce an invalid
+building regardless of settlement state. GRANARY was considered for
+`food_shortage` but PASTURE was chosen instead: a granary only stores
+food that already exists, while a pasture is the settlement genuinely
+changing how it uses land to PRODUCE more — the literal "shift land
+use" the intention names, not just more storage."""
+
+
 GRANARY_CAPACITY = 90.0
 """Max food a standing granary can hold. Raised from 15.0 -> 40.0 -> 90.0
 across two rounds within v0.87.24's starvation-collapse fix. First
