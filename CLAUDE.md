@@ -617,6 +617,38 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.134)
+
+Explicit user instruction: "Build new sites in tier 0 so that we can
+move forward." Village pillar's fifth category-keyed `world_model`
+producer, this one keyed by a literal `"housing_shortage"` string.
+New `SimulationEngine._detect_housing_shortage` (daily-metrics
+cadence, edge-triggered, same shape as `_detect_occupation_shortage`):
+reuses `Population._housing_pressure` (population / hut capacity,
+already computed for `_maybe_migrate`'s disaster-refugee push signal,
+§2 "refugees after disasters") rather than duplicating the capacity
+math — a settlement genuinely crossing INTO overcrowding
+(`MIGRATION_HOUSING_PRESSURE_THRESHOLD`) mirrors/revises a village
+belief keyed by that literal string.
+
+New real consumer: `_maybe_schedule_laws`'s `candidates` dict gains a
+genuine FOURTH option (not just a tiebreak input) — `"housing_
+shortage"` can now win the `pattern_key` pick outright and produce a
+real law, same shape `materials_bottleneck` already established there
+(v1.34.120). The existing reset-on-enactment logic was already
+generalized to any non-theft key, so no further change was needed
+there.
+
+Verified: a direct production-path test for the producer (forms/
+revises in place on a forced overcrowded settlement, clears on
+recovery), a production-path test for the consumer (a lone `housing_
+shortage` signal at threshold wins outright and grounds the real
+`laws` prompt, ticking the clock to the job's real staggered day-of-
+month rather than faking the gate), a direct tiebreak test confirming
+the new candidate participates correctly in a 4-way tie, a 4000-tick
+LLM-disabled soak with clean round-trip, `pyflakes` clean. No native
+module touched. Tier 0 now has thirty-eight real converted sites.
+
 ## Current state (v1.34.133)
 
 Explicit user instruction: "Continue tier 0 and parallely you can

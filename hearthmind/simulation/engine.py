@@ -122,6 +122,7 @@ from hearthmind.agents.population import (
     MAX_SETTLEMENTS,
     MIGRATION_BOND_THRESHOLD,
     MIGRATION_CHANCE_PER_TICK,
+    MIGRATION_HOUSING_PRESSURE_THRESHOLD,
     POPULATION_CRITICAL_THRESHOLD,
     VOICE_CONVERSATION_HISTORY_TURNS,
     VOICE_DIALOGUE_COOLDOWN_TICKS,
@@ -1562,6 +1563,17 @@ class SimulationEngine:
         occupation string rather than a fixed pattern-signal label.
         Never persisted — same re-baseline-on-restart reasoning as
         every other edge-trigger flag here."""
+        self._housing_shortage_flagged: "set[int]" = set()
+        """Tier 0, new producer: settlement ids currently flagged
+        overcrowded — edge-triggered, same shape as `_occupation_
+        shortage_flagged`. Backs `_detect_housing_shortage`, Village
+        pillar's fifth category-keyed `world_model` subject (literal
+        `"housing_shortage"`), reusing `Population._housing_pressure`
+        (already computed for `_maybe_migrate`'s disaster-refugee push
+        signal, §2 "refugees after disasters") rather than duplicating
+        the capacity/population math. Never persisted — same re-
+        baseline-on-restart reasoning as every other edge-trigger flag
+        here."""
         self._hydrology_drought_flagged: bool = False
         """A11 (roadmap Stage IV step 15): edge-trigger flag for
         `_detect_hydrology_drought`, same "one observation on the
@@ -10044,6 +10056,7 @@ class SimulationEngine:
         "theft": "repeated theft among its own people",
         "dispute_feud": "repeated bitter disputes boiling into feuds",
         "materials_bottleneck": "running short on materials again and again",
+        "housing_shortage": "too many people packed into too few homes",
     }
 
     def _maybe_schedule_laws(self, events: list[str]) -> None:
@@ -10069,6 +10082,10 @@ class SimulationEngine:
             # see `_detect_settlement_bottlenecks`'s mirror for the
             # producer half.
             "materials_bottleneck": target.pattern_signal_counts.get("materials_bottleneck", 0),
+            # Tier 0, new producer: a genuine FOURTH option, same shape
+            # — see `_detect_housing_shortage`'s mirror for the
+            # producer half.
+            "housing_shortage": target.pattern_signal_counts.get("housing_shortage", 0),
         }
         # Tier 0 (25th site): a genuine tie in real occurrence count
         # breaks toward whichever category village_pillar's new
@@ -10926,6 +10943,7 @@ class SimulationEngine:
         self._detect_metric_highlights(pop_summary["total"])
         self._detect_settlement_bottlenecks()
         self._detect_occupation_shortage()
+        self._detect_housing_shortage()
 
     def _detect_metric_highlights(self, population_total: int) -> None:
         """§5 "Anomaly/highlight log" (docs/IDEAS-2026-07-EMERGENCE.md):
@@ -11077,6 +11095,52 @@ class SimulationEngine:
                     )
                 elif not shortage and was_flagged:
                     self._occupation_shortage_flagged.discard(key)
+
+    def _detect_housing_shortage(self) -> None:
+        """Tier 0, new producer (explicit user instruction: "build new
+        sites"). Village pillar's fifth category-keyed `world_model`
+        subject, same shape as `_detect_occupation_shortage` — reuses
+        `Population._housing_pressure` (population / hut capacity,
+        already computed for `_maybe_migrate`'s disaster-refugee push
+        signal) rather than duplicating the capacity math. Same edge-
+        triggered discipline: one `bottleneck` observation the tick a
+        settlement first crosses into genuine overcrowding, silence
+        while it stays there, silent recovery once it eases. Riding the
+        same daily-metrics cadence as its siblings, no new polling
+        loop.
+
+        Real new consumer: `_maybe_schedule_laws`'s `candidates` dict
+        gains a genuine FOURTH option (not just a tiebreak input) —
+        `"housing_shortage"` can now win the `pattern_key` pick outright
+        and produce a real law, same shape `materials_bottleneck`
+        already established there."""
+        for settlement in self.world.settlements:
+            if not settlement.name:
+                continue
+            pressure = self.world.population._housing_pressure(settlement)
+            overcrowded = pressure >= MIGRATION_HOUSING_PRESSURE_THRESHOLD
+            was_flagged = settlement.id in self._housing_shortage_flagged
+            if overcrowded and not was_flagged:
+                self._housing_shortage_flagged.add(settlement.id)
+                settlement.pattern_signal_counts["housing_shortage"] = (
+                    settlement.pattern_signal_counts.get("housing_shortage", 0) + 1
+                )
+                self._append_emergence(
+                    "bottleneck", "settlement",
+                    f"{settlement.name} is bursting at the seams — too many people, too few homes.",
+                    pillars=("village",), magnitude=0.6, settlement=settlement.name,
+                    data={"housing_pressure": round(pressure, 3)},
+                )
+                existing = self.world.village_pillar.find_world_model_entry("housing_shortage")
+                prior_confidence = existing["confidence"] if existing else 0.3
+                self.world.village_pillar.upsert_world_model(
+                    self.world.clock.tick_count, "housing_shortage",
+                    f"{settlement.name} keeps running short on homes for its people.",
+                    min(1.0, prior_confidence + 0.1), status="observation", source="housing_shortage",
+                    revises_id=existing["id"] if existing else None,
+                )
+            elif not overcrowded and was_flagged:
+                self._housing_shortage_flagged.discard(settlement.id)
 
     def _detect_hydrology_drought(self) -> None:
         """A22 Emergence API, A11's real consumer beyond farm yield
