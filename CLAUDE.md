@@ -617,6 +617,37 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.133)
+
+Explicit user instruction: "Continue tier 0 and parallely you can
+audit too." Docs-only — extended the audit to every remaining
+`max`/`min`/`key=` candidate-list pick in `agents/population.py` not
+already pillar-leaned, looking for a genuine new Tier 0 site. Two
+confirmed-correct existing sites re-checked against real content
+(`ontology_evolution`'s fitness-weighted parent pick and merge-pair
+pick both read `innovation_pillar.subject_confidence(c.name)` against
+concepts that ARE mirrored by that literal name at proposal time —
+real, not another dead consumer).
+
+One near-miss investigated and ruled out, not converted:
+`Population.council_faction_majority`'s internal `max(counts, ...)`
+tiebreak looked like a candidate at first glance, but is provably
+inconsequential — two factions can never BOTH exceed 50% of a
+council's living members, so whenever the `max` pick is genuinely
+tied, the subsequent `>50%` gate returns `None` regardless of which
+tied faction was chosen. Threading a pillar lean into it would change
+nothing observable; correctly left alone rather than converted for
+appearance's sake.
+
+Every other remaining candidate-list pick in `population.py`
+(memory/lesson/belief eviction by tick, damaged-building sort, bonded-
+partner pick, elder/challenger council-seat picks) is either a real-
+signal pick with only a same-tick or same-condition tie too rare to be
+worth threading a lean through, or already covered by an existing
+site. No new site converted this pass — same "the audit is the work"
+conclusion as v1.34.132, extended to a second file. Tier 0 stays at
+thirty-seven real converted sites, all now cross-checked twice.
+
 ## Current state (v1.34.132)
 
 Explicit user instruction: "Continue tier 0 and parallely you can
