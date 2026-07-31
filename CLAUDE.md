@@ -617,6 +617,38 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.145)
+
+Explicit user instruction: "Continue tier 0" — followed my own
+closing note from last pass ("FAMILY institutions are the one
+remaining un-mined category"): "FAMILY-level signal."
+
+Village pillar's thirteenth category-keyed `world_model` producer, a
+third institution-scoped one. Unlike `council_gridlock`/`guild_
+decline` (level-based, can recover), a family line dying out is a
+genuine one-shot event — new `SimulationEngine._detect_family_
+extinction` fires once a FAMILY institution that once had real
+membership has no living member left. `_family_extinction_counted`
+tracks which FAMILY ids were already counted so the same line's death
+is never double-counted; intersected against every currently-present
+FAMILY id on each check so an evicted family's id drops out rather
+than lingering forever — bounded by the same `INSTITUTION_LIST_MAX_
+STORED` cap `Settlement.institutions` itself already holds, not a new
+unbounded structure.
+
+New real consumer: `_maybe_schedule_laws`'s `candidates` dict gains a
+genuine TWELFTH option — a settlement that keeps watching family
+lines vanish can now produce a real inheritance/succession law.
+
+Verified: a production-path test confirming no count while the family
+is alive, a real count once the line dies out, no double-count on a
+second check, and the id genuinely dropping out of the tracked set
+once the family is evicted from `settlement.institutions`; a
+production-path test for the consumer through the real `_maybe_
+schedule_laws`; a 4000-tick LLM-disabled soak with clean round-trip,
+`pyflakes` clean. No native module touched. Tier 0 now has forty-nine
+real converted sites.
+
 ## Current state (v1.34.144)
 
 Explicit user instruction: "Continue tier 0," resolved via

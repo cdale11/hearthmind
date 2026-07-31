@@ -1636,6 +1636,19 @@ class SimulationEngine:
         died out among its own membership. Never persisted — same
         re-baseline-on-restart reasoning as every other edge-trigger
         flag here."""
+        self._family_extinction_counted: "set[int]" = set()
+        """Tier 0, new producer (explicit user decision: "FAMILY-level
+        signal"). Village pillar's thirteenth category-keyed `world_
+        model` subject, a THIRD institution-scoped one. Unlike its
+        gridlock/decline siblings (level-based, can recover), a
+        family dying out is a one-shot event with no "recovery" —
+        this tracks FAMILY institution ids already counted extinct so
+        `_detect_family_extinction` counts each line's death exactly
+        once. Bounded, not a leak: intersected against every currently
+        -present FAMILY institution id on each check, so an id falls
+        out the moment `_prune_extinct_families` evicts that family,
+        same cap `Settlement.institutions` itself already holds
+        (`INSTITUTION_LIST_MAX_STORED`)."""
         self._hydrology_drought_flagged: bool = False
         """A11 (roadmap Stage IV step 15): edge-trigger flag for
         `_detect_hydrology_drought`, same "one observation on the
@@ -10179,6 +10192,7 @@ class SimulationEngine:
         "wildlife_recolonization": "wildlife pressing back into the land again and again",
         "council_gridlock": "the council splitting into rival camps, unable to agree",
         "guild_decline": "a guild's craft dying out for want of a master",
+        "family_extinction": "family lines dying out, one after another",
     }
 
     def _maybe_schedule_laws(self, events: list[str]) -> None:
@@ -10258,6 +10272,11 @@ class SimulationEngine:
             # mirror for the producer half. A dying craft can produce a
             # real apprenticeship/guild-support law.
             "guild_decline": target.pattern_signal_counts.get("guild_decline", 0),
+            # Tier 0, explicit user decision: a genuine TWELFTH option
+            # — see `_detect_family_extinction`'s mirror for the
+            # producer half. Vanishing family lines can produce a real
+            # inheritance/succession law.
+            "family_extinction": target.pattern_signal_counts.get("family_extinction", 0),
         }
         # Tier 0 (25th site): a genuine tie in real occurrence count
         # breaks toward whichever category village_pillar's new
@@ -11121,6 +11140,7 @@ class SimulationEngine:
         self._detect_prosperity()
         self._detect_council_gridlock()
         self._detect_guild_decline()
+        self._detect_family_extinction()
 
     def _detect_metric_highlights(self, population_total: int) -> None:
         """§5 "Anomaly/highlight log" (docs/IDEAS-2026-07-EMERGENCE.md):
@@ -11592,6 +11612,65 @@ class SimulationEngine:
                 )
             elif not declining and was_flagged:
                 self._guild_decline_flagged.discard(settlement.id)
+
+    def _detect_family_extinction(self) -> None:
+        """Tier 0, new producer (explicit user decision: "FAMILY-level
+        signal"). Village pillar's thirteenth category-keyed `world_
+        model` subject, a THIRD institution-scoped one alongside
+        `council_gridlock`/`guild_decline`. Unlike those two (level-
+        based, can recover), a family line dying out is a genuine
+        one-shot event — no living member left in a FAMILY institution
+        that once had real membership. `_family_extinction_counted`
+        tracks which FAMILY ids have already been counted so the same
+        line's death is never double-counted, intersected against
+        every currently-present FAMILY id each check so an evicted
+        family's id is dropped rather than lingering forever (bounded
+        by `INSTITUTION_LIST_MAX_STORED`, same as `Settlement.
+        institutions` itself).
+
+        Real new consumer: `_maybe_schedule_laws`'s `candidates` dict
+        gains a genuine TWELFTH option — a settlement that keeps
+        watching family lines vanish can now produce a real
+        inheritance/succession law, same shape every prior category-
+        keyed producer established."""
+        present_family_ids: set[int] = set()
+        for settlement in self.world.settlements:
+            for family in settlement.institutions:
+                if family.kind is InstitutionKind.FAMILY:
+                    present_family_ids.add(family.id)
+        self._family_extinction_counted &= present_family_ids
+        for settlement in self.world.settlements:
+            if not settlement.name:
+                continue
+            for family in settlement.institutions:
+                if (
+                    family.kind is not InstitutionKind.FAMILY
+                    or not family.member_agent_ids
+                    or family.id in self._family_extinction_counted
+                ):
+                    continue
+                living_members = [
+                    a for a in self.world.population.agents if a.id in family.member_agent_ids
+                ]
+                if living_members:
+                    continue
+                self._family_extinction_counted.add(family.id)
+                settlement.pattern_signal_counts["family_extinction"] = (
+                    settlement.pattern_signal_counts.get("family_extinction", 0) + 1
+                )
+                self._append_emergence(
+                    "bottleneck", "settlement",
+                    f"A family line in {settlement.name} has died out entirely.",
+                    pillars=("village",), magnitude=0.5, settlement=settlement.name,
+                )
+                existing = self.world.village_pillar.find_world_model_entry("family_extinction")
+                prior_confidence = existing["confidence"] if existing else 0.3
+                self.world.village_pillar.upsert_world_model(
+                    self.world.clock.tick_count, "family_extinction",
+                    f"{settlement.name} has watched family lines vanish before.",
+                    min(1.0, prior_confidence + 0.1), status="observation", source="family_extinction",
+                    revises_id=existing["id"] if existing else None,
+                )
 
     def _detect_hydrology_drought(self) -> None:
         """A22 Emergence API, A11's real consumer beyond farm yield
