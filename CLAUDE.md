@@ -534,6 +534,47 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.162)
+
+Explicit user instruction: "start B1" (docs/HEARTHBENCH-RUNTIME-
+2026-07-23.md, Tier 5). New `hearthmind/simulation/task_graph.py`:
+B1.1's `Task` frozen dataclass (id/subsystem/fn/timescale/
+priority_class/reads/writes/trigger/cost_hint/locality/determinism,
+plus new `TriggerKind`/`Locality`/`Determinism`/`PriorityClass` enums
+— the last a placeholder vocabulary until B2's scheduler exists to act
+on it), B1.2's `TaskRegistry` (builds a real dependency graph from
+declared `reads`/`writes` overlaps, rejects a genuine cycle at build
+time via `CycleError` rather than silently), B1.3's `topological_
+order()` (Kahn's algorithm always picking the lexicographically
+smallest ready task id — deterministic and registration-order-
+independent, verified directly by registering the same tasks in
+reverse order and confirming byte-identical output), and B1.4's
+`Task.legacy(id, subsystem, fn)` — the incremental-adoption shim an
+un-migrated call site can use as-is, carrying a wildcard write that
+conflicts with everything so it always stays in a real, stable total
+order relative to every other task rather than being silently
+reordered.
+
+**Deliberately NOT wired into the live tick loop this pass** — no
+import from `task_graph.py` exists anywhere in `simulation/engine.py`,
+and none of the ~200 real schedule points there were touched. B1.4's
+own text is explicit ("never big-bang"): this ships the graph/
+registry/ordering machinery and the shim mechanism a future per-
+subsystem migration will use, not the migration itself. That migration,
+and B2's budgeted scheduler that would actually execute a
+`TaskRegistry`'s tasks, remain fully open.
+
+Verified: `scripts/verify_task_graph.py` (5 checks — disjoint tasks
+never gain a spurious ordering constraint, a real read/write dependency
+imposes the correct direction regardless of registration order, a
+genuine cycle is detected and rejected, topological order is fully
+deterministic across reversed registration order, two legacy-shimmed
+tasks always land in a stable total order) all pass; `pyflakes` clean
+on the new module and script (only the four known pre-existing
+`engine.py` findings elsewhere, already confirmed harmless). No native
+module, persisted `World` state, or real engine code path touched — no
+soak re-run needed.
+
 ## Current state (v1.34.161)
 
 Explicit user instruction: "start B0 and then also A0" (docs/

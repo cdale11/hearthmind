@@ -395,10 +395,21 @@ starts on an explicit instruction naming an item.
       (AST-based, bans `threading`/`concurrent.futures`/`time.sleep`/
       executor construction inside `world/`/`agents/`/`settlement/`/
       `economy/`; confirmed clean against 47 files and confirmed to
-      actually catch a synthetic violation). A1.3, A2-A13, B0.3
-      (a scoping note, not an action item), and B1-B15 beyond B15.1
-      remain unstarted; see the doc for the full 30+-item checklist and
-      its own two-track SEQUENCE.
+      actually catch a synthetic violation). **B1 shipped, v1.34.162**
+      (explicit user instruction: "start B1") — `hearthmind/simulation/
+      task_graph.py`: a real `Task` descriptor, a `TaskRegistry` that
+      builds a dependency graph from declared reads/writes and rejects
+      a genuine cycle at build time, a deterministic Kahn's-algorithm
+      topological order (id-tiebreak, registration-order-independent —
+      verified directly), and `Task.legacy(...)`, B1.4's incremental-
+      adoption shim. **Not wired into the live tick loop** — no real
+      subsystem has been migrated onto it yet and `simulation/engine.py`
+      is completely untouched; this ships the graph/registry/ordering
+      machinery only, per B1.4's own "never big-bang." `scripts/verify_
+      task_graph.py` (5 checks, all passing) is the verification.
+      A1.3, A2-A13, B0.3 (a scoping note, not an action item), and B2-
+      B15 beyond B15.1 remain unstarted; see the doc for the full
+      30+-item checklist and its own two-track SEQUENCE.
 
 ### C++ native-porting backlog (R6/R7)
 

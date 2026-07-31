@@ -454,31 +454,44 @@ pack.
   B and must be incremental (B1.4). Not an action item — a scoping
   note recorded in CLAUDE.md's new B0 section, unchanged.
 
-## B1 — Task declaration & the work graph [MISSING]
+## B1 — Task declaration & the work graph [PARTIAL — B1.1-B1.4 shipped v1.34.162, not yet wired into the live tick loop]
 
-- [ ] **B1.1 — `Task` descriptor** — what a subsystem declares instead
-  of calling itself:
-  ```
-  Task(id, subsystem, fn, timescale, priority_class,
-       reads[], writes[],            # for dependency + parallelism
-       trigger: Periodic|OnEvent|OnDirty|Predicted,
-       cost_hint, locality: region|global|entity,
-       determinism: strict|reorderable)
-  ```
-  `reads`/`writes` are what let the runtime reorder and parallelize
-  *safely* — two tasks with disjoint write-sets may run concurrently;
-  overlapping ones may not.
-- [ ] **B1.2 — Registry + dependency graph.** Built at startup from
-  declarations; cycles rejected at boot. The graph is the scheduler's
-  input and the profiler's key space.
-- [ ] **B1.3 — Deterministic ordering rule.** Within a tick, tasks are
-  ordered by a stable topological sort with a deterministic tiebreak
-  (task id), *independent of wall-clock and thread completion order*.
-  This is what makes reordering safe.
-- [ ] **B1.4 — Incremental adoption.** A shim lets un-migrated code keep
-  running exactly as today while migrated subsystems move under the
-  scheduler, one at a time, each verified by the replay-hash test
-  (B17.1). Never big-bang.
+- [x] **B1.1 — `Task` descriptor — SHIPPED, v1.34.162.**
+  `hearthmind/simulation/task_graph.py`'s frozen `Task` dataclass,
+  exactly the doc's own shape: `id`, `subsystem`, `fn`, `timescale`,
+  `priority_class` (new `PriorityClass` enum — a placeholder
+  vocabulary until B2's scheduler exists to act on it), `reads`/
+  `writes` (frozensets), `trigger` (`TriggerKind`: PERIODIC/ON_EVENT/
+  ON_DIRTY/PREDICTED), `cost_hint`, `locality` (`Locality`: REGION/
+  GLOBAL/ENTITY), `determinism` (`Determinism`: STRICT/REORDERABLE).
+- [x] **B1.2 — Registry + dependency graph — SHIPPED, v1.34.162.**
+  `TaskRegistry.register`/`topological_order` builds real edges from
+  declared `reads`/`writes` overlaps (a write/read overlap gets a real
+  directed edge; a symmetric write/write or legacy-wildcard conflict
+  breaks the tie by task id) and rejects a genuine cycle at build time
+  via `CycleError`, not silently.
+- [x] **B1.3 — Deterministic ordering rule — SHIPPED, v1.34.162.**
+  `topological_order()` is Kahn's algorithm always picking the
+  lexicographically smallest ready task id — independent of
+  registration order (verified directly: registering the same tasks in
+  reverse order produces byte-identical output) and of any wall-clock/
+  thread-completion signal (there is none in this pure-graph module).
+- [x] **B1.4 — Incremental adoption — SHIPPED (the shim only), v1.34.162.**
+  `Task.legacy(id, subsystem, fn)` — the escape hatch an un-migrated
+  call site can use as-is, with `writes={LEGACY_WILDCARD}` so it always
+  conflicts with (and thus stays in a real, stable total order behind/
+  ahead of) every other task, including other legacy ones. **What
+  "shipped" does NOT mean here**, stated plainly: no real subsystem has
+  actually been migrated onto this graph yet, and the graph is not
+  called from anywhere in `simulation/engine.py`'s real tick loop — the
+  ~200 real schedule points (B0.3) are completely untouched. This pass
+  ships the graph/registry/ordering machinery and the shim mechanism
+  the future incremental migration will use; the migration itself, and
+  B2's budgeted scheduler that would actually execute a `TaskRegistry`,
+  remain fully open. Verified against `scripts/verify_replay_hash.py`
+  in spirit only (nothing changed that a replay-hash check could catch
+  — no engine code path was touched); a real per-subsystem migration
+  pass must re-run it for real, per B1.4's own instruction.
 
 ## B2 — Budgets & scheduling [Hard Rules 2, 9] [MISSING]
 
