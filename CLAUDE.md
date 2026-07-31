@@ -617,6 +617,33 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.138)
+
+Explicit user instruction: "Continue tier 0." A sixth law candidate
+needing no new producer: `disease_outbreak` already had a real
+`pattern_signal_counts` counter and a real `village_pillar` mirror
+(via `_bump_village_pattern_signal`, wired at `_maybe_promote_ritual`'s
+sibling loop, same batch as `starvation_death`/`wildlife_
+recolonization`) — but was previously consumed only by the ontology-
+proposal pressure-signal tiebreak, never by `_maybe_schedule_laws`.
+Added as `candidates`' sixth entry plus a `_LAW_PATTERN_TEXT` line —
+a settlement repeatedly seeing sickness take hold can now produce a
+real public-health law outright, or win a tie against another
+candidate via the existing `village_pillar.subject_confidence`
+tiebreak, same shape `housing_shortage`/`food_shortage` established.
+The post-enactment reset (`stl.pattern_signal_counts[pattern_key] =
+0` for any non-theft winner) was already fully generic, no change
+needed there.
+
+Verified: a production-path test confirming a lone `disease_outbreak`
+signal at threshold produces a real `laws` prompt naming it, a second
+production-path test confirming a genuine tie against `food_shortage`
+breaks toward `disease_outbreak` once `village_pillar` has real
+confidence about it, a 4000-tick LLM-disabled soak with clean
+round-trip, `pyflakes` clean. No native module touched. Tier 0 now
+has forty-two real converted sites (pure consumer-side — no new
+producer, since a real one already existed).
+
 ## Current state (v1.34.137)
 
 Explicit user instruction: "Continue tier 0." Village pillar's seventh

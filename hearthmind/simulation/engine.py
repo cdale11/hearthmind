@@ -10119,6 +10119,7 @@ class SimulationEngine:
         "materials_bottleneck": "running short on materials again and again",
         "housing_shortage": "too many people packed into too few homes",
         "food_shortage": "the granaries running dangerously low",
+        "disease_outbreak": "sickness taking hold again and again",
     }
 
     def _maybe_schedule_laws(self, events: list[str]) -> None:
@@ -10152,6 +10153,16 @@ class SimulationEngine:
             # — see `_detect_food_shortage`'s mirror for the producer
             # half.
             "food_shortage": target.pattern_signal_counts.get("food_shortage", 0),
+            # Tier 0: a genuine SIXTH option needing no new producer —
+            # `disease_outbreak` already has a real `pattern_signal_
+            # counts` counter and a real `village_pillar` mirror (see
+            # `_bump_village_pattern_signal`'s call site in `_maybe_
+            # promote_ritual`'s sibling loop), previously consumed only
+            # by the ontology-proposal pressure-signal tiebreak. A
+            # settlement repeatedly seeing sickness take hold can now
+            # produce a real public-health law, not just influence what
+            # Innovation invents.
+            "disease_outbreak": target.pattern_signal_counts.get("disease_outbreak", 0),
         }
         # Tier 0 (25th site): a genuine tie in real occurrence count
         # breaks toward whichever category village_pillar's new
