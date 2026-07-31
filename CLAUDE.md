@@ -617,6 +617,53 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.131)
+
+Explicit user instruction: "Continue tier 0." Self-audit, not a new
+site: re-checked this session's own three prior conversions
+(v1.34.128-130) against their REAL production content rather than
+trusting their own self-seeded unit tests, and found two genuine
+dead-consumer bugs of the exact same class v1.34.130 just fixed for
+`era_branch` — both fixed this pass.
+
+(1) `_maybe_schedule_ontology_proposal`'s pressure-signal tiebreak
+(v1.34.129) read `innovation_pillar.subject_confidence(kv[0].replace(
+"_", " "))`, but every real producer of those exact
+`pattern_signal_counts` keys (`dispute_feud`/`materials_bottleneck`,
+see their own mirror sites) writes into `village_pillar`, keyed by the
+literal underscored string, not a space-separated label read from a
+different pillar — the tiebreak was a silent permanent no-op in
+production; the unit test that "passed" had manually seeded
+`innovation_pillar` itself, masking the mismatch. Fixed to read
+`village_pillar.subject_confidence(kv[0])` directly, re-verified
+against the REAL `village_pillar` mirror content this time (not a
+self-seeded stand-in).
+
+(2) `_maybe_spread_tradition_keeping`'s pillar-leaned pick (v1.34.128)
+read `village_pillar.subject_confidence(t)` for each full "{name}:
+{description}" tradition string, but `_maybe_schedule_tradition`'s
+apply() only ever called `village_pillar.remember()` (memory-only) —
+`subject_confidence` scans `world_model`, never `memory`, so there was
+never any real content to match. New: that apply() now also mirrors a
+`village_pillar.world_model` entry keyed by the bare tradition NAME (a
+prefix of the full stored string, so the consumer's substring check
+matches it), revised in place if the same name is ever re-coined.
+
+Verified: both fixes re-confirmed via production-path tests that seed
+the REAL producer's own mirror shape (not a manual stand-in) —
+`village_pillar.upsert_world_model(subject="dispute_feud", ...)` for
+(1), the real `_maybe_schedule_tradition` apply() for (2), confirming
+`subject_confidence` on the exact strings the real consumers pass now
+returns real nonzero values — plus a 4000-tick LLM-disabled soak with
+clean round-trip, `pyflakes` clean. Tier 0 still at thirty-seven real
+converted sites (no new site — two of the existing thirty-seven are
+now actually load-bearing instead of silently inert). Lesson for
+future Tier 0 work, recorded rather than just fixed: a producer/
+consumer pairing needs its OWN production-path check against the
+real mirror site, not a hand-seeded pillar entry in the unit test —
+the two bugs this pass found both would have been caught immediately
+by that discipline.
+
 ## Current state (v1.34.130)
 
 Explicit user instruction: "Continue tier 0," resolved via

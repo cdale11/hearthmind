@@ -4308,6 +4308,23 @@ class SimulationEngine:
                 settlement.culture_effects[influence] = settlement.culture_effects.get(influence, 0) + 1
             self._log("tradition", f"{settlement.name or 'The village'} established a new tradition — {entry}")
             self.world.village_pillar.remember(f"Established a new tradition — {entry}")
+            # Bug fix (v1.34.131): `_maybe_spread_tradition_keeping`'s
+            # pillar-leaned pick (Tier 0's 35th site) reads `village_
+            # pillar.subject_confidence(t)` for each FULL "{name}:
+            # {description}" tradition string, but this apply() only
+            # ever called `remember()` (memory-only) — `subject_
+            # confidence` scans `world_model`, never `memory`, so the
+            # lean had no real content to ever match against. A
+            # `world_model` entry keyed by the bare tradition NAME
+            # (a prefix of the full stored string, so the consumer's
+            # substring check matches it) closes the gap — revised in
+            # place if this exact tradition name is ever re-coined.
+            existing_tradition_signal = self.world.village_pillar.find_world_model_entry(name)
+            self.world.village_pillar.upsert_world_model(
+                self.world.clock.tick_count, name, f"{settlement.name or 'the village'} holds to {name.lower()}.",
+                0.5, status="observation", source="tradition",
+                revises_id=existing_tradition_signal["id"] if existing_tradition_signal else None,
+            )
             self._append_emergence(
                 "novel_combination", "culture", f"Established a new tradition — {entry}",
                 ('village',),
@@ -4770,14 +4787,21 @@ class SimulationEngine:
             # `max`'s tiebreak among equally-pressured signal categories
             # (a real, not rare, case — several counters commonly cross
             # the threshold the same month) previously fell to dict-
-            # iteration order. `innovation_pillar.subject_confidence`
-            # now breaks the tie toward whichever category Innovation's
-            # own attention already leans toward; the real occurrence
-            # count is still the sole primary key and is never
-            # overridden by it.
+            # iteration order. Bug fix (v1.34.131): the first cut of
+            # this conversion read `innovation_pillar`, but every real
+            # producer of these exact keys (`dispute_feud`/`materials_
+            # bottleneck`, see their own mirror sites) writes into
+            # `village_pillar`, keyed by the LITERAL underscored
+            # category string, not a space-separated label — reading
+            # the wrong pillar with a `.replace()`'d subject meant this
+            # tiebreak was a silent permanent no-op in production
+            # despite passing a self-seeded unit test. Fixed to read
+            # `village_pillar.subject_confidence(kv[0])` directly. The
+            # real occurrence count is still the sole primary key and
+            # is never overridden by it.
             top_signal, top_value = max(
                 settlement.pattern_signal_counts.items(),
-                key=lambda kv: (kv[1], self.world.innovation_pillar.subject_confidence(kv[0].replace("_", " "))),
+                key=lambda kv: (kv[1], self.world.village_pillar.subject_confidence(kv[0])),
             )
             if top_value >= PATTERN_SIGNAL_BELIEF_THRESHOLD:
                 pressure_signal = top_signal
