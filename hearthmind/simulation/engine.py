@@ -5529,6 +5529,21 @@ class SimulationEngine:
                 origin_settlement.pattern_signal_counts["nature_adaptation"] = (
                     origin_settlement.pattern_signal_counts.get("nature_adaptation", 0) + 1
                 )
+                # Tier 0, new producer: the mirror above is real, but
+                # it's keyed by Nature's own free-text belief subject
+                # (e.g. "the vanished predator packs") inside `nature_
+                # pillar` — `_maybe_schedule_ontology_proposal`'s
+                # tiebreak reads `village_pillar.subject_confidence
+                # ("nature_adaptation")` (the literal counter key), a
+                # different pillar AND a different subject, so it never
+                # matched. A second, literal-key mirror into `village_
+                # pillar` (this counter's own real home) closes it,
+                # same shape `_bump_village_pattern_signal` already
+                # established for starvation_death/disease_outbreak/
+                # wildlife_recolonization.
+                self._bump_village_pattern_signal(
+                    "nature_adaptation", f"{origin_settlement.name or 'the village'} keeps seeing the land itself change.",
+                )
                 # B4 "Inter-pillar consciousness bus" (roadmap Stage III
                 # step 11), the Nature->Village arrow: the same genuine
                 # fresh insight that bumps the pattern-signal counter

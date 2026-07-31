@@ -617,6 +617,34 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.136)
+
+Explicit user instruction: "Continue tier 0." Same bug class as
+v1.34.135, found by extending that pass's own search technique to the
+last remaining `PRESSURE_SIGNAL_LABELS` key: `nature_adaptation`'s
+existing mirror (`_maybe_schedule_nature_mind`'s apply(), a genuinely
+NEW nature belief) writes into `nature_pillar.world_model` keyed by
+Nature's own free-text belief subject (e.g. "the vanished predator
+packs") — but `_maybe_schedule_ontology_proposal`'s tiebreak reads
+`village_pillar.subject_confidence("nature_adaptation")` (a different
+pillar AND a different, literal subject), so this key's tiebreak
+input was a silent permanent no-op despite the counter itself being
+real and already able to win outright. Reused the same `_bump_village_pattern_signal` helper v1.34.135
+introduced, called from the same site the counter itself already
+increments.
+
+Verified: a direct production-path test through the real `_maybe_
+schedule_nature_mind` apply() (a genuine new-belief firing forms the
+village_pillar mirror), a production-path test through the real
+`_maybe_schedule_ontology_proposal` confirming a genuine tie now
+leans toward `nature_adaptation` via this real content, a 4000-tick
+LLM-disabled soak with clean round-trip, `pyflakes` clean. No native
+module touched. Tier 0 now has forty real converted sites. Every
+`PRESSURE_SIGNAL_LABELS` key (`materials_bottleneck`/`dispute_feud`/
+`starvation_death`/`disease_outbreak`/`wildlife_recolonization`/
+`nature_adaptation`) now has a real matching `village_pillar` mirror —
+this specific gap class is closed.
+
 ## Current state (v1.34.135)
 
 Explicit user instruction: "Continue tier 0." Village pillar's sixth,
