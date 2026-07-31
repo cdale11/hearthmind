@@ -3912,7 +3912,7 @@ flagged in case a fresh audit disagrees.
 CLOSED. Salience-ranking (the one real gap found) is shipped.
 
 ### C2 — Intention channel (Mind → Body)
-**Started, v1.34.149-.155.** Six of eight named intentions shipped.
+**Started, v1.34.149-.156.** Seven of eight named intentions shipped.
 
 "Invent tech" (v1.34.149): Innovation pillar's own leading open
 (`status="hypothesis"`) `world_model` belief genuinely INITIATES an
@@ -4007,22 +4007,41 @@ founding mirror entry (keyed by the OLD skill name) to full confidence
 in place. See `SimulationEngine._maybe_reorganize_guild`,
 `VILLAGE_INSTITUTION_REORGANIZE_CONVICTION_THRESHOLD`.
 
-All six slices share the same real distinction from every Tier 0
+"Domesticate" (v1.34.156): the one genuinely NEW mechanism among all
+eight named intentions — no wild-herd-to-tame-stock conversion existed
+anywhere in this codebase before this slice; every other C2 slice
+reused an existing mirror/action. New Village pillar category-keyed
+subject `"grazer_abundance"`: `_detect_grazer_abundance` (daily-
+metrics cadence, edge-triggered) mirrors whenever a settlement has a
+standing PASTURE with a real wild GRAZER herd within `WILDLIFE_SEARCH_
+RADIUS` holding at least `DOMESTICATE_MIN_HERD_SIZE` animals. Once
+`village_pillar` holds strong conviction about it, `_maybe_domesticate_
+grazers` genuinely captures wild animals into the pasture's own stock
+via `WildlifeGrid.hunt` — the same native-index-safe removal primitive
+a predator kill already uses. Deliberately decoupled the ONGOING
+action from the mirror's own higher "genuinely abundant" gate: once
+conviction is strong, the action acts against any real nearby herd
+down to `DOMESTICATE_HERD_FLOOR` (never below — domestication skims a
+genuine surplus, never risks extirpating the wild population), rather
+than stalling the instant one capture drops the herd back below the
+abundance bar. See `SimulationEngine._maybe_domesticate_grazers`,
+`VILLAGE_DOMESTICATE_CONVICTION_THRESHOLD`.
+
+All seven slices share the same real distinction from every Tier 0
 site — Tier 0 only ever broke a tie or nudged an outcome that would
 happen anyway; C2 changes WHETHER (or, for "shift land use"/"set
-custom"/"reorganize institution," WHAT) the event is.
+custom"/"reorganize institution," WHAT) the event is — "domesticate"
+is the one case where the event class itself (wild -> tame) didn't
+exist before this slice at all.
 
-Two of the spec's eight named pillar-emitted intentions remain
-unbuilt: domesticate, build. "Build" is baked into a continuous
-per-tick physical mechanic (`_maybe_start_construction`'s colocation-
-triggered roll, the same function "shift land use" already touches —
-a future slice needs to think carefully about how it differs from
-that existing WHAT-override) rather than a discrete gated cognition
-job; "domesticate" has no existing mechanism to extend at all (a
-genuine new-mechanism build, not a slice) — the largest remaining
-lift. Not a validation gap (every Body-touching write that DOES exist
-today is validated) — a coverage gap. Resume on future explicit
-direction naming a specific intention.
+One of the spec's eight named pillar-emitted intentions remains
+unbuilt: "build," genuinely INITIATING a construction attempt outside
+`_maybe_start_construction`'s existing colocation-triggered roll —
+distinct from "shift land use" (v1.34.153), which only overrides WHAT
+gets built at a site Body has already decided to start; "build" would
+change WHETHER one starts at all. Not a validation gap (every Body-
+touching write that DOES exist today is validated) — a coverage gap.
+Resume on future explicit direction naming a specific intention.
 
 ### C3 — Player ↔ Pillar chat
 **CLOSED, v1.34.103.** "Pillars may initiate contact" shipped: `Pillar.

@@ -99,7 +99,9 @@ from hearthmind.cognition import attention
 from hearthmind.cognition.pillar import make_message
 from hearthmind.world.disasters import GOVERNOR_TUNING_BAND, WILDFIRE_CHANCE_PER_WEEK
 from hearthmind.world.terrain_evolution import REFOREST_MIN_FALLOW_WEEKS
-from hearthmind.world.wildlife import HARDINESS_VARIANT_BUMP, MAX_SPECIES_VARIANTS_STORED, SpeciesVariant
+from hearthmind.world.wildlife import (
+    HARDINESS_VARIANT_BUMP, MAX_SPECIES_VARIANTS_STORED, SpeciesVariant, WILDLIFE_SEARCH_RADIUS,
+)
 from hearthmind.simulation.sandbox import evaluate_concept_dual_fork, run_counterfactual
 from hearthmind.llm.client import build_llm_client, fetch_llama_server_metrics
 from hearthmind.llm.review_diagnostics import context_reflects_any
@@ -168,6 +170,12 @@ from hearthmind.settlement.buildings import (
     LAWS_MAX_STORED,
     LAW_SIGNAL_THRESHOLD,
     VILLAGE_PATTERN_CONVICTION_LAW_THRESHOLD,
+    VILLAGE_DOMESTICATE_CONVICTION_THRESHOLD,
+    DOMESTICATE_MIN_HERD_SIZE,
+    DOMESTICATE_HERD_FLOOR,
+    DOMESTICATE_CAPTURE_SIZE,
+    DOMESTICATE_FOOD_PER_ANIMAL,
+    PASTURE_CAPACITY,
     PROSPERITY_CURRENCY_FRACTION,
     PROSPERITY_FESTIVAL_BONUS,
     PROSPERITY_MATERIALS_FRACTION,
@@ -1746,6 +1754,15 @@ class SimulationEngine:
         hostility, not one soured pair (already covered by ordinary
         dispute detection). Never persisted — same re-baseline-on-
         restart reasoning as every other edge-trigger flag here."""
+        self._grazer_abundance_flagged: "set[int]" = set()
+        """C2 "Intention channel" (Mind -> Body, Tier 3), "domesticate"
+        — Village pillar's sixteenth category-keyed `world_model`
+        subject. Backs `_detect_grazer_abundance`: a settlement with a
+        standing PASTURE that has a real wild GRAZER herd within
+        `WILDLIFE_SEARCH_RADIUS` holding at least `DOMESTICATE_MIN_
+        HERD_SIZE` animals — a genuine domestication candidate, Body-
+        supplied. Never persisted — same re-baseline-on-restart
+        reasoning as every other edge-trigger flag here."""
         self._hydrology_drought_flagged: bool = False
         """A11 (roadmap Stage IV step 15): edge-trigger flag for
         `_detect_hydrology_drought`, same "one observation on the
@@ -11433,6 +11450,7 @@ class SimulationEngine:
         self._detect_prosperity()
         self._detect_council_gridlock()
         self._detect_guild_decline()
+        self._detect_grazer_abundance()
         self._detect_family_extinction()
         self._detect_diplomatic_hostility()
         self._detect_faction_rivalry()
@@ -11968,6 +11986,97 @@ class SimulationEngine:
             self.world.village_pillar.upsert_world_model(
                 self.world.clock.tick_count, existing["subject"], existing["belief"], 1.0,
                 status="observation", source="institution_reorganize_confirmed",
+                revises_id=existing["id"],
+            )
+        return True
+
+    def _detect_grazer_abundance(self) -> None:
+        """C2 "Intention channel" (Mind -> Body, Tier 3), "domesticate"
+        — the seventh and final C2 slice, the one genuinely NEW
+        mechanism among the eight named intentions: no wild-herd-to-
+        tame-stock conversion existed anywhere in this codebase before
+        this. Village pillar's sixteenth category-keyed `world_model`
+        subject, same edge-triggered settlement-scoped shape as
+        `_detect_guild_decline`: a settlement with a standing PASTURE
+        that has a real wild GRAZER herd within `WILDLIFE_SEARCH_
+        RADIUS` holding at least `DOMESTICATE_MIN_HERD_SIZE` animals is
+        genuinely positioned to domesticate it — Body supplies the real
+        precondition, this only ever mirrors that a candidate exists.
+
+        Once `village_pillar` holds strong conviction about it
+        (`VILLAGE_DOMESTICATE_CONVICTION_THRESHOLD`), `_maybe_
+        domesticate_grazers` genuinely INITIATES capturing some of the
+        herd into the pasture's own stock. Deliberately decoupled from
+        the mirror's own `DOMESTICATE_MIN_HERD_SIZE` gate (which only
+        governs whether this settlement's abundance gets MIRRORED/
+        reinforced as belief) — once conviction is already strong, the
+        action itself runs against any real nearby herd, so a sustained
+        conviction keeps producing real domestication events over many
+        days as the herd is skimmed down toward `DOMESTICATE_HERD_
+        FLOOR` and the pasture's stock is consumed and refilled,
+        instead of stalling the moment one capture drops the herd back
+        below the higher "genuinely abundant" bar."""
+        for settlement in self.world.settlements:
+            if not settlement.name:
+                continue
+            pastures = [
+                b for b in settlement.buildings
+                if b.kind is BuildingKind.PASTURE and b.stage is BuildingStage.STANDING
+            ]
+            abundant = any(
+                (herd := self.world.wildlife.nearest_grazer_herd(p.x, p.y, WILDLIFE_SEARCH_RADIUS)) is not None
+                and herd.count >= DOMESTICATE_MIN_HERD_SIZE
+                for p in pastures
+            )
+            was_flagged = settlement.id in self._grazer_abundance_flagged
+            if abundant and not was_flagged:
+                self._grazer_abundance_flagged.add(settlement.id)
+                existing = self.world.village_pillar.find_world_model_entry("grazer_abundance")
+                prior_confidence = existing["confidence"] if existing else 0.3
+                self.world.village_pillar.upsert_world_model(
+                    self.world.clock.tick_count, "grazer_abundance",
+                    f"{settlement.name} keeps seeing wild grazers thrive near its pasture.",
+                    min(1.0, prior_confidence + 0.1), status="observation", source="grazer_abundance",
+                    revises_id=existing["id"] if existing else None,
+                )
+            elif not abundant and was_flagged:
+                self._grazer_abundance_flagged.discard(settlement.id)
+            for pasture in pastures:
+                herd = self.world.wildlife.nearest_grazer_herd(pasture.x, pasture.y, WILDLIFE_SEARCH_RADIUS)
+                if herd is not None:
+                    self._maybe_domesticate_grazers(settlement, pasture, herd)
+
+    def _maybe_domesticate_grazers(self, settlement, pasture, herd) -> bool:
+        """See `_detect_grazer_abundance`. Body stays authoritative:
+        the pasture must have real capacity headroom, the herd must
+        stay above `DOMESTICATE_HERD_FLOOR` after capture (this skims a
+        genuine surplus, never extirpates the wild population), and the
+        captured count is taken via `WildlifeGrid.hunt` — the same
+        native-index-safe removal primitive a predator kill already
+        uses, so this carries zero additional native-parity risk.
+        Returns True if a real capture happened."""
+        conviction = self.world.village_pillar.subject_confidence("grazer_abundance")
+        if conviction < VILLAGE_DOMESTICATE_CONVICTION_THRESHOLD:
+            return False
+        if pasture.stored_food >= PASTURE_CAPACITY:
+            return False
+        capture_size = min(DOMESTICATE_CAPTURE_SIZE, herd.count - DOMESTICATE_HERD_FLOOR)
+        if capture_size <= 0:
+            return False
+        captured = self.world.wildlife.hunt(herd.id, capture_size)
+        if captured <= 0:
+            return False
+        pasture.stored_food = min(PASTURE_CAPACITY, pasture.stored_food + captured * DOMESTICATE_FOOD_PER_ANIMAL)
+        self._log(
+            "grazers_domesticated",
+            f"{settlement.name}'s pasture took in {captured} wild grazer"
+            f"{'s' if captured != 1 else ''} from a nearby herd.",
+        )
+        existing = self.world.village_pillar.find_world_model_entry("grazer_abundance")
+        if existing is not None:
+            self.world.village_pillar.upsert_world_model(
+                self.world.clock.tick_count, existing["subject"], existing["belief"], 1.0,
+                status="observation", source="domesticate_confirmed",
                 revises_id=existing["id"],
             )
         return True

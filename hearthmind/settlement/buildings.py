@@ -1156,6 +1156,45 @@ HATCHERY_TENDED_YIELD_PER_TICK = 0.025
 """Same shape as PASTURE_TENDED_YIELD_PER_TICK, at HATCHERY's slightly
 higher rate."""
 
+VILLAGE_DOMESTICATE_CONVICTION_THRESHOLD = 0.85
+"""C2 "Intention channel" (Mind -> Body, Tier 3), "domesticate" — the
+bar `village_pillar`'s confidence about a settlement's "grazer_
+abundance" signal must clear before `SimulationEngine._maybe_
+domesticate_grazers` genuinely INITIATES capturing wild GRAZER animals
+into a standing PASTURE's own stock. Unlike every other C2 slice,
+which reuses an existing mirror/action, no wild-herd-to-tame-stock
+conversion existed anywhere in this codebase before this slice — this
+is a wholly new capability, gated the same way "invent tech" gates a
+wholly new invention attempt. Same bar as every other C2 slice."""
+
+DOMESTICATE_MIN_HERD_SIZE = 4
+"""A wild GRAZER herd must hold at least this many animals before it's
+mirrored as a real domestication candidate — `AnimalHerd.count` starts
+at `INITIAL_HERD_SIZE=4` (world/wildlife.py), so this requires a herd
+that has at minimum recovered to its own starting size, not a fresh or
+badly thinned one."""
+
+DOMESTICATE_HERD_FLOOR = 2
+"""Domestication never takes a wild herd below this floor — it skims a
+genuine surplus from an already-healthy population, it never risks
+extirpating the wild stock the ecology itself depends on (the same
+"Body stays authoritative" discipline as every other C2 slice, applied
+here to a shared natural resource rather than a settlement one)."""
+
+DOMESTICATE_CAPTURE_SIZE = 1
+"""How many animals a single domestication event captures from the
+wild herd, via `WildlifeGrid.hunt` (the same native-index-safe removal
+primitive a predator kill already uses — zero added native-parity
+risk). Small and gated by `DOMESTICATE_HERD_FLOOR`/PASTURE headroom, so
+this reads as a slow, repeated absorption over many days, not a single
+sweep that empties the herd."""
+
+DOMESTICATE_FOOD_PER_ANIMAL = 2.0
+"""Food credited to a PASTURE's `stored_food` per captured animal —
+well above `PASTURE_PASSIVE_YIELD_PER_TICK`'s per-tick trickle, since
+this represents a real, discrete addition of livestock to the pasture's
+stock, not an incremental yield tick."""
+
 GRANARY_WITHDRAW_AMOUNT = 0.25
 """Food consumed from a granary per successful withdrawal (see
 Population._maybe_forage) — between a wild forage (FORAGE_AMOUNT 0.2) and

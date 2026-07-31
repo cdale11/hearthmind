@@ -617,6 +617,63 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.156)
+
+Explicit user instruction: "continue tier 3 c2 with the next intention,"
+resolved via `AskUserQuestion` — "Domesticate (Recommended)." C2's
+seventh slice, and the one genuinely NEW mechanism among all eight
+named intentions: no wild-herd-to-tame-stock conversion existed
+anywhere in this codebase before this slice (every other C2 slice
+reused an existing mirror/action).
+
+Village pillar's sixteenth category-keyed `world_model` subject,
+`"grazer_abundance"`: `_detect_grazer_abundance` (daily-metrics
+cadence, edge-triggered, alongside `_detect_guild_decline`) mirrors
+whenever a settlement has a standing PASTURE with a real wild GRAZER
+herd within `WILDLIFE_SEARCH_RADIUS` holding at least `DOMESTICATE_
+MIN_HERD_SIZE` animals — Body supplies the real precondition. Once
+`village_pillar` holds strong conviction about it (`VILLAGE_
+DOMESTICATE_CONVICTION_THRESHOLD=0.85`), `_maybe_domesticate_grazers`
+genuinely captures wild animals into the pasture's own `stored_food`
+via `WildlifeGrid.hunt` — the same native-index-safe removal primitive
+a predator kill already uses, zero added native-parity risk.
+
+Deliberately decoupled the ONGOING action from the mirror's own
+higher "genuinely abundant" gate (`DOMESTICATE_MIN_HERD_SIZE=4`): once
+conviction is already strong, `_maybe_domesticate_grazers` acts
+against any real nearby herd down to `DOMESTICATE_HERD_FLOOR=2` (never
+below — domestication skims a genuine surplus, it never risks
+extirpating the wild population), rather than stalling the instant one
+capture drops the herd back below the abundance bar. Bounded by
+`DOMESTICATE_CAPTURE_SIZE=1` per firing and PASTURE headroom
+(`PASTURE_CAPACITY`) each time, so this reads as a slow, repeated
+absorption over many days, not a single sweep. New `grazers_
+domesticated` event category (🐑).
+
+Verified: a production-path test confirming a genuine capture fires
+(pasture stock rises, herd shrinks, mirror reinforced to confidence
+1.0 in place); a negative case for conviction below threshold; a
+negative case confirming a fresh sighting with zero prior pillar
+content only ever mirrors (0.3 -> 0.4) without capturing, since 0.4 is
+far below the acting threshold; a negative case for a herd already at
+the floor; a repeated-call test confirming the floor is genuinely
+reached and then respected (4 -> 3 -> 2 -> stays 2); a negative case
+for a full pasture; a regression case confirming no PASTURE at all
+never crashes; a 4000-tick LLM-disabled soak with clean round-trip;
+`pyflakes` clean (only the four known pre-existing findings remain).
+No native module touched.
+
+C2 now has seven of eight named intentions shipped (invent tech,
+change law, propose experiment, shift land use, set custom, reorganize
+institution, domesticate). One remains open: "build" — genuinely
+INITIATING a construction attempt outside `_maybe_start_construction`'s
+existing colocation-triggered roll, distinct from "shift land use"
+(v1.34.153), which only overrides WHAT gets built at a site Body has
+already decided to start — "build" would change WHETHER one starts at
+all. Still flagged, not attempted this pass; needs its own design
+decision naming a real trigger Mind could initiate from (e.g. a
+civic-project conviction independent of the ordinary colocation roll).
+
 ## Current state (v1.34.155)
 
 Explicit user instruction: "continue tier 3 c2 with the next intention"

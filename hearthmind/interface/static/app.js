@@ -179,6 +179,7 @@ const CATEGORY_META = {
   guild_formed: { icon: "🔨" },
   guild_joined: { icon: "🔨" },
   institution_reorganized: { icon: "🔁" }, // C2 "reorganize institution": a declining guild renamed around a skill its own surviving members actually mastered
+  grazers_domesticated: { icon: "🐑" }, // C2 "domesticate": wild grazers captured into a standing pasture's own stock
 
   faction_formed: { icon: "🚩" },
   illness: { icon: "🤒" },
