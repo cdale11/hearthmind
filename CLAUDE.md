@@ -617,6 +617,39 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.143)
+
+Explicit user instruction: "Continue tier 0," resolved via
+`AskUserQuestion` after a codebase-wide re-scan (population.py,
+llm/*.py, world/*.py, settlement/*.py) found no further real-signal-
+plus-arbitrary-tiebreak sites: "COUNCIL gridlock producer."
+
+Village pillar's eleventh category-keyed `world_model` producer, and
+the first institution-scoped one in this cluster. New `SimulationEngine._detect_council_gridlock`
+(daily-metrics cadence, edge-triggered): a settlement's COUNCIL has
+living members drawn from more than one real `FACTION`, yet
+`Population.council_faction_majority` still reads `None` (no faction
+commands a strict majority) — a genuinely split, politically-
+contested council. Deliberately distinguished from an apolitical
+council (no faction membership at all, which also reads `None` from
+`council_faction_majority` but isn't gridlock) by checking real
+faction presence directly rather than trusting `None` alone —
+verified via a direct test that a councilless-of-factions settlement
+never gets flagged.
+
+New real consumer: `_maybe_schedule_laws`'s `candidates` dict gains a
+genuine TENTH option — a council that keeps failing to agree can now
+produce a real reform/succession-rule law, same shape every prior
+category-keyed producer established.
+
+Verified: a production-path test for the producer (a genuine 3v3
+council split forms/flags; giving one faction a 4v2 majority clears
+the flag; removing both factions — an apolitical council — never
+flags at all), a production-path test for the consumer through the
+real `_maybe_schedule_laws`, a 4000-tick LLM-disabled soak with clean
+round-trip, `pyflakes` clean. No native module touched. Tier 0 now
+has forty-seven real converted sites.
+
 ## Current state (v1.34.142)
 
 Explicit user instruction: "Continue tier 0 ask is needed new

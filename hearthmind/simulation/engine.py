@@ -1610,6 +1610,18 @@ class SimulationEngine:
         MATERIALS_FRACTION`/`PROSPERITY_CURRENCY_FRACTION` at once.
         Never persisted — same re-baseline-on-restart reasoning as
         every other edge-trigger flag here."""
+        self._council_gridlock_flagged: "set[int]" = set()
+        """Tier 0, new producer (explicit user decision via
+        `AskUserQuestion`: "COUNCIL gridlock producer"). Village
+        pillar's eleventh category-keyed `world_model` subject. Backs
+        `_detect_council_gridlock`: a settlement's COUNCIL has living
+        members, at least one belongs to a real `FACTION`, yet
+        `Population.council_faction_majority` still reads `None` — a
+        genuinely split, politically-contested council, not just an
+        apolitical one (a council with no factional membership at all
+        is NOT gridlock, it simply has no politics yet). Never
+        persisted — same re-baseline-on-restart reasoning as every
+        other edge-trigger flag here."""
         self._hydrology_drought_flagged: bool = False
         """A11 (roadmap Stage IV step 15): edge-trigger flag for
         `_detect_hydrology_drought`, same "one observation on the
@@ -10151,6 +10163,7 @@ class SimulationEngine:
         "currency_shortage": "the coffers running dangerously bare",
         "starvation_death": "hunger claiming lives again and again",
         "wildlife_recolonization": "wildlife pressing back into the land again and again",
+        "council_gridlock": "the council splitting into rival camps, unable to agree",
     }
 
     def _maybe_schedule_laws(self, events: list[str]) -> None:
@@ -10219,6 +10232,12 @@ class SimulationEngine:
             # repeatedly seeing wildlife press back into its farmland
             # can now produce a real hunting-rights/land-use law.
             "wildlife_recolonization": target.pattern_signal_counts.get("wildlife_recolonization", 0),
+            # Tier 0, explicit user decision via `AskUserQuestion`: a
+            # genuine TENTH option — see `_detect_council_gridlock`'s
+            # mirror for the producer half. A council that keeps
+            # failing to agree can produce a real reform/succession
+            # law.
+            "council_gridlock": target.pattern_signal_counts.get("council_gridlock", 0),
         }
         # Tier 0 (25th site): a genuine tie in real occurrence count
         # breaks toward whichever category village_pillar's new
@@ -11080,6 +11099,7 @@ class SimulationEngine:
         self._detect_food_shortage()
         self._detect_currency_shortage()
         self._detect_prosperity()
+        self._detect_council_gridlock()
 
     def _detect_metric_highlights(self, population_total: int) -> None:
         """§5 "Anomaly/highlight log" (docs/IDEAS-2026-07-EMERGENCE.md):
@@ -11429,6 +11449,66 @@ class SimulationEngine:
                 )
             elif not prosperous and was_flagged:
                 self._prosperity_flagged.discard(settlement.id)
+
+    def _detect_council_gridlock(self) -> None:
+        """Tier 0, new producer (explicit user decision via
+        `AskUserQuestion`: "COUNCIL gridlock producer"). Village
+        pillar's eleventh category-keyed `world_model` subject. A
+        settlement's COUNCIL genuinely deadlocked — living members
+        drawn from more than one real `FACTION`, yet `Population.
+        council_faction_majority` still reads `None` (no faction
+        commands a strict majority of living seats) — is a distinct
+        political fact from an apolitical council (no faction
+        membership at all, which reads `None` too but isn't gridlock,
+        just no politics yet); the two are told apart here by checking
+        real faction presence directly rather than trusting `None`
+        alone. Same edge-triggered discipline as every sibling
+        detector. Riding the same daily-metrics cadence.
+
+        Real new consumer: `_maybe_schedule_laws`'s `candidates` dict
+        gains a genuine TENTH option — a council that keeps failing to
+        agree can now produce a real reform/succession-rule law, same
+        shape every prior category-keyed producer established."""
+        for settlement in self.world.settlements:
+            if not settlement.name:
+                continue
+            council = next(
+                (i for i in settlement.institutions if i.kind is InstitutionKind.COUNCIL), None,
+            )
+            gridlocked = False
+            if council is not None:
+                living_members = [
+                    a for a in self.world.population.agents if a.id in council.member_agent_ids
+                ]
+                factions_present = any(
+                    self.world.population.faction_of(m.id, settlement) is not None
+                    for m in living_members
+                )
+                gridlocked = (
+                    bool(living_members) and factions_present
+                    and self.world.population.council_faction_majority(settlement) is None
+                )
+            was_flagged = settlement.id in self._council_gridlock_flagged
+            if gridlocked and not was_flagged:
+                self._council_gridlock_flagged.add(settlement.id)
+                settlement.pattern_signal_counts["council_gridlock"] = (
+                    settlement.pattern_signal_counts.get("council_gridlock", 0) + 1
+                )
+                self._append_emergence(
+                    "bottleneck", "settlement",
+                    f"{settlement.name}'s council is split, unable to agree on anything.",
+                    pillars=("village",), magnitude=0.5, settlement=settlement.name,
+                )
+                existing = self.world.village_pillar.find_world_model_entry("council_gridlock")
+                prior_confidence = existing["confidence"] if existing else 0.3
+                self.world.village_pillar.upsert_world_model(
+                    self.world.clock.tick_count, "council_gridlock",
+                    f"{settlement.name}'s council keeps failing to reach agreement.",
+                    min(1.0, prior_confidence + 0.1), status="observation", source="council_gridlock",
+                    revises_id=existing["id"] if existing else None,
+                )
+            elif not gridlocked and was_flagged:
+                self._council_gridlock_flagged.discard(settlement.id)
 
     def _detect_hydrology_drought(self) -> None:
         """A22 Emergence API, A11's real consumer beyond farm yield

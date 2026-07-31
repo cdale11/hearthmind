@@ -121,6 +121,7 @@ PRESSURE_SIGNAL_LABELS: dict[str, str] = {
     "housing_shortage": "too many people packed into too few homes",
     "food_shortage": "the granaries running dangerously low",
     "currency_shortage": "the coffers running dangerously bare",
+    "council_gridlock": "the council splitting into rival camps, unable to agree",
 }
 """B5 "Innovation as conscious scientist" (roadmap Stage III step 12):
 plain-language phrasing for `Settlement.pattern_signal_counts`' keys
