@@ -325,12 +325,11 @@ starts on an explicit instruction naming an item.
       before. `consolidate()` now folds the LEAST-reinforced notes
       first instead of blindly the oldest. Applies to all five pillars
       for free — one shared method, not five copies.
-- [ ] **C2** — most spec-named pillar-emitted intentions (invent tech,
-      set custom, change law, reorganize institution, shift land use,
-      domesticate, build, propose experiment) aren't pillar-emitted at
-      all. Mostly waits on Tier 0 (still ~45 unconverted mirror-write
-      sites, per that tier's own tracking) — genuinely large, not
-      attempted this pass.
+- [x] **C2 — CLOSED, v1.34.149-.157.** All eight spec-named pillar-
+      emitted intentions shipped (invent tech, change law, propose
+      experiment, shift land use, set custom, reorganize institution,
+      domesticate, build) — see its own dedicated section below for
+      the full per-slice writeup.
 - [x] **C3 — CLOSED, v1.34.103.** "Pillars may initiate contact," the
       one flagged-not-attempted half of the player<->pillar chat
       feature (v1.8.0 shipped only the player-initiated `/ask/{pillar}`
