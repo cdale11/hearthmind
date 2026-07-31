@@ -379,9 +379,14 @@ starts on an explicit instruction naming an item.
       in parallel, not an oversight. **B15.1 shipped, v1.34.102**
       (`scripts/verify_replay_hash.py`) — the doc's own first Runtime
       item, chosen via `AskUserQuestion` over starting HearthBench's A1
-      skeleton or the C5 model passport. Both tracks otherwise remain
-      unstarted; see the doc for the full 30+-item checklist and its
-      own two-track SEQUENCE.
+      skeleton or the C5 model passport. **A1.1/A1.2 shipped, v1.34.160**
+      (explicit user instruction: "start something from tier 5") — the
+      `hearthbench/` package skeleton (9 reserved submodules) plus a
+      real, working import-isolation firewall
+      (`scripts/verify_hearthbench_isolation.py`, AST-based, confirmed
+      clean). A1.3 (process isolation) and every A2-A13/B0-B15 item
+      beyond B15.1 remain unstarted; see the doc for the full 30+-item
+      checklist and its own two-track SEQUENCE.
 
 ### C++ native-porting backlog (R6/R7)
 

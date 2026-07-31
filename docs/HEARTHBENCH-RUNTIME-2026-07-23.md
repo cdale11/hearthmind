@@ -56,20 +56,32 @@ which is precisely what Hard Rule 3 forbids.
   never imports HearthBench. That satisfies the brief's isolation
   requirement while preventing prompt drift.
 
-## A1 — Module layout & isolation [MISSING]
+## A1 — Module layout & isolation [PARTIAL — A1.1/A1.2 shipped v1.34.160]
 
-- [ ] **A1.1 — Package skeleton.** `hearthbench/` as a sibling of
-  `hearthmind/` in the same repo, with the brief's modules as
+- [x] **A1.1 — Package skeleton — SHIPPED, v1.34.160.** `hearthbench/`
+  as a sibling of `hearthmind/`, with the brief's modules as
   submodules: `runner/`, `adapters/`, `prompts/`, `tests/`,
-  `validation/`, `metrics/`, `diagnostics/`, `reporting/`, `ui/`.
-  Separate `pyproject` extra (`pip install -e .[bench]`) so a bench
-  dependency can never enter the sim's runtime path.
-- [ ] **A1.2 — Import firewall test.** A CI test asserting
-  `hearthbench` imports nothing from `hearthmind.simulation`,
-  `hearthmind.agents`, `hearthmind.world`, and that `hearthmind`
-  imports nothing from `hearthbench`. Enforce the brief's "the
-  simulation should never know anything about HearthBench" mechanically,
-  not by convention.
+  `validation/`, `metrics/`, `diagnostics/`, `reporting/`, `ui/` — each
+  a reserved `__init__.py` naming its own future spec item, no logic
+  yet. `pyproject.toml` gained a `bench = []` extra
+  (`pip install -e .[bench]`) and `hearthbench*` in
+  `tool.setuptools.packages.find`.
+- [x] **A1.2 — Import firewall test — SHIPPED, v1.34.160.**
+  `scripts/verify_hearthbench_isolation.py` — a standalone AST-based
+  script (same convention as `verify_native_soak.py`/
+  `verify_replay_hash.py`, not a unittest, per this project's own
+  standing "don't add unit tests" rule) walking every `.py` file under
+  both packages and asserting neither imports the other in the
+  forbidden direction. Confirmed clean against the current tree (10
+  hearthbench files, 129 hearthmind files, zero violations). Not yet
+  wired into a CI pipeline (no CI exists in this repo to wire it into)
+  — it's a manually-run gate for now, same as its siblings.
+- [ ] **A1.3 — Process isolation.** Bench runs execute in a subprocess
+  with their own model server config, so a benchmark can never contend
+  with, pause, or corrupt a live sim. The UI page (A12) talks to a bench
+  daemon, not the sim engine. Not attempted — needs A2 (adapter layer)
+  and A11 (run modes) to exist first before there's a real process to
+  isolate.
 - [ ] **A1.3 — Process isolation.** Bench runs execute in a subprocess
   with their own model server config, so a benchmark can never contend
   with, pause, or corrupt a live sim. The UI page (A12) talks to a bench

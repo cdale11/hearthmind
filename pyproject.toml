@@ -1,6 +1,6 @@
 [project]
 name = "hearthmind"
-version = "1.34.159"
+version = "1.34.160"
 description = "A persistent, always-running artificial world — a town in a box."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -10,6 +10,11 @@ dependencies = []
 [project.optional-dependencies]
 dev = []
 api = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
+# Tier 5 A1.1: HearthBench's own dependency set, kept separate so a
+# bench-only dependency can never enter the live sim's runtime path
+# (`pip install -e .[bench]`). Empty for now — the A1 package skeleton
+# has no third-party deps yet; populated as A2/A4/A9/A12 land.
+bench = []
 
 [project.scripts]
 hearthmind-server = "hearthmind.server:main"
@@ -27,7 +32,7 @@ requires = ["setuptools>=77", "pybind11>=2.11"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["hearthmind*"]
+include = ["hearthmind*", "hearthbench*"]
 
 [tool.setuptools.package-data]
 "hearthmind.interface" = ["static/*"]

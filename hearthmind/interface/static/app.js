@@ -97,6 +97,14 @@ const BUILDING_COLORS = {
   pasture: "#8fbf5e", hatchery: "#4ab5cf", dock: "#5c9ead", oil_rig: "#3c3c46",
   forge: "#b5651d", library: "#7a5c3e", smelter: "#8a4a2c",
 };
+
+// Same hues as the personal-vehicle "claimed" diamond colors below
+// (kept in one place so the rider ring and the vehicle's own marker
+// can never drift apart) — a rider's ring color always matches
+// whichever vehicle they're actually riding.
+const PERSONAL_VEHICLE_RING_COLOR = {
+  mount: "#a679d6", automobile: "#5b9bd6", boat: "#3cc9d6",
+};
 const FARM_COLORS = { growing: "#7fae4a", ready: "#e0c34a" };
 
 // Phase 3.C (docs/VISION-2026-07-21-SELFEVOLVING.md) "architecture
@@ -2452,6 +2460,20 @@ function drawFrame() {
     }
   }
 
+  // Explicit user request: a rider should read differently on the map
+  // from someone on foot. Reuses each personal vehicle kind's own
+  // claimed-diamond color (see the vehicle-drawing loop above) as a
+  // ring around the rider's own marker, so the same color means "this
+  // is a mount/automobile/boat" everywhere on the map, not a new
+  // unrelated palette. Built once per draw, not per-agent, since it's
+  // just a lookup over the same `latest.vehicles` list already drawn.
+  const riderVehicleKind = new Map();
+  for (const v of latest.vehicles || []) {
+    if (v.assigned_agent_id != null && v.stage === "ready" && PERSONAL_VEHICLE_RING_COLOR[v.kind]) {
+      riderVehicleKind.set(v.assigned_agent_id, v.kind);
+    }
+  }
+
   for (const a of latest.agents) {
     const { px, py } = agentRenderPos(a);
     ctx.beginPath();
@@ -2502,6 +2524,18 @@ function drawFrame() {
       ctx.strokeStyle = "rgba(224, 168, 60, 0.55)";
       ctx.lineWidth = 1;
       ctx.arc(px, py, CELL / 3 + 2, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    // Riding a claimed personal vehicle (mount/automobile/boat):
+    // always drawn, independent of the health-status ring above (a
+    // sick rider still reads as a rider) — a slightly larger, thicker,
+    // solid ring so it doesn't get lost among the thinner health rings.
+    const ridingKind = riderVehicleKind.get(a.id);
+    if (ridingKind) {
+      ctx.beginPath();
+      ctx.strokeStyle = PERSONAL_VEHICLE_RING_COLOR[ridingKind];
+      ctx.lineWidth = 1.5;
+      ctx.arc(px, py, CELL / 3 + 4, 0, Math.PI * 2);
       ctx.stroke();
     }
   }
@@ -2987,6 +3021,14 @@ function findBuildingAt(gx, gy) {
   return null;
 }
 
+function findVehicleAt(gx, gy) {
+  if (!latest) return null;
+  for (const v of latest.vehicles || []) {
+    if (v.x === gx && v.y === gy) return v;
+  }
+  return null;
+}
+
 // --- zoom (wheel) + pan (drag) on the map canvas (v0.64.0 UI backlog) --------
 
 let panState = null; // {startX, startY, viewX, viewY, moved}
@@ -3127,6 +3169,8 @@ canvas.addEventListener("click", (ev) => {
   const { gx, gy } = screenToGrid(bufX, bufY);
   const a = findAgentAt(gx, gy);
   if (a) return openNpcInspector(a.id);
+  const v = findVehicleAt(gx, gy);
+  if (v) return openVehicleInspector(gx, gy);
   const b = findBuildingAt(gx, gy);
   if (b) return openBuildingInspector(gx, gy);
   if (terrain && gx >= 0 && gy >= 0 && gx < terrain.width && gy < terrain.height) {
@@ -3187,6 +3231,13 @@ async function loadNpcMemoryLog(agentId) {
 
 function openBuildingInspector(x, y) {
   inspectedTarget = { type: "building", x, y };
+  inspectedAgentId = null;
+  npcBackdrop.classList.remove("hidden");
+  renderTargetInspector();
+}
+
+function openVehicleInspector(x, y) {
+  inspectedTarget = { type: "vehicle", x, y };
   inspectedAgentId = null;
   npcBackdrop.classList.remove("hidden");
   renderTargetInspector();
@@ -3560,6 +3611,15 @@ const BUILDING_MATERIAL = {
   smelter: "ore",
 };
 
+// A12's Vehicle counterpart — mirrors hearthmind/world/materials.py's
+// VEHICLE_MATERIALS. CART/RAFT/BOAT are wood-built (same as DOCK);
+// AUTOMOBILE is metal (same as FACTORY/POWER_PLANT/OIL_RIG); MOUNT is
+// fiber (tack/stabling, not the living animal — same assignment
+// PASTURE/HATCHERY carry).
+const VEHICLE_MATERIAL = {
+  cart: "wood", raft: "wood", boat: "wood", automobile: "metal", mount: "fiber",
+};
+
 // A5/A6's "Entity.properties" half (world/materials.py's material_
 // repair_factor): a material's real workability now genuinely scales
 // how fast a damaged instance repairs, not just its affordance tags —
@@ -3633,6 +3693,50 @@ function renderTargetInspector() {
       <div class="npc-section"><h4>Right now</h4>
         <div>${occupants.length ? `Present: ${occupants.join(", ")}` : "Nobody inside"}</div>
       </div>`;
+    return;
+  }
+  // Explicit user request: a clickable vehicle inspector, the same
+  // parity building/tile clicks already have. Several vehicles can
+  // share a founding tile over a settlement's life (repeated carts
+  // built at the same worksite, say), so this lists every vehicle
+  // actually standing here rather than assuming exactly one.
+  if (inspectedTarget.type === "vehicle") {
+    const vehiclesHere = (latest.vehicles || []).filter((vv) => vv.x === x && vv.y === y);
+    if (!vehiclesHere.length) {
+      npcContent.innerHTML = `<h3>Gone</h3><div class="npc-subtitle">Nothing stands here any more.</div>`;
+      return;
+    }
+    const byId = new Map((latest.agents || []).map((a) => [a.id, a]));
+    const PERSONAL_KINDS = new Set(["mount", "automobile", "boat"]);
+    const EFFECT_TEXT = {
+      cart: "Speeds hauling of gathered materials back to the stockpile — stacks with other ready carts, up to a cap.",
+      raft: "Richens a fishing catch's hunger relief — stacks with other ready rafts, up to a cap.",
+      mount: "Whoever claims and rides it moves noticeably faster, for as long as it's kept in good repair.",
+      automobile: "Whoever claims and rides it moves markedly faster than a mount — an era-appropriate upgrade.",
+      boat: "Whoever claims and rides it moves faster AND can cross open water — the real water-transport payoff.",
+    };
+    const renderOne = (v) => {
+      const kindLabel = v.kind.charAt(0).toUpperCase() + v.kind.slice(1);
+      const conditionPct = Math.round((v.condition || 0) * 100);
+      const material = v.material || VEHICLE_MATERIAL[v.kind];
+      const repairHint = material ? MATERIAL_REPAIR_HINT[material] : null;
+      const rider = PERSONAL_KINDS.has(v.kind)
+        ? (v.assigned_agent_id != null
+            ? ((byId.get(v.assigned_agent_id) || {}).name || "someone no longer living")
+            : "unclaimed")
+        : null;
+      return `<div class="npc-section vehicle-section">
+        <h4>${kindLabel}</h4>
+        <div>${v.stage.replace(/_/g, " ")}${v.stage === "building" ? ` · progress ${Math.round((v.progress || 0) * 100)}%` : ` · condition ${conditionPct}%`}</div>
+        ${material ? `<div class="muted">Built of ${material}${repairHint ? ` — ${repairHint}` : ""}</div>` : ""}
+        ${rider ? `<div class="muted">${v.assigned_agent_id != null ? `Ridden by <b>${rider}</b>` : "Unclaimed — anyone mature and healthy who reaches it can claim it"}</div>` : ""}
+        <div class="muted">${EFFECT_TEXT[v.kind] || ""}</div>
+      </div>`;
+    };
+    npcContent.innerHTML = `
+      <h3>${vehiclesHere.length === 1 ? vehiclesHere[0].kind.charAt(0).toUpperCase() + vehiclesHere[0].kind.slice(1) : `${vehiclesHere.length} vehicles here`}</h3>
+      <div class="npc-subtitle">at (${x}, ${y})</div>
+      ${vehiclesHere.map(renderOne).join("")}`;
     return;
   }
   // Bare tile: biome, whatever sits on it, and whoever rests beneath it.

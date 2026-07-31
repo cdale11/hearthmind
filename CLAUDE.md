@@ -617,6 +617,77 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.160)
+
+Explicit user instruction: "make vehicles also appear in UI live map
+(maybe a different color for npc when using a vehicle?)... add a
+clickable inspector... Also start something from tier 5."
+
+**Vehicle map/inspector UI.** Vehicles were already drawn on the map
+(cart/raft as squares, mount/automobile/boat as claimed/unclaimed
+diamonds) — the real gaps were a rider's own visual distinction and a
+click-inspector. New `PERSONAL_VEHICLE_RING_COLOR` (`app.js`): a rider
+of a claimed mount/automobile/boat now draws a matching-hued ring
+around their own marker, reusing the exact same hex each vehicle kind's
+own diamond already uses (a violet ring always means "riding a mount,"
+everywhere on the map) rather than a new unrelated palette — composes
+with, doesn't replace, the existing sick/immune/rundown health rings.
+New `findVehicleAt`/`openVehicleInspector`, wired into the click
+handler between agents and buildings; the "vehicle" branch of
+`renderTargetInspector` lists every vehicle at a tile (a worksite can
+accumulate several over a settlement's life), showing kind/stage/
+progress-or-condition/material (new `VEHICLE_MATERIAL`, mirrors
+`world.materials.VEHICLE_MATERIALS`, same "Built of X — repair-speed
+hint" line the building inspector already has)/current rider (personal
+kinds only)/a plain-language mechanical-effect blurb per kind. Verified
+live via Playwright against a seeded demo world: rider ring rendered
+correctly, automobile inspector showed "ready · condition 34% · Built
+of metal — repairs at an ordinary pace · Ridden by Osric" correctly.
+
+**Tier 5 A1.1/A1.2 shipped** (`docs/HEARTHBENCH-RUNTIME-2026-07-23.md`).
+New `hearthbench/` package (sibling of `hearthmind/`): 9 reserved
+submodules (`runner/`/`adapters/`/`prompts/`/`tests/`/`validation/`/
+`metrics/`/`diagnostics/`/`reporting/`/`ui/`), each an `__init__.py`
+naming its own future spec item, no logic yet — the doc's own A1.1
+skeleton. `pyproject.toml` gained a `bench = []` extra and
+`hearthbench*` in `packages.find`. New `scripts/verify_hearthbench_
+isolation.py` (A1.2, same standalone-script convention as `verify_
+native_soak.py`/`verify_replay_hash.py`, no unittest): AST-walks every
+`.py` file under both packages, asserting `hearthbench` never imports
+`hearthmind.simulation`/`.agents`/`.world` and `hearthmind` never
+imports `hearthbench` — confirmed clean (10 hearthbench files, 129
+hearthmind files, zero violations either direction). This is the real
+mechanical enforcement the brief's "the simulation should never know
+anything about HearthBench" asks for, not just a convention.
+
+**Tier 5 status, what's left** (see docs/HEARTHBENCH-RUNTIME-2026-07-23.md
+for the full spec): of 30+ items, **2 shipped this pass (A1.1/A1.2)
+plus B15.1 (v1.34.102)** = 3 total. Everything else is unstarted:
+Part A (HearthBench) — A0 (formalize existing reuse, no new code
+strictly needed), A1.3 (process isolation, needs A2/A11 first), A2
+(model adapter layer), A3 (prompt library/test definitions), A4
+(scoring/the judge problem — the doc's own "central design decision"),
+A5 (9 benchmark categories), A6 (structured output validator), A7
+(metrics collector), A8 (diagnostics), A9 (reports), A10 (the
+HearthBench Score), A11 (run modes), A12 (web UI), A13 (CI prompt-
+regression guard). Part B (Adaptive Runtime) — B0 (the prime invariant,
+flagged "build this first" in the doc's own text — genuinely the next
+natural step, not A2, since B0/B1/B2 govern how ALL scheduling works
+and several already-shipped systems would need to migrate onto it) and
+B1-B15 entirely (task graph, budgets/scheduling, dormancy/dirty-
+tracking, cadence framework, spatial locality, etc.) beyond B15.1.
+No item in either track beyond what's listed above as shipped has been
+attempted. Next natural step per the doc's own sequencing: Part A's A0
+(cheap, formalizes what already exists) or Part B's B0 (the doc's own
+explicit "build this first" for the Runtime track) — not yet decided,
+resume on future explicit direction naming one.
+
+Verified: `node --check app.js` clean; `python3 -m pyflakes hearthbench/
+scripts/verify_hearthbench_isolation.py` clean; `python3 -c "import
+hearthbench"` succeeds; `scripts/verify_hearthbench_isolation.py` run
+directly, confirmed clean. No native module or persisted `World` state
+touched by either half of this batch — no soak re-run needed.
+
 ## Current state (v1.34.159)
 
 Explicit user instruction: "build these next and ask question when in
