@@ -510,6 +510,85 @@ call liveness; objective/subjective state split; Phase G ambiguity
 discipline; constants-with-rationale + decision log; the two-surface UI
 split.
 
+## The Adaptive Runtime's prime invariant (B0, filed v1.34.161)
+
+Second architectural law, same enforcement weight as the Body/Mind
+split above (docs/HEARTHBENCH-RUNTIME-2026-07-23.md, Part B, "build
+this first"): **gameplay systems declare *what* work exists. The
+runtime decides *when*, *where*, and *how* it executes. Gameplay never
+makes scheduling, threading, batching, or hardware decisions.**
+Concretely: `world/`, `agents/`, `settlement/`, `economy/` may never
+import `threading`/`concurrent.futures`, call `time.sleep`, or spawn an
+executor — those are execution-layer concerns that belong to the tick
+loop / `simulation/engine.py` and (once B1-B15 exist) the future task
+scheduler, never to a subsystem describing its own domain logic.
+Mechanically checked by `scripts/verify_runtime_invariant.py` (same
+standalone-script convention as `verify_hearthbench_isolation.py` —
+run manually, no CI pipeline exists in this repo to wire it into yet).
+**Migration reality (B0.3):** today ~200 schedule points still live
+directly inside `engine.py` and its subsystems (`_TICK_JOBS`,
+`_schedule_llm_job`, every `_maybe_schedule_*`/`_maybe_tick_*` call) —
+this law governs *new* code the same way R7 governs new physical-
+substrate code; migrating the existing ~200 onto a real B1 task graph
+is the bulk of Part B and, per B1.4, must happen incrementally, one
+subsystem at a time, each verified against `scripts/verify_replay_
+hash.py` — never a big-bang rewrite.
+
+## Current state (v1.34.161)
+
+Explicit user instruction: "start B0 and then also A0" (docs/
+HEARTHBENCH-RUNTIME-2026-07-23.md, Tier 5). Both are checklist items
+whose own text says "no new mechanism, formalize/enforce what's
+already true" — this pass shipped real, verified work on that basis
+rather than treating either as a no-op.
+
+**B0 — the prime invariant.** B0.1: adopted as a written architectural
+law, see "The Adaptive Runtime's prime invariant" above (placed right
+after "Preserve absolutely," explicitly given the same enforcement
+weight as the Body/Mind split per the item's own instruction). B0.2:
+new `scripts/verify_runtime_invariant.py` (AST-based, same standalone-
+script convention as every `verify_*` sibling — no unittest, no CI
+pipeline exists in this repo to wire it into) bans `threading`/
+`concurrent.futures` imports, `time.sleep(...)` calls, and Thread/
+Timer/ThreadPoolExecutor/ProcessPoolExecutor construction inside
+`world/`/`agents/`/`settlement/`/`economy/`. Confirmed clean against
+the real tree (47 files, zero violations — this codebase was already
+honoring the invariant informally) and confirmed to actually catch
+every banned pattern against a synthetic test file, not just trivially
+pass on clean code. B0.3 ("~200 schedule points still live inside
+`engine.py`") is the item's own scoping note, not an action — recorded
+in the new CLAUDE.md section as-is; migrating them onto a real B1 task
+graph is future Part B work, unattempted.
+
+**A0 — foundations to reuse.** Every A0.1-.4 claim re-verified
+directly against current source rather than trusting the doc's prior
+`[PARTIAL]` tag: `llm/client.py`'s `OllamaClient`/`LlamaCppClient`
+behind `build_llm_client` (A0.1), `llm/eval_harness.py`'s `split_
+holdout`/`build_golden_set`/`check_regressions` (A0.2), `llm/
+recorder.py`'s real four-layer `TrainingRecorder` schema (A0.3), and
+`llm/quality_labels.py`'s `schema_valid`/`check_leaks`/`length_in_
+bounds`/`dialogue_responds`/`topic_novel`/`label_example` (A0.4) are
+all real and exactly as described — all four confirmed, not stale.
+The item's own "Rule" (a shared `hearthmind.cognition_contract`
+package HearthBench imports from) stays genuinely open — lifting these
+four pieces into an importable shared location is real A2/A4 forward
+work, not something A0 itself builds.
+
+**Tier 5 status.** 5 items shipped total: B15.1 (v1.34.102), A1.1/A1.2
+(v1.34.160), A0 (confirmed)/B0.1/B0.2 (this pass). Next natural step,
+not yet decided: A2 (model adapter layer, the first piece HearthBench
+actually needs to run anything) or B1 (task declaration & the work
+graph, B0's own direct successor) — resume on future explicit
+direction naming one.
+
+Verified: `python3 -m pyflakes scripts/verify_runtime_invariant.py`
+clean; `scripts/verify_runtime_invariant.py` run directly (47 files,
+0 violations) and re-run against a synthetic violating file (correctly
+flagged every banned import/call); every A0 claim independently grepped
+against real source line numbers before being marked confirmed. No
+native module or persisted `World` state touched — no soak re-run
+needed.
+
 ## Current state (v1.34.98)
 
 Explicit user instruction: "Continue tier 0, try humans pillar

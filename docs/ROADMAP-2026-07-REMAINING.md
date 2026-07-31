@@ -384,9 +384,21 @@ starts on an explicit instruction naming an item.
       `hearthbench/` package skeleton (9 reserved submodules) plus a
       real, working import-isolation firewall
       (`scripts/verify_hearthbench_isolation.py`, AST-based, confirmed
-      clean). A1.3 (process isolation) and every A2-A13/B0-B15 item
-      beyond B15.1 remain unstarted; see the doc for the full 30+-item
-      checklist and its own two-track SEQUENCE.
+      clean). **A0 confirmed + B0.1/B0.2 shipped, v1.34.161** (explicit
+      user instruction: "start B0 and then also A0"). A0: each A0.1-.4
+      claim re-verified directly against current source (real, not
+      stale) — no new code needed per the item's own text, formalizing
+      into a shared `hearthmind.cognition_contract` package stays A2/A4
+      forward work. B0: the prime invariant is now a written
+      architectural law in CLAUDE.md (same weight as Body/Mind) plus a
+      real mechanical check, `scripts/verify_runtime_invariant.py`
+      (AST-based, bans `threading`/`concurrent.futures`/`time.sleep`/
+      executor construction inside `world/`/`agents/`/`settlement/`/
+      `economy/`; confirmed clean against 47 files and confirmed to
+      actually catch a synthetic violation). A1.3, A2-A13, B0.3
+      (a scoping note, not an action item), and B1-B15 beyond B15.1
+      remain unstarted; see the doc for the full 30+-item checklist and
+      its own two-track SEQUENCE.
 
 ### C++ native-porting backlog (R6/R7)
 

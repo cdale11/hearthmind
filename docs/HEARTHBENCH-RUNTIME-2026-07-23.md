@@ -32,29 +32,37 @@ which is precisely what Hard Rule 3 forbids.
 
 # PART A — HEARTHBENCH
 
-## A0 — Foundations to reuse, not rebuild [PARTIAL]
+## A0 — Foundations to reuse, not rebuild [CONFIRMED, v1.34.161 — no new code, by the item's own text]
 
-- [ ] **A0.1** — `llm/client.py` already has `OllamaClient` and
-  `LlamaCppClient` behind a `build_llm_client(config)` factory. That is
-  a de-facto adapter layer; formalize it (A2) rather than writing a new
-  one.
-- [ ] **A0.2** — `eval_harness.py` (hash-based held-out split,
-  stratified golden-prompt sampler, regression thresholds) already
-  solves *fine-tune regression*. HearthBench is the **model-selection**
-  sibling. Share the split/sampler code; do not duplicate it.
-- [ ] **A0.3** — `recorder.py`'s four-layer schema (structured input →
-  prompt → raw completion → parsed output, with hashes and versions) is
-  exactly HearthBench's diagnostics record. Reuse the schema so
-  benchmark records and live-sim records are mutually analyzable.
-- [ ] **A0.4** — `quality_labels.py` already computes per-example
-  labels (schema-valid, context-reflection, leak flags, novelty). These
-  are HearthBench scorers. Lift them into the shared scoring library
-  (A4) and let both call it.
-- [ ] **Rule:** HearthBench imports *from* a small shared
-  `hearthmind.cognition_contract` package (schemas, prompt fixtures,
-  scorers). It never imports the simulation engine, and the simulation
-  never imports HearthBench. That satisfies the brief's isolation
-  requirement while preventing prompt drift.
+Each A0.x item's own wording is "formalize/share/reuse/lift... rather
+than writing a new one" — deferred to A2/A4, not action items in
+themselves. Re-verified each claim directly against current source
+(v1.34.160) rather than trusting the doc's prior [PARTIAL] tag as-is:
+
+- [x] **A0.1 — CONFIRMED.** `llm/client.py` has `OllamaClient`
+  (line 266), `LlamaCppClient` (line 445), both behind `build_llm_
+  client(config)` (line 725) — a real de-facto adapter layer.
+  Formalizing it into A2's `ModelAdapter` Protocol remains open.
+- [x] **A0.2 — CONFIRMED.** `llm/eval_harness.py` has `split_holdout`
+  (hash-based held-out split), `build_golden_set` (stratified
+  golden-prompt sampler, `GOLDEN_SET_MIN_SIZE`), and `check_
+  regressions` (regression-threshold checker) — all real, all reusable
+  by A4.4/A13.3 as-is rather than reimplemented.
+- [x] **A0.3 — CONFIRMED.** `llm/recorder.py`'s `TrainingRecorder`
+  writes exactly the four-layer schema (`structured_input` → `prompt`
+  → `raw_completion` → `parsed_output`, `SCHEMA_VERSION = 1`,
+  `structured_input_hash`) A0.3 describes — real, versioned, ready for
+  A8.1's run-record format to reuse directly.
+- [x] **A0.4 — CONFIRMED.** `llm/quality_labels.py` has `schema_valid`,
+  `check_leaks`, `length_in_bounds`, `dialogue_responds`, `topic_
+  novel`, combined by `label_example` — real per-example scorers, a
+  direct A4 Tier-1-deterministic-scorer set once lifted into a shared
+  library.
+- [ ] **Rule — still open.** The shared `hearthmind.cognition_contract`
+  package itself doesn't exist yet — that's real A2/A4 forward work
+  (lifting the four confirmed pieces above into an importable location
+  both `hearthmind` and `hearthbench` can share without either
+  importing the other's runtime), not something A0 itself builds.
 
 ## A1 — Module layout & isolation [PARTIAL — A1.1/A1.2 shipped v1.34.160]
 
@@ -418,22 +426,33 @@ pack.
 
 # PART B — THE ADAPTIVE RUNTIME
 
-## B0 — The prime invariant [MISSING] — *build this first*
+## B0 — The prime invariant [PARTIAL — B0.1/B0.2 shipped v1.34.161]
 
 > **Gameplay systems declare *what* work exists. The runtime decides
 > *when*, *where*, and *how* it executes. Gameplay never makes
 > scheduling, threading, batching, or hardware decisions.**
 
-- [ ] **B0.1 — Adopt it as a written architectural law** in `CLAUDE.md`
-  alongside the existing Body/Mind law, with the same enforcement
-  culture.
-- [ ] **B0.2 — Enforce it mechanically:** a lint/CI rule banning
-  `threading`, `time.sleep`, executor creation, and scheduling
-  arithmetic inside `world/`, `agents/`, `settlement/`, `economy/`.
-  Those may only *declare* tasks.
+- [x] **B0.1 — Adopt it as a written architectural law — SHIPPED,
+  v1.34.161.** CLAUDE.md's "The Adaptive Runtime's prime invariant"
+  section, placed right after "Preserve absolutely," same enforcement
+  weight as the Body/Mind split.
+- [x] **B0.2 — Enforce it mechanically — SHIPPED, v1.34.161.**
+  `scripts/verify_runtime_invariant.py` (AST-based, same convention as
+  `verify_hearthbench_isolation.py`): bans `threading`/`concurrent.
+  futures` imports, `time.sleep(...)` calls, and executor/Thread/Timer
+  construction inside `world/`/`agents/`/`settlement/`/`economy/`.
+  Confirmed clean against the current tree (47 files, zero violations)
+  and confirmed to actually catch a real violation (tested against a
+  synthetic file exercising every banned pattern). "Scheduling
+  arithmetic" from the item's own text is NOT separately checked — no
+  principled AST pattern distinguishes ordinary domain math from
+  scheduling math without a real B1 `Task` graph to compare against;
+  left honestly unenforced rather than faked with a guess-prone
+  heuristic.
 - [ ] **B0.3 — Migration reality.** Today ~200 schedule points live
   inside `engine.py` and subsystems. Migrating them is the bulk of Part
-  B and must be incremental (B1.4).
+  B and must be incremental (B1.4). Not an action item — a scoping
+  note recorded in CLAUDE.md's new B0 section, unchanged.
 
 ## B1 — Task declaration & the work graph [MISSING]
 
