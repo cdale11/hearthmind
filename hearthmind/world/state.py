@@ -17,6 +17,7 @@ from hearthmind.agents.occupations import ALL_OCCUPATIONS
 from hearthmind.settlement.buildings import (
     BuildingKind, BuildingStage, Settlement, compute_resource_fill,
     LAND_USE_SHIFT_TARGET_KIND, VILLAGE_LAND_USE_CONVICTION_THRESHOLD,
+    VILLAGE_CIVIC_BUILD_CONVICTION_THRESHOLD,
 )
 from hearthmind.settlement.naming import generate_settlement_name
 from hearthmind.time_system import SimClock
@@ -996,6 +997,17 @@ class World:
             and self.village_pillar.subject_confidence(convicted_subject) >= VILLAGE_LAND_USE_CONVICTION_THRESHOLD
         ):
             land_use_override_kind = LAND_USE_SHIFT_TARGET_KIND[convicted_subject]
+        # C2 "Intention channel" (Mind -> Body, "build"): village_
+        # pillar's own strong, standing conviction that the settlement
+        # is prosperous enough genuinely INITIATES a real construction
+        # attempt with no colocated founders required — see
+        # Population._maybe_civic_construction. Weekly cadence (this is
+        # the largest structural bypass of any C2 slice, so it's
+        # deliberately checked far less often than a per-tick gate).
+        civic_build_convicted = (
+            "week_end" in events
+            and self.village_pillar.subject_confidence("prosperity") >= VILLAGE_CIVIC_BUILD_CONVICTION_THRESHOLD
+        )
         population_events = self.population.tick(
             seed=self.config.seed, tick=self.clock.tick_count,
             building_kind_pillar_lean=building_kind_pillar_lean,
@@ -1019,7 +1031,21 @@ class World:
             construction_history=self.construction_history,
             ownership_history=self.ownership_history,
             land_use_override_kind=land_use_override_kind,
+            civic_build_convicted=civic_build_convicted,
         )
+        # C2 "Intention channel" close-the-loop, "build": a genuine
+        # civic construction reinforces "prosperity" to full confidence
+        # in place, same shape every other C2 confirmation uses.
+        if civic_build_convicted and any(
+            category == "civic_construction_started" for category, _description in population_events
+        ):
+            existing = self.village_pillar.find_world_model_entry("prosperity")
+            if existing is not None:
+                self.village_pillar.upsert_world_model(
+                    self.clock.tick_count, "prosperity", existing["belief"], 1.0,
+                    status="observation", source="civic_build_confirmed",
+                    revises_id=existing["id"],
+                )
         # C2 "Intention channel" close-the-loop: if the override above
         # genuinely produced a real construction this tick (its own
         # "construction_started" event names the overridden kind — see

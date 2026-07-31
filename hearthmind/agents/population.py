@@ -2026,6 +2026,7 @@ class Population:
         humans_lean: "Callable[[Agent], float] | None" = None,
         occupation_pillar_lean: "dict[str, float] | None" = None,
         land_use_override_kind: "BuildingKind | None" = None,
+        civic_build_convicted: bool = False,
     ) -> list[tuple[str, str]]:
         """Advance every agent by one tick: needs, foraging, movement,
         relationships, construction/repair, farming, birth, and death.
@@ -2334,6 +2335,16 @@ class Population:
                 building_kind_pillar_lean=building_kind_pillar_lean,
                 humans_lean=humans_lean,
                 land_use_override_kind=land_use_override_kind,
+            )
+        )
+        life_events.extend(
+            self._maybe_civic_construction(
+                settlements, rng, terrain, farms, roads, resources, ruin_scars=ruin_scars,
+                mining_scars=mining_scars, disaster_scars=disaster_scars, road_scars=road_scars,
+                construction_history=construction_history,
+                building_kind_pillar_lean=building_kind_pillar_lean,
+                humans_lean=humans_lean,
+                civic_build_convicted=civic_build_convicted,
             )
         )
         life_events.extend(
@@ -5670,6 +5681,101 @@ class Population:
                     f" — a better spot than where its founders stood — using {cost:.0f} materials."
                 )
             life_events.append(("construction_started", description))
+        return life_events
+
+    def _maybe_civic_construction(
+        self, settlements: list[Settlement], rng: random.Random,
+        terrain: list[list[Tile]] | None = None, farms: FarmGrid | None = None,
+        roads: RoadNetwork | None = None, resources: "ResourceGrid | None" = None,
+        ruin_scars: dict[tuple[int, int], float] | None = None,
+        mining_scars: dict[tuple[int, int], float] | None = None,
+        disaster_scars: dict[tuple[int, int], float] | None = None,
+        road_scars: dict[tuple[int, int], float] | None = None,
+        construction_history: dict[tuple[int, int], int] | None = None,
+        building_kind_pillar_lean: "dict[str, float] | None" = None,
+        humans_lean: "Callable[[Agent], float] | None" = None,
+        civic_build_convicted: bool = False,
+    ) -> list[tuple[str, str]]:
+        """C2 "Intention channel" (Mind -> Body, Tier 3), "build" — the
+        eighth and final named intention, and the largest structural
+        bypass of any C2 slice: `_maybe_start_construction`'s ordinary
+        path only ever fires when two eligible founders happen to
+        colocate on the same tile; this genuinely INITIATES a real
+        construction attempt with no colocation required at all, driven
+        purely by `village_pillar`'s own strong, standing conviction
+        (see `buildings.VILLAGE_CIVIC_BUILD_CONVICTION_THRESHOLD`) that
+        the settlement is prosperous enough to invest in a civic
+        project. `civic_build_convicted` is computed once per tick in
+        `World.tick()` (same "compute once, small set" discipline as
+        `land_use_override_kind`), gated to a weekly cadence there.
+
+        Body still gates the real outcome: a settlement already mid-
+        project (any building `UNDER_CONSTRUCTION`) is skipped outright
+        — this never stacks a second project on top of an ongoing one,
+        organic or civic — and needs at least two real living, mature,
+        healthy members to found it, same eligibility bar as the
+        ordinary colocation path. Reuses `_choose_build_site`/`choose_
+        building_kind` unchanged, anchored at one of the settlement's
+        own standing buildings (there being no colocated group position
+        to anchor from) rather than a founders' shared tile."""
+        life_events: list[tuple[str, str]] = []
+        if not civic_build_convicted:
+            return life_events
+        for settlement in settlements:
+            if not settlement.name:
+                continue
+            if any(b.stage is BuildingStage.UNDER_CONSTRUCTION for b in settlement.buildings):
+                continue  # a real project is already underway — never stack a second
+            eligible = sorted(
+                (
+                    a for a in self.agents
+                    if a.settlement_id == settlement.id and self._is_mature(a) and self._is_healthy(a)
+                ),
+                key=lambda a: a.traits.get(TRAIT_AMBITION, 0.0), reverse=True,
+            )
+            if len(eligible) < 2:
+                continue
+            anchor = next(
+                ((b.x, b.y) for b in settlement.buildings if b.stage is BuildingStage.STANDING),
+                (eligible[0].x, eligible[0].y),
+            )
+            bx, by = self._choose_build_site(
+                anchor[0], anchor[1], terrain, settlements, farms, roads, resources, settlement.era,
+                settlement=settlement, ruin_scars=ruin_scars, mining_scars=mining_scars,
+                disaster_scars=disaster_scars, road_scars=road_scars,
+            )
+            if any(s.at(bx, by) is not None for s in settlements) or (farms is not None and farms.get(bx, by) is not None):
+                continue
+            kind = choose_building_kind(
+                rng, settlement.current_priority, settlement.era, has_tradition=bool(settlement.traditions),
+                caravans_visited=settlement.caravans_visited,
+                water_adjacent=terrain is not None and is_adjacent_to_water(terrain, bx, by),
+                branch=settlement.era_branch, pillar_lean=building_kind_pillar_lean,
+            )
+            cost = MATERIALS_COST_BY_KIND[kind]
+            if settlement.materials < cost:
+                continue  # conviction alone can't manufacture materials that aren't there
+            settlement.materials -= cost
+            founders = eligible[:2]
+            if kind is BuildingKind.HUT:
+                weights = [
+                    max(0.05, 1.0 + a.traits.get(TRAIT_AMBITION, 0.0) * TRAIT_AMBITION_FOUNDER_SELECTION_WEIGHT
+                        + (humans_lean(a) if humans_lean else 0.0) * self.HUT_OWNER_HUMANS_LEAN_MAX)
+                    for a in founders
+                ]
+                owner_agent_id = rng.choices(founders, weights=weights, k=1)[0].id
+            else:
+                owner_agent_id = None
+            settlement.start_construction(bx, by, kind=kind, owner_agent_id=owner_agent_id)
+            if construction_history is not None:
+                construction_history[(bx, by)] = construction_history.get((bx, by), 0) + 1
+            for a in founders:
+                _nudge_trait(a, TRAIT_AMBITION, TRAIT_AMBITION_FOUNDING_NUDGE)
+            life_events.append((
+                "civic_construction_started",
+                f"{settlement.name} rallied behind a civic project — {kind.value.capitalize()} construction"
+                f" began at ({bx}, {by}), using {cost:.0f} materials.",
+            ))
         return life_events
 
     @classmethod

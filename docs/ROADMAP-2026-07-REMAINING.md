@@ -3912,7 +3912,7 @@ flagged in case a fresh audit disagrees.
 CLOSED. Salience-ranking (the one real gap found) is shipped.
 
 ### C2 — Intention channel (Mind → Body)
-**Started, v1.34.149-.156.** Seven of eight named intentions shipped.
+**CLOSED, v1.34.149-.157.** All eight named intentions shipped.
 
 "Invent tech" (v1.34.149): Innovation pillar's own leading open
 (`status="hypothesis"`) `world_model` belief genuinely INITIATES an
@@ -4027,21 +4027,40 @@ than stalling the instant one capture drops the herd back below the
 abundance bar. See `SimulationEngine._maybe_domesticate_grazers`,
 `VILLAGE_DOMESTICATE_CONVICTION_THRESHOLD`.
 
-All seven slices share the same real distinction from every Tier 0
+"Build" (v1.34.157): the last named intention, and the largest
+structural bypass of any C2 slice — `_maybe_start_construction`'s
+ordinary path only ever fires when two eligible founders happen to
+colocate on the same tile; `Population._maybe_civic_construction`
+genuinely INITIATES a real construction attempt with NO colocation
+required at all, driven purely by `village_pillar`'s own standing
+conviction that the settlement is prosperous. Reuses the existing
+`"prosperity"` category-keyed producer (v1.34.142) rather than
+inventing a new signal. New `VILLAGE_CIVIC_BUILD_CONVICTION_
+THRESHOLD=0.9` — deliberately the highest bar in the whole channel,
+since this spends real materials with no founders having chosen to
+build there themselves. Computed once per tick in `World.tick()`,
+gated to a weekly cadence. Body still gates the outcome: a settlement
+already mid-project is skipped outright, and it needs at least two
+real living, mature, healthy members to found it. Reuses `_choose_
+build_site`/`choose_building_kind` unchanged, anchored at one of the
+settlement's own standing buildings rather than a founders' shared
+tile. Closes the loop: a genuine civic construction reinforces
+`"prosperity"` to full confidence in place. See `Population._maybe_
+civic_construction`, `buildings.VILLAGE_CIVIC_BUILD_CONVICTION_
+THRESHOLD`.
+
+All eight slices share the same real distinction from every Tier 0
 site — Tier 0 only ever broke a tie or nudged an outcome that would
 happen anyway; C2 changes WHETHER (or, for "shift land use"/"set
 custom"/"reorganize institution," WHAT) the event is — "domesticate"
 is the one case where the event class itself (wild -> tame) didn't
-exist before this slice at all.
+exist before its slice at all, and "build" is the one case where the
+Body precondition (colocated founders) that every other slice still
+needed is itself bypassed.
 
-One of the spec's eight named pillar-emitted intentions remains
-unbuilt: "build," genuinely INITIATING a construction attempt outside
-`_maybe_start_construction`'s existing colocation-triggered roll —
-distinct from "shift land use" (v1.34.153), which only overrides WHAT
-gets built at a site Body has already decided to start; "build" would
-change WHETHER one starts at all. Not a validation gap (every Body-
-touching write that DOES exist today is validated) — a coverage gap.
-Resume on future explicit direction naming a specific intention.
+**Every one of the spec's eight named pillar-emitted intentions is now
+shipped.** Not a validation gap (every Body-touching write that exists
+is validated) — the coverage gap this section tracked is closed.
 
 ### C3 — Player ↔ Pillar chat
 **CLOSED, v1.34.103.** "Pillars may initiate contact" shipped: `Pillar.

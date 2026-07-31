@@ -617,6 +617,60 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.157) — Tier 3 C2 closed
+
+Explicit user instruction: "continue tier 3 c2 with the next intention"
+— C2's eighth and final slice, "build," resolved without a fresh
+`AskUserQuestion` (only one intention remained, no choice to make).
+**This closes C2** — all eight named pillar-emitted intentions are now
+shipped. Named as the largest structural bypass in the whole channel:
+`_maybe_start_construction`'s ordinary path only ever fires when two
+founders happen to colocate on the same tile; `Population._maybe_
+civic_construction` genuinely INITIATES a real construction attempt
+with NO colocation required at all, driven purely by `village_pillar`'s
+own standing conviction that the settlement is prosperous.
+
+Reuses the existing `"prosperity"` category-keyed producer (`_detect_
+prosperity`, v1.34.142) rather than inventing a new signal — the one
+positive-framed subject in the whole village_pillar vocabulary was
+already exactly right for "invest in a civic project." New `VILLAGE_
+CIVIC_BUILD_CONVICTION_THRESHOLD=0.9` (buildings.py) — deliberately
+0.05 above every sibling C2 threshold, the highest bar in the channel,
+since this spends real settlement materials with no founders having
+chosen to build there themselves. Computed once per tick in `World.
+tick()`, gated to a weekly cadence (checked far less often than a
+per-tick gate, matching the size of the bypass). Body still gates the
+real outcome: a settlement already mid-project (any `UNDER_
+CONSTRUCTION` building) is skipped outright — never stacks a second
+project on an ongoing one, organic or civic — and needs at least two
+real living, mature, healthy members to found it, the same eligibility
+bar as the ordinary colocation path. Reuses `_choose_build_site`/
+`choose_building_kind` unchanged, anchored at one of the settlement's
+own standing buildings (there being no colocated group position to
+anchor from) rather than a founders' shared tile. New `civic_
+construction_started` event category (🏛️). Closes the loop: a genuine
+civic construction reinforces `"prosperity"` to full confidence in
+place, same shape every other C2 confirmation uses.
+
+Verified: a production-path test confirming a genuine civic
+construction fires (materials spent, a real `UNDER_CONSTRUCTION`
+building appears) with no colocated founders present at all; a
+negative case for `civic_build_convicted=False`; a negative case for a
+settlement already mid-project; a negative case for insufficient
+materials; a regression case for an unnamed/unfounded settlement never
+crashing; a full production-path test driving the real clock to a
+genuine `week_end` tick and calling `Population.tick()` through the
+exact same signature `World.tick()` uses, confirming a real civic
+construction fires end to end; a 4000-tick LLM-disabled soak with
+clean round-trip; `pyflakes` clean (only the four known pre-existing
+findings remain). No native module touched.
+
+**C2 is now fully shipped**: invent tech, change law, propose
+experiment, shift land use, set custom, reorganize institution,
+domesticate, build — all eight named pillar-emitted intentions from
+`docs/MASTERCHECKLIST-2026-07-22.md`'s Part C are real, verified,
+production-quality slices.
+
 ## Current state (v1.34.156)
 
 Explicit user instruction: "continue tier 3 c2 with the next intention,"

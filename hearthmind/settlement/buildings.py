@@ -1098,6 +1098,23 @@ food that already exists, while a pasture is the settlement genuinely
 changing how it uses land to PRODUCE more — the literal "shift land
 use" the intention names, not just more storage."""
 
+VILLAGE_CIVIC_BUILD_CONVICTION_THRESHOLD = 0.9
+"""C2 "Intention channel" (Mind -> Body, Tier 3), "build" — the
+eighth and final named intention. The bar `village_pillar`'s
+confidence about `"prosperity"` (the already-real category-keyed
+producer, `SimulationEngine._detect_prosperity`) must clear before
+`Population._maybe_civic_construction` genuinely INITIATES a real
+construction attempt with no colocated founders required at all —
+`_maybe_start_construction`'s ordinary path only ever fires when two
+eligible agents happen to occupy the same tile; this bypasses that
+colocation trigger entirely, the largest structural bypass of any C2
+slice (every other slice still needed a real Body precondition to
+already exist at the moment it acted). Deliberately the highest bar of
+any C2 threshold — 0.05 above every sibling's 0.85 — since spending
+real settlement materials on a brand-new construction site from
+conviction alone, with no founders having chosen to build there
+themselves, warrants the strictest bar in the whole channel."""
+
 
 GRANARY_CAPACITY = 90.0
 """Max food a standing granary can hold. Raised from 15.0 -> 40.0 -> 90.0

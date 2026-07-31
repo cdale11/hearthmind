@@ -180,6 +180,7 @@ const CATEGORY_META = {
   guild_joined: { icon: "🔨" },
   institution_reorganized: { icon: "🔁" }, // C2 "reorganize institution": a declining guild renamed around a skill its own surviving members actually mastered
   grazers_domesticated: { icon: "🐑" }, // C2 "domesticate": wild grazers captured into a standing pasture's own stock
+  civic_construction_started: { icon: "🏛️" }, // C2 "build": village_pillar conviction genuinely initiated a construction attempt with no colocated founders required
 
   faction_formed: { icon: "🚩" },
   illness: { icon: "🤒" },
