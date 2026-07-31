@@ -64,7 +64,7 @@ _FALLBACK_POOL: tuple[tuple[str, str, str], ...] = (
 
 def build_prompt(
     settlement_name: str, recent_events: list[dict], existing_inventions: list[str], tech_level: int,
-    beliefs: list[dict] | None = None,
+    beliefs: list[dict] | None = None, hunch: str | None = None,
 ) -> str:
     lines = [f"- {event['description']}" for event in recent_events]
     events_text = "\n".join(lines) if lines else "Nothing notable happened recently."
@@ -74,10 +74,16 @@ def build_prompt(
         + "; ".join(f"{b['subject']} ({b['belief']})" for b in beliefs) + "."
         if beliefs else ""
     )
+    # C2 "Intention channel" (docs/MASTERCHECKLIST-2026-07-22.md's Part
+    # C): Innovation's own leading hunch, when confident enough to seed
+    # this attempt (see SimulationEngine._maybe_schedule_invention) —
+    # the invention should plausibly grow FROM this, not just alongside
+    # it.
+    hunch_text = f"\nInnovation's own current hunch: {hunch}" if hunch else ""
     return (
         f"The village of {settlement_name} has grown prosperous (tech tier {tech_level}). "
         f"Recent history:\n{events_text}\n"
-        f"Inventions already made: {inventions_text}{beliefs_text}\n"
+        f"Inventions already made: {inventions_text}{beliefs_text}{hunch_text}\n"
         "Invent one new practical technique or tool this village now uses."
     )
 

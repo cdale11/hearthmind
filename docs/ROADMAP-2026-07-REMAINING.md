@@ -3912,14 +3912,25 @@ flagged in case a fresh audit disagrees.
 CLOSED. Salience-ranking (the one real gap found) is shipped.
 
 ### C2 — Intention channel (Mind → Body)
-Most of the spec's own named pillar-emitted intentions (invent tech,
-set custom, change law, reorganize institution, shift land use,
-domesticate, build, propose experiment) aren't pillar-emitted
-intentions at all yet — they're separate deterministic/LLM mechanics
-untouched by the five-pillar refactor. Not a validation gap (every
-Body-touching write that DOES exist today is validated) — a coverage
-gap that mostly waits on Tier 0's bigger refactor to even become
-relevant.
+**Started, v1.34.149.** First slice shipped: "invent tech." Innovation
+pillar's own leading open (`status="hypothesis"`) `world_model` belief
+now genuinely INITIATES an invention attempt (a confidence-gated boost
+to `INVENTION_CHANCE_PER_SEASON`, applied strictly after the existing
+prosperity gate) rather than merely biasing one that would fire anyway
+— the real distinction from every Tier 0 site, which only ever broke a
+tie. The seeding hypothesis resolves in place to a confirmed
+observation once a real invention forms from it (hypothesis -> action
+-> confirmation loop). See `SimulationEngine._maybe_schedule_
+invention`, `buildings.INNOVATION_HYPOTHESIS_CONFIDENCE_THRESHOLD`/
+`INNOVATION_HYPOTHESIS_INVENTION_BONUS_WEIGHT`.
+
+Seven of the spec's eight named pillar-emitted intentions remain
+unbuilt (set custom, change law, reorganize institution, shift land
+use, domesticate, build, propose experiment) — each still a separate
+deterministic/LLM mechanic untouched by the five-pillar refactor. Not
+a validation gap (every Body-touching write that DOES exist today is
+validated) — a coverage gap. Resume on future explicit direction
+naming a specific intention.
 
 ### C3 — Player ↔ Pillar chat
 **CLOSED, v1.34.103.** "Pillars may initiate contact" shipped: `Pillar.

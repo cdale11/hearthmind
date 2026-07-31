@@ -617,6 +617,57 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.149)
+
+Explicit user instruction: "start c2", resolved via `AskUserQuestion` —
+"Innovation-initiated invention (Recommended)." First real C2
+("Intention channel," Mind -> Body, `docs/MASTERCHECKLIST-2026-07-
+22.md`'s Part C) slice: `innovation_pillar`'s own leading OPEN
+(`status="hypothesis"`) `world_model` belief now genuinely INITIATES
+an invention attempt, not merely biases an existing one. This is
+architecturally distinct from every Tier 0 site, which only ever broke
+a tie or nudged an outcome that was going to happen anyway — this
+changes WHETHER the event happens at all.
+
+New `buildings.INNOVATION_HYPOTHESIS_CONFIDENCE_THRESHOLD=0.6` (the
+bar a hunch must clear to count as genuinely converged-on, not every
+half-formed idea) and `INNOVATION_HYPOTHESIS_INVENTION_BONUS_WEIGHT=
+0.5` (max chance multiplier, scaled by the hunch's own confidence).
+`_maybe_schedule_invention` looks up Innovation's highest-confidence
+open hypothesis and, once it clears the threshold, boosts `chance`
+strictly AFTER the existing prosperity gate — a pillar's conviction
+makes a breakthrough come more readily once the village can actually
+afford one, never in place of real surplus (Body stays authoritative,
+per `docs/CONSTITUTION.md`'s priority order). `llm/invention.py`'s
+`build_prompt` gained an optional `hunch` param grounding the actual
+LLM call in Innovation's own stated hunch text. The loop closes in
+apply(): once a real invention forms from a hypothesis-seeded attempt,
+that hypothesis is revised in place (`upsert_world_model` with
+`revises_id`) to `status="observation"`, confidence 1.0, its belief
+text appended with "This hunch led to a real invention: {name}." —
+hypothesis -> action -> confirmation, not left to fade unresolved.
+
+Verified: a direct production-path test confirming the boost genuinely
+flips whether the job schedules at all (same roll value fires only
+with a confident hunch present, not without one) — the load-bearing
+proof this is a real intention, not a tiebreak; a positive-case
+production-path test through the real `apply()` closure confirming the
+seeding hypothesis is revised in place (not duplicated) once the
+invention forms; a negative-case test confirming a hypothesis below
+the confidence threshold is left untouched; a 4000-tick LLM-disabled
+soak with clean `to_dict()`/`from_dict()` round-trip; `pyflakes` clean
+across all three touched files (`settlement/buildings.py`, `llm/
+invention.py`, `simulation/engine.py`) — no new findings beyond the
+four pre-existing `undefined name 'Agent'/'Building'/'Institution'`
+hits already confirmed harmless in prior passes this session. No
+native module touched.
+
+C2 names eight pillar-emitted intentions total (invent tech, set
+custom, change law, reorganize institution, shift land use,
+domesticate, build, propose experiment) — this ships only the first
+("invent tech"). The other seven remain open, not attempted; resume
+only on future explicit direction.
+
 ## Current state (v1.34.148) — Tier 0 closed
 
 Explicit user instruction: "continue tier 0 and finish it this turn

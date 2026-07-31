@@ -157,6 +157,8 @@ from hearthmind.settlement.buildings import (
     FOLKLORE_MAX_STORED,
     LEGENDS_MAX_STORED,
     GRANARY_CAPACITY,
+    INNOVATION_HYPOTHESIS_CONFIDENCE_THRESHOLD,
+    INNOVATION_HYPOTHESIS_INVENTION_BONUS_WEIGHT,
     INVENTION_CHANCE_PER_SEASON,
     INVENTION_CURRENCY_THRESHOLD,
     INVENTION_KNOWLEDGE_MAX_TRACKED,
@@ -4715,6 +4717,27 @@ class SimulationEngine:
             ) / (3 * len(agents))
             chance = min(1.0, chance * (1.0 + avg_skill * SKILL_INVENTION_BONUS_WEIGHT))
         chance = max(0.0, chance * (1.0 + settlement.temperament * TEMPERAMENT_INVENTION_INFLUENCE))
+        # C2 "Intention channel" (Mind -> Body, docs/MASTERCHECKLIST-
+        # 2026-07-22.md's Part C, Tier 3): Innovation's own leading
+        # open hypothesis, when it's genuinely confident (not every
+        # half-formed hunch), measurably raises invention odds — the
+        # first genuinely-new-mechanism C2 slice, distinct from every
+        # Tier 0 lean (which only ever broke a tie, never changed
+        # WHETHER a Body-affecting event happens at all). Applied
+        # AFTER the prosperity gate above, never in place of it.
+        leading_hypothesis = max(
+            (e for e in self.world.innovation_pillar.world_model if e.get("status") == "hypothesis"),
+            key=lambda e: e.get("confidence", 0.0), default=None,
+        )
+        hunch_used = None
+        if (
+            leading_hypothesis is not None
+            and leading_hypothesis.get("confidence", 0.0) >= INNOVATION_HYPOTHESIS_CONFIDENCE_THRESHOLD
+        ):
+            chance = min(
+                1.0, chance * (1.0 + leading_hypothesis["confidence"] * INNOVATION_HYPOTHESIS_INVENTION_BONUS_WEIGHT),
+            )
+            hunch_used = leading_hypothesis
         if _namespaced_roll(self.world.config.seed, self.world.clock.tick_count, "invention_roll") >= chance:
             return
         recent = recent_events_diverse(self.conn, limit=PROMPT_RECENT_EVENTS)
@@ -4722,7 +4745,9 @@ class SimulationEngine:
         prompt = invention.build_prompt(
             settlement.name, recent, inventions[-PROMPT_CULTURE_LIST_MAX:], settlement.tech_level,
             beliefs=settlement.beliefs[-PROMPT_BELIEFS_MAX:],
+            hunch=hunch_used["belief"] if hunch_used else None,
         )
+        hunch_id_used = hunch_used["id"] if hunch_used else None
         # tech_level already is a persistent, never-decremented count of
         # inventions established (one per invention) — reused directly
         # as the fallback ordinal source instead of len(inventions),
@@ -4811,6 +4836,24 @@ class SimulationEngine:
                 self.world.clock.tick_count, name, description, 1.0,
                 status="observation", source="invention",
             )
+            # C2 "Intention channel": if this attempt was genuinely
+            # seeded by Innovation's own leading hypothesis (see the
+            # scheduling site above), that hunch is now resolved — a
+            # real invention followed from it, so it graduates from
+            # `status="hypothesis"` to a confirmed observation in
+            # place, closing the hypothesis -> action -> confirmation
+            # loop rather than leaving the hunch to fade unresolved.
+            if hunch_id_used is not None:
+                resolved = next(
+                    (e for e in self.world.innovation_pillar.world_model if e["id"] == hunch_id_used), None,
+                )
+                if resolved is not None and resolved.get("status") == "hypothesis":
+                    self.world.innovation_pillar.upsert_world_model(
+                        self.world.clock.tick_count, resolved["subject"],
+                        f"{resolved['belief']} This hunch led to a real invention: {name}.",
+                        1.0, status="observation", source="invention_hunch_confirmed",
+                        revises_id=hunch_id_used,
+                    )
             self.world.innovation_pillar.remember(f"Invented {name}: {description}")
             self._append_emergence(
                 "novel_combination", "innovation", f"Invented {name}: {description}",

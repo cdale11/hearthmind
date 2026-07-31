@@ -1936,6 +1936,25 @@ reproduce roughly the pre-real-calendar annual rate (1-(1-0.15)^4 ~=
 event, not
 a formality."""
 
+INNOVATION_HYPOTHESIS_CONFIDENCE_THRESHOLD = 0.6
+"""C2 "Intention channel" (Mind -> Body, docs/MASTERCHECKLIST-2026-07-
+22.md's Part C): the bar `innovation_pillar`'s own leading open
+(`status="hypothesis"`) `world_model` belief must clear before it's
+trusted as a genuine seed for the next invention attempt — not every
+half-formed hunch, only one Innovation's own cognition has actually
+converged on. See `SimulationEngine._maybe_schedule_invention`."""
+
+INNOVATION_HYPOTHESIS_INVENTION_BONUS_WEIGHT = 0.5
+"""Max multiplicative boost to `INVENTION_CHANCE_PER_SEASON` from a
+qualifying leading hypothesis, scaled by its own confidence (0.6..1.0
+-> roughly +30%..+50%) — real but bounded, same "never dominant" shape
+as `TEMPERAMENT_INVENTION_INFLUENCE`/`SKILL_INVENTION_BONUS_WEIGHT`.
+Applied AFTER the prosperity gate, never in place of it — a pillar's
+own conviction makes a breakthrough come more readily once the
+village can actually afford one, it never substitutes for real
+surplus (Body stays authoritative; see docs/CONSTITUTION.md's
+priority order)."""
+
 # --- collective behaviour: festivals ----------------------------------------
 
 FESTIVAL_HUNGER_GATE = 0.5
