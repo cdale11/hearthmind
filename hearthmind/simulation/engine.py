@@ -167,6 +167,7 @@ from hearthmind.settlement.buildings import (
     INVENTION_SPECIALIZATION_STEP,
     LAWS_MAX_STORED,
     LAW_SIGNAL_THRESHOLD,
+    VILLAGE_PATTERN_CONVICTION_LAW_THRESHOLD,
     PROSPERITY_CURRENCY_FRACTION,
     PROSPERITY_FESTIVAL_BONUS,
     PROSPERITY_MATERIALS_FRACTION,
@@ -10370,8 +10371,31 @@ class SimulationEngine:
             candidates, key=lambda k: (candidates[k], self.world.village_pillar.subject_confidence(k)),
         )
         occurrences = candidates[pattern_key]
+        initiated_by_conviction = False
         if occurrences < LAW_SIGNAL_THRESHOLD:
-            return
+            # C2 "Intention channel" (Mind -> Body, docs/MASTERCHECKLIST-
+            # 2026-07-22.md's Part C, Tier 3, "change law"): before
+            # giving up, check whether Village's own standing conviction
+            # about a category with at least SOME real recent recurrence
+            # is confident enough to genuinely INITIATE a law proposal on
+            # its own, ahead of fresh occurrences re-crossing the full
+            # threshold. This is the real intention, not a tiebreak —
+            # `subject_confidence` can stay high from BEFORE a prior
+            # enactment reset the raw counter (see apply()'s reset
+            # below), so this captures the village genuinely acting on
+            # unresolved conviction, not just fresh hardship. Still
+            # requires occurrences >= 1 everywhere below — Body stays
+            # authoritative, conviction only bypasses the FULL threshold.
+            convicted = [
+                k for k, count in candidates.items()
+                if count >= 1
+                and self.world.village_pillar.subject_confidence(k) >= VILLAGE_PATTERN_CONVICTION_LAW_THRESHOLD
+            ]
+            if not convicted:
+                return
+            pattern_key = max(convicted, key=lambda k: self.world.village_pillar.subject_confidence(k))
+            occurrences = candidates[pattern_key]
+            initiated_by_conviction = True
         if self._pillar_interpret_backpressured("village"):
             return
         self._mark_monthly_resolved("laws")
@@ -10398,6 +10422,21 @@ class SimulationEngine:
                 stl.law_signal_counts["theft"] = 0
             else:
                 stl.pattern_signal_counts[pattern_key] = 0
+            # C2 "Intention channel": if this proposal was genuinely
+            # INITIATED by village_pillar's own standing conviction (see
+            # the scheduling site above), that conviction is now
+            # confirmed — a real law followed from it, so its own mirror
+            # entry is reinforced to full confidence in place, closing
+            # the conviction -> action -> confirmation loop rather than
+            # leaving it to just sit there unacted-on.
+            if initiated_by_conviction:
+                conviction_entry = self.world.village_pillar.find_world_model_entry(pattern_key)
+                if conviction_entry is not None:
+                    self.world.village_pillar.upsert_world_model(
+                        tick, pattern_key, conviction_entry["belief"], 1.0,
+                        status="observation", source="laws_conviction_confirmed",
+                        revises_id=conviction_entry["id"],
+                    )
             self._log("law_enacted", f"{stl.name} has come to hold a {parsed['kind']}: {parsed['text']}")
             # Tier 0 seventh slice (docs/ROADMAP-2026-07-REMAINING.md):
             # laws becomes Village pillar's FIFTH real wired job,

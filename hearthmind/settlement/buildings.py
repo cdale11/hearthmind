@@ -476,6 +476,23 @@ real LLM call considering whether to codify it — same "recurring, not
 a single bad afternoon" discipline as RITUAL_PROMOTION_THRESHOLD/
 FAMILY_FEUD_PROMOTION_THRESHOLD."""
 
+VILLAGE_PATTERN_CONVICTION_LAW_THRESHOLD = 0.75
+"""C2 "Intention channel" (Mind -> Body, docs/MASTERCHECKLIST-2026-07-
+22.md's Part C, Tier 3, "change law"): the bar `village_pillar`'s own
+standing confidence about a pattern category must clear to genuinely
+INITIATE a law proposal on its own, ahead of fresh occurrences
+re-accumulating to `LAW_SIGNAL_THRESHOLD`. Distinct from confidence's
+existing use as a mere tiebreak in `_maybe_schedule_laws` (which only
+ever resolves a tie among categories that already crossed the real
+threshold): this lets Village's own accumulated conviction — which can
+persist from BEFORE a prior enactment reset the raw occurrence counter
+— re-open the question early, "the village hasn't forgotten, even
+though the fresh count reset." Still requires at least one real
+recent occurrence (never invents hardship from nothing — Body stays
+authoritative, see docs/CONSTITUTION.md's priority order); only the
+FULL-threshold requirement is what conviction alone can bypass. See
+`SimulationEngine._maybe_schedule_laws`."""
+
 RITUAL_MAX_STORED = 12
 """Cap on `SettlementCulture.rituals` — a village's genuinely distinct
 recurring practices are meant to read as a short, curated list (there

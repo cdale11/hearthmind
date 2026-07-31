@@ -3912,25 +3912,41 @@ flagged in case a fresh audit disagrees.
 CLOSED. Salience-ranking (the one real gap found) is shipped.
 
 ### C2 — Intention channel (Mind → Body)
-**Started, v1.34.149.** First slice shipped: "invent tech." Innovation
-pillar's own leading open (`status="hypothesis"`) `world_model` belief
-now genuinely INITIATES an invention attempt (a confidence-gated boost
-to `INVENTION_CHANCE_PER_SEASON`, applied strictly after the existing
-prosperity gate) rather than merely biasing one that would fire anyway
-— the real distinction from every Tier 0 site, which only ever broke a
-tie. The seeding hypothesis resolves in place to a confirmed
-observation once a real invention forms from it (hypothesis -> action
--> confirmation loop). See `SimulationEngine._maybe_schedule_
-invention`, `buildings.INNOVATION_HYPOTHESIS_CONFIDENCE_THRESHOLD`/
-`INNOVATION_HYPOTHESIS_INVENTION_BONUS_WEIGHT`.
+**Started, v1.34.149-.150.** Two of eight named intentions shipped.
 
-Seven of the spec's eight named pillar-emitted intentions remain
-unbuilt (set custom, change law, reorganize institution, shift land
-use, domesticate, build, propose experiment) — each still a separate
-deterministic/LLM mechanic untouched by the five-pillar refactor. Not
-a validation gap (every Body-touching write that DOES exist today is
-validated) — a coverage gap. Resume on future explicit direction
-naming a specific intention.
+"Invent tech" (v1.34.149): Innovation pillar's own leading open
+(`status="hypothesis"`) `world_model` belief genuinely INITIATES an
+invention attempt (a confidence-gated boost to `INVENTION_CHANCE_PER_
+SEASON`, applied strictly after the existing prosperity gate) rather
+than merely biasing one that would fire anyway. The seeding hypothesis
+resolves in place to a confirmed observation once a real invention
+forms from it. See `SimulationEngine._maybe_schedule_invention`,
+`buildings.INNOVATION_HYPOTHESIS_CONFIDENCE_THRESHOLD`/`INNOVATION_
+HYPOTHESIS_INVENTION_BONUS_WEIGHT`.
+
+"Change law" (v1.34.150): `village_pillar`'s own standing conviction
+about a hardship category can now genuinely INITIATE a law proposal
+ahead of fresh occurrences re-crossing `LAW_SIGNAL_THRESHOLD` — a
+category's persisted confidence (which survives a prior enactment's
+reset of the raw occurrence counter) can re-open the question on its
+own, provided at least one real recent occurrence exists (Body stays
+authoritative — conviction alone with zero fresh evidence never
+initiates anything). Closes the loop symmetrically: a real law formed
+from a conviction-initiated attempt reinforces that entry to full
+confidence in place. See `SimulationEngine._maybe_schedule_laws`,
+`buildings.VILLAGE_PATTERN_CONVICTION_LAW_THRESHOLD`.
+
+Both slices share the same real distinction from every Tier 0 site —
+Tier 0 only ever broke a tie or nudged an outcome that would happen
+anyway; C2 changes WHETHER the event happens at all.
+
+Six of the spec's eight named pillar-emitted intentions remain unbuilt
+(set custom, reorganize institution, shift land use, domesticate,
+build, propose experiment) — each still a separate deterministic/LLM
+mechanic untouched by the five-pillar refactor. Not a validation gap
+(every Body-touching write that DOES exist today is validated) — a
+coverage gap. Resume on future explicit direction naming a specific
+intention.
 
 ### C3 — Player ↔ Pillar chat
 **CLOSED, v1.34.103.** "Pillars may initiate contact" shipped: `Pillar.

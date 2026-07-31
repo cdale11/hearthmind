@@ -617,6 +617,51 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.150)
+
+Explicit user instruction: "continue tier 3 c2 with the next intention"
+— C2's second slice, "change law." `village_pillar`'s own standing
+conviction about a hardship category can now genuinely INITIATE a law
+proposal ahead of fresh occurrences re-crossing `LAW_SIGNAL_THRESHOLD`
+— not merely a tiebreak among already-qualifying candidates (that's
+what Tier 0's 25th site already did). New `buildings.VILLAGE_PATTERN_
+CONVICTION_LAW_THRESHOLD=0.75`: when no candidate's raw occurrence
+count clears the normal threshold, `_maybe_schedule_laws` now checks
+whether ANY category with at least one real recent occurrence (Body
+stays authoritative — conviction alone with zero fresh evidence never
+initiates anything, verified directly) has village_pillar confidence
+at or above this bar; if so, that category's own mirror entry becomes
+the real initiating signal, not a fallback.
+
+This captures something Tier 0's lean never could: `village_pillar`'s
+confidence about a category persists from BEFORE a prior law's
+enactment reset the raw occurrence counter (see apply()'s existing
+reset), so a settlement that already legislated once can act again on
+its own unresolved memory well before fresh hardship alone would
+re-qualify — "the village hasn't forgotten," not just "the village
+is currently suffering." Closes the loop symmetrically with the
+invention slice: once a real law is enacted from a conviction-
+initiated attempt, that pillar entry is reinforced to full confidence
+in place (`revises_id`), not duplicated.
+
+Verified: a production-path test confirming the conviction path fires
+below the occurrence threshold when confidence qualifies; a
+production-path test through the real `apply()` closure confirming
+the seeding conviction entry is reinforced to confidence 1.0 in place
+(no duplicate) and the occurrence counter still resets normally on
+enactment; a negative-case test for confidence below threshold; a
+second negative-case test confirming conviction with literally zero
+real recent occurrences never initiates anything (Body-authority
+regression guard); a regression test confirming the ordinary Body-
+threshold-driven path fires completely unchanged; a 4000-tick LLM-
+disabled soak with clean round-trip; `pyflakes` clean on both touched
+files (no new findings beyond the four pre-existing, already-confirmed
+harmless hits). No native module touched.
+
+C2 now has two of eight named intentions shipped (invent tech, change
+law). Six remain open: set custom, reorganize institution, shift land
+use, domesticate, build, propose experiment.
+
 ## Current state (v1.34.149)
 
 Explicit user instruction: "start c2", resolved via `AskUserQuestion` —
