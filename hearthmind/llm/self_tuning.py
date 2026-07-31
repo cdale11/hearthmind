@@ -58,10 +58,26 @@ SYSTEM_PROMPT = (
 )
 
 
-def build_prompt(governor_label: str, hypothesis_text: str, current_multiplier: float) -> str:
+def build_prompt(
+    governor_label: str, hypothesis_text: str, current_multiplier: float, via_conviction: bool = False,
+) -> str:
+    # C2 "Intention channel" (docs/ROADMAP-2026-07-REMAINING.md, "propose
+    # experiment"): `_maybe_schedule_self_tuning` can now genuinely
+    # initiate testing a hypothesis EARLY, on `reflection_pillar`'s own
+    # standing conviction, before it's crossed `REFLECTION_SUPPORTED_
+    # THRESHOLD` through the normal evidence-accumulation loop — the
+    # prompt must say so honestly (`via_conviction`) rather than
+    # unconditionally claiming "supported," which would misrepresent an
+    # open, not-yet-proven hypothesis's real epistemic status to the
+    # model and undermine the "evidence stays authoritative" discipline
+    # this whole mechanism depends on.
+    hypothesis_label = (
+        "A hunch you feel strongly about, though the evidence hasn't fully settled it yet"
+        if via_conviction else "Your supported hypothesis about it"
+    )
     return (
         f"Governor under consideration: {governor_label}\n"
-        f"Your supported hypothesis about it: {hypothesis_text}\n"
+        f"{hypothesis_label}: {hypothesis_text}\n"
         f"Its current effective multiplier: {current_multiplier:.2f} (1.0 = base rate, "
         "unmodified).\n"
         "Propose a bounded nudge, or a very small magnitude if you believe no real "

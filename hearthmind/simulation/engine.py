@@ -7955,7 +7955,9 @@ class SimulationEngine:
             self._schedule_advisory(advisory_candidate)
             return
         current_multiplier = self.world.governor_tuning.get(governor_key, 1.0)
-        prompt = self_tuning.build_prompt(candidate["subject"], candidate["content"], current_multiplier)
+        prompt = self_tuning.build_prompt(
+            candidate["subject"], candidate["content"], current_multiplier, via_conviction=initiated_by_conviction,
+        )
         fallback = self_tuning.fallback_self_tuning()
         hypothesis_id = candidate["id"]
         hypothesis_subject = candidate["subject"]
@@ -10483,7 +10485,7 @@ class SimulationEngine:
             return
         self._mark_monthly_resolved("laws")
         pattern_text = self._LAW_PATTERN_TEXT.get(pattern_key, pattern_key)
-        prompt = laws.build_prompt(target.name, pattern_text, occurrences, target.laws)
+        prompt = laws.build_prompt(target.name, pattern_text, occurrences, target.laws, remembered=initiated_by_conviction)
         fallback = laws.fallback_laws()
         target_id = target.id
 

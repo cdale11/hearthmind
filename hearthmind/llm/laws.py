@@ -25,11 +25,28 @@ SYSTEM_PROMPT = (
 )
 
 
-def build_prompt(settlement_name: str, pattern: str, occurrences: int, existing_laws: list[dict]) -> str:
+def build_prompt(
+    settlement_name: str, pattern: str, occurrences: int, existing_laws: list[dict],
+    remembered: bool = False,
+) -> str:
     laws_text = "; ".join(law.get("text", "") for law in existing_laws) or "None yet."
+    # C2 "Intention channel" (docs/ROADMAP-2026-07-REMAINING.md, "change
+    # law"): `_maybe_schedule_laws` can now genuinely INITIATE this call
+    # on `village_pillar`'s own standing conviction, ahead of fresh
+    # occurrences re-crossing `LAW_SIGNAL_THRESHOLD` — `occurrences` here
+    # can then be as low as 1, which read alone (against a SYSTEM_PROMPT
+    # that defaults to "not yet") would misleadingly undersell a real,
+    # persisted village memory as a single fresh incident. `remembered`
+    # names that context honestly instead of silently passing a thin
+    # number with no explanation.
+    memory_text = (
+        " — though this is far from the village's first brush with it; the memory of it "
+        "has lingered ever since"
+        if remembered else ""
+    )
     return (
         f"The village of {settlement_name} has lived through this same hardship "
-        f"{occurrences} separate times: {pattern}\n"
+        f"{occurrences} separate times{memory_text}: {pattern}\n"
         f"Norms it already holds: {laws_text}\n"
         "Has the village settled on a real rule in response, or is it still too soon to say?"
     )

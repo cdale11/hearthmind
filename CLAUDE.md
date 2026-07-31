@@ -617,6 +617,49 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.152)
+
+Explicit user instruction: "fix the previous found flaws first,"
+resolved via `AskUserQuestion` to "re-audit my last 3 C2 commits"
+(v1.34.149-.151). Found one real, load-bearing bug — fixed, no new
+mechanism.
+
+**Bug**: `llm/self_tuning.py`'s `build_prompt` unconditionally told the
+model "Your **supported** hypothesis about it: {text}" — accurate for
+the original path (a hypothesis that survived `_reevaluate_reflection_
+hypotheses`'s multi-cycle evidence loop to reach `status="supported"`),
+but v1.34.151's own conviction-initiated path deliberately tests a
+still-`"open"` hypothesis *because* it hasn't reached that status yet.
+The prompt was silently lying to the model about the hypothesis's real
+epistemic status on every conviction-initiated firing — directly
+undermining the feature's own stated "evidence stays authoritative"
+principle, since the model was never told the evidence wasn't actually
+settled. Fixed: `build_prompt` gained a `via_conviction` param, wired
+from `_maybe_schedule_self_tuning`'s real `initiated_by_conviction`
+flag — the conviction path now honestly reads "A hunch you feel
+strongly about, though the evidence hasn't fully settled it yet."
+
+**Secondary gap, same audit**: `llm/laws.py`'s `build_prompt` passes
+the raw `occurrences` count with no framing — legitimately as low as 1
+on a conviction-initiated firing (v1.34.150), which against `SYSTEM_
+PROMPT`'s own "most of the time it is NOT yet settled" default risked
+the feature being practically inert (the model told "occurred 1 time"
+would almost always answer "not yet," regardless of the real standing
+conviction driving the call). Fixed with a `remembered` param — a
+conviction-initiated prompt now honestly notes "this is far from the
+village's first brush with it; the memory of it has lingered ever
+since," giving the model the real context missing from the bare count.
+
+Both fixes are prompt-content-only — no scheduling/gating/confirmation
+logic changed; every test from v1.34.149-.151 re-run and still passes
+unmodified. Verified: direct assertions on both new prompt branches
+(conviction wording present/absent as expected); full production-path
+regression re-run for all three C2 slices (invention hypothesis-
+resolution, laws conviction-confirmation, reflection experiment-
+confirmation) unmodified and still passing; a 4000-tick LLM-disabled
+soak with clean round-trip; `pyflakes` clean (same four pre-existing
+findings only). No native module touched.
+
 ## Current state (v1.34.151)
 
 Explicit user instruction: "continue tier 3 c2 with the next intention
