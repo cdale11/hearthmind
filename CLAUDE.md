@@ -617,6 +617,31 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.141)
+
+Explicit user instruction: "Continue tier 0 ask is needed new
+system," resolved via `AskUserQuestion` — "wildlife_recolonization as
+a 9th law candidate." Same pure-consumer-side pattern as `disease_
+outbreak`/`starvation_death`'s conversions: `wildlife_recolonization`
+already had a real `pattern_signal_counts` counter and a real
+`village_pillar` mirror (same `_bump_village_pattern_signal` call
+site), previously consumed only by the ontology-proposal pressure-
+signal tiebreak. Added as `candidates`' ninth entry plus a `_LAW_
+PATTERN_TEXT` line — a settlement repeatedly seeing wildlife press
+back into its farmland can now produce a real hunting-rights/land-use
+law outright, or win a tie via the existing `village_pillar.subject_
+confidence` tiebreak. `PRESSURE_SIGNAL_LABELS` already had a
+`wildlife_recolonization` entry from earlier work, no change needed
+there.
+
+Verified: a production-path test confirming a lone `wildlife_
+recolonization` signal at threshold wins outright and grounds the
+real `laws` prompt, a 4000-tick LLM-disabled soak with clean
+round-trip, `pyflakes` clean. No native module touched. Every
+`PRESSURE_SIGNAL_LABELS`-backed pattern-signal category now also has
+a real `_maybe_schedule_laws` consumer — this specific gap class is
+fully closed. Tier 0 now has forty-five real converted sites.
+
 ## Current state (v1.34.140)
 
 Explicit user instruction: "Continue tier 0." A ninth law candidate

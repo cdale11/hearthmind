@@ -10133,6 +10133,7 @@ class SimulationEngine:
         "disease_outbreak": "sickness taking hold again and again",
         "currency_shortage": "the coffers running dangerously bare",
         "starvation_death": "hunger claiming lives again and again",
+        "wildlife_recolonization": "wildlife pressing back into the land again and again",
     }
 
     def _maybe_schedule_laws(self, events: list[str]) -> None:
@@ -10190,6 +10191,17 @@ class SimulationEngine:
             # tiebreak. A settlement repeatedly losing people to hunger
             # can now produce a real famine-relief/rationing law.
             "starvation_death": target.pattern_signal_counts.get("starvation_death", 0),
+            # Tier 0, explicit user decision via `AskUserQuestion`: a
+            # genuine NINTH option needing no new producer, same
+            # pattern as `disease_outbreak`/`starvation_death`'s
+            # conversions — `wildlife_recolonization` already has a
+            # real `pattern_signal_counts` counter and a real
+            # `village_pillar` mirror (same `_bump_village_pattern_
+            # signal` call site), previously consumed only by the
+            # ontology-proposal pressure-signal tiebreak. A settlement
+            # repeatedly seeing wildlife press back into its farmland
+            # can now produce a real hunting-rights/land-use law.
+            "wildlife_recolonization": target.pattern_signal_counts.get("wildlife_recolonization", 0),
         }
         # Tier 0 (25th site): a genuine tie in real occurrence count
         # breaks toward whichever category village_pillar's new
