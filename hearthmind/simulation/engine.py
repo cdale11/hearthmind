@@ -6492,13 +6492,47 @@ class SimulationEngine:
             if had_starvation_death:
                 counts = stl.pattern_signal_counts
                 counts["starvation_death"] = counts.get("starvation_death", 0) + 1
+                self._bump_village_pattern_signal(
+                    "starvation_death", f"{stl.name} has lost people to hunger before.",
+                )
             if had_new_outbreak:
                 counts = stl.pattern_signal_counts
                 counts["disease_outbreak"] = counts.get("disease_outbreak", 0) + 1
+                self._bump_village_pattern_signal(
+                    "disease_outbreak", f"{stl.name} keeps seeing sickness take hold.",
+                )
             if had_wildlife_recolonization:
                 counts = stl.pattern_signal_counts
                 counts["wildlife_recolonization"] = counts.get("wildlife_recolonization", 0) + 1
+                self._bump_village_pattern_signal(
+                    "wildlife_recolonization", f"Wildlife keeps pressing back into land near {stl.name}.",
+                )
             self._maybe_promote_ritual(stl)
+
+    def _bump_village_pattern_signal(self, subject: str, text: str) -> None:
+        """Tier 0, new producer (explicit user instruction: "continue
+        tier 0"): `starvation_death`/`disease_outbreak`/`wildlife_
+        recolonization` were already real `pattern_signal_counts` keys
+        with a real `PRESSURE_SIGNAL_LABELS` entry (see `llm/
+        ontology.py`) — `_maybe_schedule_ontology_proposal`'s pressure-
+        signal tiebreak (v1.34.129/131) already scans ALL of a
+        settlement's `pattern_signal_counts` and already reads `village_
+        pillar.subject_confidence(kv[0])` for whichever key wins, but
+        these three specific keys had no matching `world_model` mirror
+        anywhere — their real occurrence counts could still win the
+        primary pick outright (never blocked), but a genuine tie
+        involving one of them could never lean toward it. Same
+        revise-in-place shape `dispute_feud`/`materials_bottleneck`
+        already established, factored into one shared helper since this
+        is the third site to need it (not retrofitted onto the earlier
+        two, which already work and don't need touching)."""
+        existing = self.world.village_pillar.find_world_model_entry(subject)
+        prior_confidence = existing["confidence"] if existing else 0.3
+        self.world.village_pillar.upsert_world_model(
+            self.world.clock.tick_count, subject, text,
+            min(1.0, prior_confidence + 0.1), status="observation", source=subject,
+            revises_id=existing["id"] if existing else None,
+        )
 
     def _maybe_promote_ritual(self, stl: "Settlement") -> None:
         existing_patterns = {r["pattern"] for r in stl.rituals}

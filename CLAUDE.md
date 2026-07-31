@@ -617,6 +617,37 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.135)
+
+Explicit user instruction: "Continue tier 0." Village pillar's sixth,
+seventh, and eighth category-keyed `world_model` subjects, all in one
+batch since they share the exact same shape and consumer: `starvation_
+death`/`disease_outbreak`/`wildlife_recolonization` were already real
+`pattern_signal_counts` keys with a real `PRESSURE_SIGNAL_LABELS`
+entry in `llm/ontology.py`, and `_maybe_schedule_ontology_proposal`'s
+pressure-signal tiebreak (v1.34.129/131) already scans the WHOLE
+`pattern_signal_counts` dict and already reads `village_pillar.
+subject_confidence(kv[0])` for whichever key wins — but none of these
+three had a matching mirror anywhere, so a genuine tie involving one
+of them could never lean toward it (the real occurrence count could
+still win outright on its own, just never break a tie). New shared
+`SimulationEngine._bump_village_pattern_signal(subject, text)` helper
+(factored out since this is the third site needing the exact revise-
+in-place shape `dispute_feud`/`materials_bottleneck` already
+established) is called from `_detect_ritual_signals`'s existing three
+increment sites — the same place these counters were already being
+bumped, no new detection logic needed.
+
+Verified: a direct production-path test through the real `_detect_
+ritual_signals` (forms/revises in place across two firings), a
+production-path test through the real `_maybe_schedule_ontology_
+proposal` confirming a genuine tie now leans toward `starvation_death`
+via this real new content (not a self-seeded stand-in), a 4000-tick
+LLM-disabled soak with clean round-trip, `pyflakes` clean. No native
+module touched. Tier 0 now has thirty-nine real converted sites (one
+new shared helper backing three subjects, counted as the single
+producer-side conversion it mechanically is).
+
 ## Current state (v1.34.134)
 
 Explicit user instruction: "Build new sites in tier 0 so that we can
