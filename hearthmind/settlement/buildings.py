@@ -1155,6 +1155,13 @@ stockpile -> faster building) over presence alone."""
 CURRENCY_CAPACITY = 50.0
 """Max settlement currency — see D10."""
 
+CURRENCY_SHORTAGE_THRESHOLD = 5.0
+"""Tier 0, new producer: below this, a settlement's coffers read as a
+genuine shortage — half of `INVENTION_CURRENCY_THRESHOLD` (10.0, the
+existing "prosperous enough to invent" bar), i.e. 10% of `CURRENCY_
+CAPACITY` against invention's 20%. Backs `SimulationEngine._detect_
+currency_shortage`."""
+
 CURRENCY_PER_OVERFLOW_UNIT = 1.0
 """Currency generated per unit of food/materials that would otherwise be
 wasted once a granary/the materials stockpile is already at capacity —

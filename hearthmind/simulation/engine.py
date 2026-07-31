@@ -143,6 +143,7 @@ from hearthmind.agents.occupations import (
 from hearthmind.settlement.buildings import (
     CULTURE_LIST_MAX_STORED,
     CURRENCY_CAPACITY,
+    CURRENCY_SHORTAGE_THRESHOLD,
     cheapest_founding_cost,
     ERA_DESCRIPTIONS,
     FAMILY_FEUD_FESTIVAL_PENALTY,
@@ -1586,6 +1587,16 @@ class SimulationEngine:
         `food_shortage_now` check uses) rather than duplicating either.
         Never persisted — same re-baseline-on-restart reasoning as
         every other edge-trigger flag here."""
+        self._currency_shortage_flagged: "set[int]" = set()
+        """Tier 0, new producer (explicit user decision via
+        `AskUserQuestion`: "Currency shortage producer"). Village
+        pillar's eighth category-keyed `world_model` subject, same
+        shape as `_detect_food_shortage` — backs `_detect_currency_
+        shortage`, comparing `Settlement.currency` against `buildings.
+        CURRENCY_SHORTAGE_THRESHOLD` (half of the existing `INVENTION_
+        CURRENCY_THRESHOLD` "prosperous enough to invent" bar). Never
+        persisted — same re-baseline-on-restart reasoning as every
+        other edge-trigger flag here."""
         self._hydrology_drought_flagged: bool = False
         """A11 (roadmap Stage IV step 15): edge-trigger flag for
         `_detect_hydrology_drought`, same "one observation on the
@@ -10120,6 +10131,7 @@ class SimulationEngine:
         "housing_shortage": "too many people packed into too few homes",
         "food_shortage": "the granaries running dangerously low",
         "disease_outbreak": "sickness taking hold again and again",
+        "currency_shortage": "the coffers running dangerously bare",
     }
 
     def _maybe_schedule_laws(self, events: list[str]) -> None:
@@ -10163,6 +10175,11 @@ class SimulationEngine:
             # produce a real public-health law, not just influence what
             # Innovation invents.
             "disease_outbreak": target.pattern_signal_counts.get("disease_outbreak", 0),
+            # Tier 0, new producer (explicit user decision: "Currency
+            # shortage producer"): a genuine SEVENTH option, same
+            # shape — see `_detect_currency_shortage`'s mirror for the
+            # producer half.
+            "currency_shortage": target.pattern_signal_counts.get("currency_shortage", 0),
         }
         # Tier 0 (25th site): a genuine tie in real occurrence count
         # breaks toward whichever category village_pillar's new
@@ -11022,6 +11039,7 @@ class SimulationEngine:
         self._detect_occupation_shortage()
         self._detect_housing_shortage()
         self._detect_food_shortage()
+        self._detect_currency_shortage()
 
     def _detect_metric_highlights(self, population_total: int) -> None:
         """§5 "Anomaly/highlight log" (docs/IDEAS-2026-07-EMERGENCE.md):
@@ -11269,6 +11287,54 @@ class SimulationEngine:
                 )
             elif not shortage and was_flagged:
                 self._food_shortage_flagged.discard(settlement.id)
+
+    def _detect_currency_shortage(self) -> None:
+        """Tier 0, new producer (explicit user decision via
+        `AskUserQuestion`: "Currency shortage producer"). Village
+        pillar's eighth category-keyed `world_model` subject, same
+        shape as `_detect_food_shortage`/`_detect_housing_shortage` —
+        a settlement's coffers dropping below `buildings.CURRENCY_
+        SHORTAGE_THRESHOLD` (half of `INVENTION_CURRENCY_THRESHOLD`,
+        the existing "prosperous enough to invent" bar) is a real,
+        already-tracked economic fact, not invented state. Same
+        edge-triggered discipline: one `bottleneck` observation the
+        tick a settlement first crosses into genuine poverty, silence
+        while it stays there, silent recovery once it eases. Riding
+        the same daily-metrics cadence as its siblings.
+
+        Real new consumer: `_maybe_schedule_laws`'s `candidates` dict
+        gains a genuine SEVENTH option — `"currency_shortage"` can now
+        win the `pattern_key` pick outright and produce a real
+        taxation/currency law, same shape `food_shortage` already
+        established. Also automatically strengthens `_maybe_schedule_
+        ontology_proposal`'s pressure-signal scan, no separate wiring
+        needed."""
+        for settlement in self.world.settlements:
+            if not settlement.name:
+                continue
+            shortage = settlement.currency < CURRENCY_SHORTAGE_THRESHOLD
+            was_flagged = settlement.id in self._currency_shortage_flagged
+            if shortage and not was_flagged:
+                self._currency_shortage_flagged.add(settlement.id)
+                settlement.pattern_signal_counts["currency_shortage"] = (
+                    settlement.pattern_signal_counts.get("currency_shortage", 0) + 1
+                )
+                self._append_emergence(
+                    "bottleneck", "settlement",
+                    f"{settlement.name}'s coffers are running dangerously bare.",
+                    pillars=("village",), magnitude=0.6, settlement=settlement.name,
+                    data={"currency": round(settlement.currency, 3)},
+                )
+                existing = self.world.village_pillar.find_world_model_entry("currency_shortage")
+                prior_confidence = existing["confidence"] if existing else 0.3
+                self.world.village_pillar.upsert_world_model(
+                    self.world.clock.tick_count, "currency_shortage",
+                    f"{settlement.name} keeps running short on currency.",
+                    min(1.0, prior_confidence + 0.1), status="observation", source="currency_shortage",
+                    revises_id=existing["id"] if existing else None,
+                )
+            elif not shortage and was_flagged:
+                self._currency_shortage_flagged.discard(settlement.id)
 
     def _detect_hydrology_drought(self) -> None:
         """A22 Emergence API, A11's real consumer beyond farm yield

@@ -120,6 +120,7 @@ PRESSURE_SIGNAL_LABELS: dict[str, str] = {
     "nature_adaptation": "the land itself changing under them",
     "housing_shortage": "too many people packed into too few homes",
     "food_shortage": "the granaries running dangerously low",
+    "currency_shortage": "the coffers running dangerously bare",
 }
 """B5 "Innovation as conscious scientist" (roadmap Stage III step 12):
 plain-language phrasing for `Settlement.pattern_signal_counts`' keys

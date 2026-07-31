@@ -617,6 +617,34 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.139)
+
+Explicit user instruction: "Continue tier 0 and ask me question for
+new things to add," resolved via `AskUserQuestion` — "Currency
+shortage producer." Village pillar's eighth category-keyed `world_
+model` subject, same shape as `_detect_food_shortage`. New `SimulationEngine._detect_currency_shortage`
+(daily-metrics cadence, edge-triggered) compares `Settlement.currency`
+against new `buildings.CURRENCY_SHORTAGE_THRESHOLD=5.0` — half of the
+existing `INVENTION_CURRENCY_THRESHOLD` (10.0, "prosperous enough to
+invent"), i.e. 10% of `CURRENCY_CAPACITY` against invention's 20%, so
+the new threshold is derived from an already-tuned constant rather
+than picked from nothing.
+
+New real consumer: `_maybe_schedule_laws`'s `candidates` dict gains a
+genuine SEVENTH option — `"currency_shortage"` can now win the
+`pattern_key` pick outright and produce a real taxation/currency law,
+same shape every prior category-keyed producer established. Also
+strengthens `_maybe_schedule_ontology_proposal`'s pressure-signal scan
+for free. Added a matching `PRESSURE_SIGNAL_LABELS` entry.
+
+Verified: a direct production-path test for the producer (forms/
+revises on a forced-empty-coffers settlement, clears once currency
+recovers), a production-path test for the consumer (a lone `currency_
+shortage` signal at threshold wins outright and grounds the real
+`laws` prompt), a 4000-tick LLM-disabled soak with clean round-trip,
+`pyflakes` clean. No native module touched. Tier 0 now has forty-three
+real converted sites.
+
 ## Current state (v1.34.138)
 
 Explicit user instruction: "Continue tier 0." A sixth law candidate
