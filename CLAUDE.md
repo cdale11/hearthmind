@@ -617,6 +617,58 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.158) — Tier 3 A12 closed
+
+Explicit user instruction: "continue tier 3 with A12 and build the
+consumer by asking me," resolved via `AskUserQuestion` — "Both repair
++ decay (Recommended)." Closes A12: per-instance `Entity.material`
+generalized beyond buildings (`Building.material` shipped v1.34.58) —
+left unbuilt until now for lack of a real consumer, per every prior
+audit's own honest note.
+
+New `Vehicle.material: str | None = None` (settlement/vehicles.py,
+same "`None` = use the kind's default, zero migration" shape as
+`Building.material`) and `world/materials.py`'s `VEHICLE_MATERIALS`
+(CART/RAFT/BOAT -> wood, AUTOMOBILE -> metal, MOUNT -> fiber —
+deliberately assigned, since the vehicle abstraction represents a
+mount's tack/stabling, not the living animal) + `effective_vehicle_
+material_name`, the exact per-instance-resolution counterpart to
+`effective_material_name`. Both real consumers buildings already have
+generalize for free — `material_repair_factor`/`material_decay_
+factor` were already pure functions of a material NAME, never
+Building-specific, so no new formula was needed: `Population._maybe_
+repair_vehicles` now scales repair speed by the vehicle's own material
+workability, and every wear site (`_wear_carts`, `_wear_rafts`, and
+all three `PERSONAL_VEHICLE_USE_DECAY` mount/automobile decay sites)
+now scales by the vehicle's own material decay_rate — a metal
+automobile now wears down markedly slower than a wood cart, a stone-
+hulled boat repairs markedly slower than a fiber-tacked mount, the
+same real-world intuition A5/A6 already made mechanical for buildings.
+Pure Python throughout (`Settlement.vehicles`' condition/repair/wear
+math has no native fast path, unlike buildings' `_native_building_
+decay_tick`) — zero native-parity risk, no native-module change
+needed.
+
+No per-instance vehicle click-inspector exists in the UI at all yet
+(vehicles only ever reach `/state` as an aggregate "Vehicles" stat
+tile) — flagged honestly rather than building a whole new inspector
+UI as unrequested scope; the mechanic is real and verified regardless
+of whether it's yet visible per-instance in the browser.
+
+Verified: direct tests for default per-kind material resolution
+(CART/AUTOMOBILE/MOUNT), explicit-override resolution, `to_dict`/
+`from_dict` round-trip (incl. a legacy snapshot with no `material` key
+at all defaulting to `None`), a production-path test through the real
+`_maybe_repair_vehicles` confirming a fiber cart genuinely repairs
+faster than a stone cart, production-path tests through the real
+`_wear_carts`/`_wear_rafts` confirming a fiber vehicle wears
+measurably faster than a stone one, a direct check confirming an
+unrecognized/absent material still reproduces the exact old flat 1.0x
+behavior; a 4000-tick LLM-disabled soak with clean round-trip;
+`pyflakes` clean (only the four known pre-existing findings remain).
+
+**Tier 3 is now fully closed** — A12 was its last open item.
+
 ## Current state (v1.34.157) — Tier 3 C2 closed
 
 Explicit user instruction: "continue tier 3 c2 with the next intention"

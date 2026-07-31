@@ -30,6 +30,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from hearthmind.settlement.buildings import BuildingKind
+from hearthmind.settlement.vehicles import VehicleKind
 from hearthmind.world.affordances import AFFORDANCE_TAGS, BUILDING_AFFORDANCES
 
 
@@ -129,6 +130,32 @@ physical affordance tag there either, for the same "informational/
 economic identity, not a physical capability" reasoning; extending
 one without the other would be a real inconsistency, not a smaller
 scope."""
+
+VEHICLE_MATERIALS: dict[VehicleKind, str] = {
+    VehicleKind.CART: "wood",
+    VehicleKind.MOUNT: "fiber",
+    VehicleKind.AUTOMOBILE: "metal",
+    VehicleKind.RAFT: "wood",
+    VehicleKind.BOAT: "wood",
+}
+"""A12's per-instance Vehicle generalization (see `Vehicle.material`):
+each kind's real-world-plausible primary material, same "grounded
+estimate" discipline `BUILDING_MATERIALS` uses. CART/RAFT/BOAT are
+wood-built, same as DOCK; AUTOMOBILE is metal, same as FACTORY/
+POWER_PLANT/OIL_RIG; MOUNT is deliberately `fiber` rather than
+unassigned — the vehicle abstraction represents a mount's tack and
+stabling, not the living animal itself, and leather/rope tack is a
+genuinely fiber-built good (same assignment PASTURE/HATCHERY already
+carry for livestock-adjacent infrastructure)."""
+
+
+def effective_vehicle_material_name(vehicle) -> str | None:
+    """`Vehicle.material`'s per-instance resolution point — the exact
+    counterpart to `effective_material_name` for buildings. `None`
+    (every vehicle today, since nothing yet converts one post-
+    construction) falls back to `VEHICLE_MATERIALS[vehicle.kind]`."""
+    return vehicle.material if vehicle.material is not None else VEHICLE_MATERIALS.get(vehicle.kind)
+
 
 HARDNESS_SHARPEN_THRESHOLD = 0.6
 WORKABILITY_SHARPEN_THRESHOLD = 0.4

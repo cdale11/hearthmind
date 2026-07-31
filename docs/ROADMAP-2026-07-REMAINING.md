@@ -206,7 +206,7 @@ starts on an explicit instruction naming an item.
       weighted_spread_target` consumer) shipped v1.34.60. **A17 is
       fully closed.**
 
-### Tier 3 — deepen an already-real mechanism
+### Tier 3 — deepen an already-real mechanism — **CLOSED, v1.34.158**
 
 - [x] **A5/A6 — CLOSED, v1.34.79.** Affordances half already real
       (`building_instance_affordances`, A13 v1.34.58). Properties half
@@ -293,8 +293,16 @@ starts on an explicit instruction naming an item.
       one-directional (human-only) consumption now has a real
       wildlife-side consumer too. **Every field the fold-in named now
       has a real reciprocal consumer — A10 is closed in full.**
-- [ ] **A12** — per-instance `Entity.material` generalized beyond
-      buildings (per-*building*-instance material shipped v1.34.58).
+- [x] **A12 — CLOSED, v1.34.158.** `Vehicle.material` (same "`None` =
+      kind default" shape as `Building.material`) + `world.materials.
+      VEHICLE_MATERIALS`/`effective_vehicle_material_name`. Both real
+      building consumers (`material_repair_factor`/`material_decay_
+      factor`) generalize for free — they were already pure functions
+      of a material name — now scaling `Population._maybe_repair_
+      vehicles`' repair speed and every vehicle wear site (`_wear_
+      carts`/`_wear_rafts`/personal-vehicle use decay) by the
+      vehicle's own material. Explicit user decision via
+      `AskUserQuestion`: "both repair + decay."
 - [x] **A16** — **CLOSED, v1.34.101.** All three named pieces shipped:
       tech-as-DAG (v1.34.99, `graph_algorithms.ancestor_ids`/`shares_
       lineage`), information-propagation-as-graph-algorithm (v1.34.100,

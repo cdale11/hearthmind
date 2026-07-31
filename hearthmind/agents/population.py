@@ -448,7 +448,9 @@ from hearthmind.world.terrain_evolution import (
 from hearthmind.world.fields import FieldGrid
 from hearthmind.world.graph_algorithms import bfs_distances, build_relationship_graph
 from hearthmind.world.layout_grammar import layout_site_bonus
-from hearthmind.world.materials import effective_material_name, material_repair_factor
+from hearthmind.world.materials import (
+    effective_material_name, effective_vehicle_material_name, material_decay_factor, material_repair_factor,
+)
 from hearthmind.world.spatial_memory import location_character_from_dicts
 from hearthmind.world.weather import WeatherState
 from hearthmind.world.wildlife import (
@@ -3292,6 +3294,7 @@ class Population:
                     ):
                         journey_mount.condition = max(
                             0.0, journey_mount.condition - PERSONAL_VEHICLE_USE_DECAY[journey_mount.kind]
+                            * material_decay_factor(effective_vehicle_material_name(journey_mount))
                         )
                 if agent.travel_target is not None and not moved:
                     # Greedy step blocked (concave water/mountain pocket
@@ -3488,7 +3491,10 @@ class Population:
                     # a deliberate target — the goal-directed equivalent of
                     # PERSONAL_VEHICLE_SPEED_MULTIPLIER's boost to the
                     # random walk below.
-                    mount.condition = max(0.0, mount.condition - PERSONAL_VEHICLE_USE_DECAY[mount.kind])
+                    mount.condition = max(
+                        0.0, mount.condition
+                        - PERSONAL_VEHICLE_USE_DECAY[mount.kind] * material_decay_factor(effective_vehicle_material_name(mount))
+                    )
                 return
             if (agent.x, agent.y) == target:
                 agent.stuck_ticks = 0  # arrived, not blocked — nothing to escape
@@ -3516,7 +3522,10 @@ class Population:
             weather=weather,
         )
         if mount is not None:
-            mount.condition = max(0.0, mount.condition - PERSONAL_VEHICLE_USE_DECAY[mount.kind])
+            mount.condition = max(
+                0.0, mount.condition
+                - PERSONAL_VEHICLE_USE_DECAY[mount.kind] * material_decay_factor(effective_vehicle_material_name(mount))
+            )
 
     @staticmethod
     def _choose_explore_target(
@@ -6502,7 +6511,16 @@ class Population:
             )
             if workers == 0:
                 continue
-            repair = VEHICLE_REPAIR_WORK_PER_TICK * min(workers, VEHICLE_MAX_WORKERS) * _tech_factor(settlement) * _specialization_factor(settlement, "structural")
+            # A12's Vehicle generalization: a vehicle's own material
+            # (defaulting per-kind, see world.materials.VEHICLE_
+            # MATERIALS) scales its repair speed exactly the way a
+            # building's material already does — see material_repair_
+            # factor's docstring.
+            repair = (
+                VEHICLE_REPAIR_WORK_PER_TICK * min(workers, VEHICLE_MAX_WORKERS) * _tech_factor(settlement)
+                * _specialization_factor(settlement, "structural")
+                * material_repair_factor(effective_vehicle_material_name(vehicle))
+            )
             vehicle.condition = min(1.0, vehicle.condition + repair)
             if vehicle.stage is VehicleStage.BROKEN and vehicle.condition >= VEHICLE_REPAIR_THRESHOLD:
                 vehicle.stage = VehicleStage.READY
@@ -6539,7 +6557,13 @@ class Population:
             return
         wear = CART_USE_DECAY / len(ready_carts)
         for cart in ready_carts:
-            cart.condition = max(0.0, cart.condition - wear)
+            # A12's Vehicle generalization: material_decay_factor scales
+            # wear the same way it already scales a building's decay —
+            # a cart's own material (defaulting per-kind) decides how
+            # fast use wears it down, not one flat rate for every cart.
+            cart.condition = max(
+                0.0, cart.condition - wear * material_decay_factor(effective_vehicle_material_name(cart)),
+            )
 
     @staticmethod
     def _wear_rafts(settlement: Settlement) -> None:
@@ -6550,7 +6574,9 @@ class Population:
             return
         wear = RAFT_USE_DECAY / len(ready_rafts)
         for raft in ready_rafts:
-            raft.condition = max(0.0, raft.condition - wear)
+            raft.condition = max(
+                0.0, raft.condition - wear * material_decay_factor(effective_vehicle_material_name(raft)),
+            )
 
     @classmethod
     def _maybe_start_vehicle(

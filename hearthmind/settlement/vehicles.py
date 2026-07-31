@@ -192,6 +192,19 @@ class Vehicle:
     """0..1, meaningful while READY (and while decaying toward BROKEN)."""
     assigned_agent_id: int | None = None
     """Meaningful only for MOUNT — the agent currently riding it."""
+    material: str | None = None
+    """A12 "Material science," per-instance generalization beyond
+    buildings (`Building.material` shipped v1.34.58; this is its
+    Vehicle counterpart, closing A12's own long-flagged gap). `None` =
+    "use the kind's default" (`world.materials.VEHICLE_MATERIALS`) —
+    every vehicle ever created before this field existed reproduces
+    that exact default on load, zero migration. Unlike `Building.
+    material` (which the A13 chemistry reactor can genuinely convert
+    post-founding), nothing converts a vehicle's material after
+    construction — this field exists so a future per-instance override
+    mechanism has somewhere real to write, and so `world.materials.
+    effective_vehicle_material_name` has the same two-tier resolution
+    shape as its building counterpart from day one."""
 
     def to_dict(self) -> dict:
         return {
@@ -203,6 +216,7 @@ class Vehicle:
             "progress": round(self.progress, 4),
             "condition": round(self.condition, 4),
             "assigned_agent_id": self.assigned_agent_id,
+            "material": self.material,
         }
 
     @classmethod
@@ -216,4 +230,5 @@ class Vehicle:
             progress=data.get("progress", 0.0),
             condition=data.get("condition", 1.0),
             assigned_agent_id=data.get("assigned_agent_id"),
+            material=data.get("material"),
         )
