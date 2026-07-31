@@ -1952,6 +1952,25 @@ lived discord dampen the mood, multiplying FESTIVAL_CHANCE_PER_MONTH
 by (1 - this) rather than blocking festivals outright — a rift in the
 community makes a celebration less likely, not impossible."""
 
+PROSPERITY_MATERIALS_FRACTION = 0.7
+"""Tier 0, new producer: fraction of `MATERIALS_CAPACITY` a settlement
+must sustain, alongside `PROSPERITY_CURRENCY_FRACTION`, to read as
+genuinely prosperous (not just one flush stockpile) — see
+`SimulationEngine._detect_prosperity`."""
+
+PROSPERITY_CURRENCY_FRACTION = 0.7
+"""Companion to `PROSPERITY_MATERIALS_FRACTION` — both must hold at
+once, real broad-based prosperity rather than a single resource
+spike."""
+
+PROSPERITY_FESTIVAL_BONUS = 0.3
+"""Tier 0, new producer: the positive counterpart to `FAMILY_FEUD_
+FESTIVAL_PENALTY` — a settlement currently flagged prosperous (see
+`SimulationEngine._detect_prosperity`) multiplies `FESTIVAL_CHANCE_
+PER_MONTH` by `(1 + this)` rather than being blocked/boosted outright,
+same bounded-nudge shape every other festival-chance modifier here
+uses — a comfortable village celebrates more, not automatically."""
+
 FESTIVAL_RELATIONSHIP_BOOST = 0.1
 """One-time relationship nudge applied to every currently-colocated pair
 of awake agents when a festival is held — the mechanical payoff of

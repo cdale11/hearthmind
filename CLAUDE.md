@@ -617,6 +617,38 @@ Verified: direct unit tests, a production-path smoke test through the
 real scheduling function, a 20,000-trial statistical weighting test,
 a 4000-tick soak with clean round-trip, `pyflakes` clean.
 
+## Current state (v1.34.142)
+
+Explicit user instruction: "Continue tier 0 ask is needed new
+system," resolved via `AskUserQuestion` — "Settlement prosperity/
+surplus producer." Village pillar's tenth category-keyed `world_
+model` producer, and the first POSITIVE one in the whole cluster
+(every prior producer names a hardship). New `SimulationEngine.
+_detect_prosperity` (daily-metrics cadence, edge-triggered): both
+`Settlement.materials` and `.currency` sustained past new `buildings.
+PROSPERITY_MATERIALS_FRACTION`/`PROSPERITY_CURRENCY_FRACTION` (0.7 of
+their respective capacities) at once — real broad-based prosperity,
+not one resource's momentary spike.
+
+New real consumer, deliberately NOT `_maybe_schedule_laws` (whose own
+prompt is explicitly framed around "a hardship the village has
+genuinely lived through" — folding a positive signal in there would
+produce an incoherent prompt): `_maybe_schedule_festival`'s
+`festival_chance` gains a new `PROSPERITY_FESTIVAL_BONUS` (0.3)
+multiplicative boost while flagged — the positive counterpart to the
+existing `FAMILY_FEUD_FESTIVAL_PENALTY` dampening a few lines above
+it. "A comfortable village celebrates more, not automatically."
+
+Verified: a direct production-path test for the producer (forms/
+revises on a forced-full-coffers settlement, clears once resources
+drop), a production-path test for the consumer through the real
+`_maybe_schedule_festival` (a namespaced roll forced strictly between
+the base and boosted chance flips the outcome only once prosperity is
+flagged — genuine outcome-changing proof, not a formula check), a
+4000-tick LLM-disabled soak with clean round-trip, `pyflakes` clean.
+No native module touched. Tier 0 now has forty-six real converted
+sites.
+
 ## Current state (v1.34.141)
 
 Explicit user instruction: "Continue tier 0 ask is needed new

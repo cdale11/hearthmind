@@ -161,6 +161,9 @@ from hearthmind.settlement.buildings import (
     INVENTION_SPECIALIZATION_STEP,
     LAWS_MAX_STORED,
     LAW_SIGNAL_THRESHOLD,
+    PROSPERITY_CURRENCY_FRACTION,
+    PROSPERITY_FESTIVAL_BONUS,
+    PROSPERITY_MATERIALS_FRACTION,
     LEXICON_MAX_AGE_TICKS,
     LEXICON_MAX_STORED,
     LEXICON_MEANING_MERGE_OVERLAP,
@@ -1597,6 +1600,16 @@ class SimulationEngine:
         CURRENCY_THRESHOLD` "prosperous enough to invent" bar). Never
         persisted — same re-baseline-on-restart reasoning as every
         other edge-trigger flag here."""
+        self._prosperity_flagged: "set[int]" = set()
+        """Tier 0, new producer (explicit user decision via
+        `AskUserQuestion`: "Settlement prosperity/surplus producer").
+        Village pillar's ninth category-keyed `world_model` subject —
+        the first POSITIVE category in this cluster (every prior one
+        names a hardship). Backs `_detect_prosperity`: both `Settlement.
+        materials`/`.currency` sustained past `buildings.PROSPERITY_
+        MATERIALS_FRACTION`/`PROSPERITY_CURRENCY_FRACTION` at once.
+        Never persisted — same re-baseline-on-restart reasoning as
+        every other edge-trigger flag here."""
         self._hydrology_drought_flagged: bool = False
         """A11 (roadmap Stage IV step 15): edge-trigger flag for
         `_detect_hydrology_drought`, same "one observation on the
@@ -6426,6 +6439,10 @@ class SimulationEngine:
             i.feuds for i in festival_target.institutions if i.kind is InstitutionKind.FAMILY
         ):
             festival_chance *= 1.0 - FAMILY_FEUD_FESTIVAL_PENALTY
+        # Tier 0, new producer: the positive counterpart to the feud
+        # dampening above — see `_detect_prosperity`'s mirror.
+        if festival_target.id in self._prosperity_flagged:
+            festival_chance *= 1.0 + PROSPERITY_FESTIVAL_BONUS
         if _namespaced_roll(self.world.config.seed, self.world.clock.tick_count, "festival_roll") >= festival_chance:
             return
         if self._pillar_interpret_backpressured("village"):
@@ -11062,6 +11079,7 @@ class SimulationEngine:
         self._detect_housing_shortage()
         self._detect_food_shortage()
         self._detect_currency_shortage()
+        self._detect_prosperity()
 
     def _detect_metric_highlights(self, population_total: int) -> None:
         """§5 "Anomaly/highlight log" (docs/IDEAS-2026-07-EMERGENCE.md):
@@ -11357,6 +11375,60 @@ class SimulationEngine:
                 )
             elif not shortage and was_flagged:
                 self._currency_shortage_flagged.discard(settlement.id)
+
+    def _detect_prosperity(self) -> None:
+        """Tier 0, new producer (explicit user decision via
+        `AskUserQuestion`: "Settlement prosperity/surplus producer").
+        Village pillar's ninth category-keyed `world_model` subject —
+        deliberately the first POSITIVE one in this cluster; every
+        prior producer (`housing_shortage`/`food_shortage`/`currency_
+        shortage`/etc.) names a hardship. Requires BOTH `Settlement.
+        materials` past `buildings.PROSPERITY_MATERIALS_FRACTION` of
+        `MATERIALS_CAPACITY` AND `.currency` past `PROSPERITY_
+        CURRENCY_FRACTION` of `CURRENCY_CAPACITY` at once — real
+        broad-based prosperity, not one resource's momentary spike.
+        Same edge-triggered discipline as every sibling detector: one
+        `bottleneck`-category observation (reused as the closest
+        existing Emergence API kind — a positive turning point is
+        still a turning point) the tick a settlement first crosses
+        into genuine comfort, silence while it holds, silent "ease"
+        once it recedes.
+
+        Real new consumer: `_maybe_schedule_festival`'s `festival_
+        chance` gains `buildings.PROSPERITY_FESTIVAL_BONUS` as a
+        multiplicative boost while flagged — the positive counterpart
+        to the existing `FAMILY_FEUD_FESTIVAL_PENALTY` dampening a
+        few lines below it. Deliberately NOT wired into `_maybe_
+        schedule_laws`: that system's own prompt is explicitly framed
+        around "a hardship the village has genuinely lived through" —
+        folding a positive signal into a hardship-shaped pipeline
+        would produce an incoherent prompt, not a real site."""
+        for settlement in self.world.settlements:
+            if not settlement.name:
+                continue
+            prosperous = (
+                settlement.materials >= PROSPERITY_MATERIALS_FRACTION * MATERIALS_CAPACITY
+                and settlement.currency >= PROSPERITY_CURRENCY_FRACTION * CURRENCY_CAPACITY
+            )
+            was_flagged = settlement.id in self._prosperity_flagged
+            if prosperous and not was_flagged:
+                self._prosperity_flagged.add(settlement.id)
+                self._append_emergence(
+                    "bottleneck", "settlement",
+                    f"{settlement.name} is thriving — full coffers and well-stocked stores.",
+                    pillars=("village",), magnitude=0.5, settlement=settlement.name,
+                    data={"materials": round(settlement.materials, 3), "currency": round(settlement.currency, 3)},
+                )
+                existing = self.world.village_pillar.find_world_model_entry("prosperity")
+                prior_confidence = existing["confidence"] if existing else 0.3
+                self.world.village_pillar.upsert_world_model(
+                    self.world.clock.tick_count, "prosperity",
+                    f"{settlement.name} has known real prosperity.",
+                    min(1.0, prior_confidence + 0.1), status="observation", source="prosperity",
+                    revises_id=existing["id"] if existing else None,
+                )
+            elif not prosperous and was_flagged:
+                self._prosperity_flagged.discard(settlement.id)
 
     def _detect_hydrology_drought(self) -> None:
         """A22 Emergence API, A11's real consumer beyond farm yield
