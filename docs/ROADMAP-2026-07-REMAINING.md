@@ -561,8 +561,25 @@ starts on an explicit instruction naming an item.
       instead: `scripts/scan_global_scans.py` (a static AST scanner,
       always informational/exit-0), run against the real tree and
       found 89 candidate sites.
+      **B11 shipped in full, v1.34.178** (explicit user instruction:
+      "Start B11") — new `hearthmind/simulation/hierarchical_memory.py`:
+      `Tier` enum + `MemoryTierManager` (B11.1, four tiers hot/warm/
+      cold/archive, `demote_stale` migrates exactly one tier per call,
+      archive verified as a real floor); access-driven migration
+      (B11.2, reuses B9.2's `ElapsedTimeTracker` directly for idle-time
+      tracking rather than a second tracker — `touch` always promotes
+      to hot and resets the clock, verified a regularly-touched key
+      across 20 cycles is never demoted); `TransparentHandle` (B11.3,
+      `get(key, tick)` faults in via a caller-supplied `load_fn` and
+      promotes to hot as a side effect, gameplay never has to know a
+      key's tier); `pressure_response` (B11.4, reuses B7.4's
+      `GoodCitizenPolicy.should_back_off(probe)` directly — a pressured
+      `HostProbe` demotes under a tighter threshold set a healthy one
+      doesn't). All four sub-items shipped this pass (unlike B9.3/
+      B10.2, no sub-item needed deferring to a live-judgment audit).
+      `scripts/verify_hierarchical_memory.py` (20 checks) all pass.
       A1.3, A2-A13, B0.3 (a scoping note, not an action item), B2.4,
-      B3.3, B4.2, B5.3, B9.3, B10.2, and B11-B15 beyond B15.1 remain
+      B3.3, B4.2, B5.3, B9.3, B10.2, and B12-B15 beyond B15.1 remain
       unstarted; see
       the doc for the full 30+-item checklist and its own two-track
       SEQUENCE.

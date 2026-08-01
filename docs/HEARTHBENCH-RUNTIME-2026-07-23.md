@@ -939,19 +939,67 @@ wildcard-write tasks exist in practice today). Real future work,
 naturally paired with B2.4's attention allocation (the doc's own named
 partner for B10.3) and B10.2's still-open real audit.
 
-## B11 — Hierarchical memory [Hard Rule 12] [MISSING]
+## B11 — Hierarchical memory [Hard Rule 12] [PARTIAL]
 
-- [ ] **B11.1 — Four tiers with explicit migration policy:** hot
-  (in-memory, active), warm (in-memory, compact/compressed), cold
-  (on-disk, lazily loaded), archive (compressed, rarely touched).
-- [ ] **B11.2 — Access-driven migration:** LRU/frequency demotion,
-  fault-in on access, migration performed in idle windows (B8.4).
-- [ ] **B11.3 — Transparent handles** so gameplay code touches state
-  without knowing its tier (a cold read blocks and promotes; gameplay
-  never manages memory — B0).
-- [ ] **B11.4 — Memory-pressure response:** under host pressure, demote
-  aggressively rather than letting the OS swap (B7.4). Current diagnostics
-  already show swap in use — this is a live problem, not a theoretical one.
+- [x] **B11.1 — Four tiers with explicit migration policy — SHIPPED,
+  v1.34.178.** New `hearthmind/simulation/hierarchical_memory.py`'s
+  `Tier` enum (hot/warm/cold/archive, in that migration order) +
+  `MemoryTierManager` — an explicit per-key current tier plus (via the
+  reused `ElapsedTimeTracker`, see B11.2) how long that key has gone
+  untouched. `demote_stale(tick, thresholds)` migrates a key exactly
+  ONE tier down per call once its current tier's own configured
+  threshold is exceeded — never skips a tier, matching a real
+  migration policy rather than a single jump — and archive is a real
+  floor (verified against 1,000,000 idle ticks: no further migration,
+  ever). Deliberately storage-agnostic: this module owns WHEN a key
+  moves between tiers, never HOW a tier's bytes are represented
+  (compression/on-disk persistence stay the caller's own concern, so
+  it composes with whatever `persistence/database.py` mechanism a real
+  integration eventually uses).
+- [x] **B11.2 — Access-driven migration — SHIPPED, v1.34.178.** Reuses
+  B9.2's `ElapsedTimeTracker` (`simulation/timescales.py`) directly for
+  "how long has this key gone untouched," rather than a second idle-
+  time tracker. `MemoryTierManager.touch(key, tick)` (a real access)
+  always promotes a key straight back to hot and resets its idle
+  clock, whatever tier it was previously in — verified directly: a key
+  touched every 50 ticks across 20 simulated cycles, with every
+  threshold set at 100+, is NEVER demoted. `demote_stale` is the
+  fault-in-adjacent migration step itself (see B8.4's own idle-window
+  framing) — a real, deterministic, caller-invoked policy, not a
+  background thread (would violate B0's prime invariant regardless).
+- [x] **B11.3 — Transparent handles — SHIPPED, v1.34.178.**
+  `TransparentHandle.get(key, tick)` is the one call gameplay code
+  would make — it never has to know or check a key's current tier; a
+  cold/archive read "faults in" via the caller's own `load_fn(key,
+  tier)` (told the REAL prior tier, verified directly) and is promoted
+  back to hot as a side effect of being read, exactly like a real
+  `touch`. A second read of an already-hot key is indistinguishable to
+  the caller — same call shape, no special-casing needed by gameplay
+  code, the whole point of this item.
+- [x] **B11.4 — Memory-pressure response — SHIPPED, v1.34.178.**
+  `pressure_response(manager, tick, base_thresholds, aggressive_
+  thresholds, policy, probe)` reuses B7.4's `GoodCitizenPolicy.should_
+  back_off(probe)` directly as the pressure signal — no second
+  pressure detector built here. Under a synthetic pressured `HostProbe`
+  (500MB available of 8192MB total, 200MB swap in use) the tighter
+  `aggressive_thresholds` set demotes a key the `base_thresholds` set
+  would not have touched yet; the identical key under a healthy
+  `HostProbe` (6000MB available, 0 swap) with the same base thresholds
+  correctly does not demote — verified both directions directly. This
+  is the mechanical answer to the doc's own "current diagnostics
+  already show swap in use — this is a live problem" framing, though
+  it isn't wired to any live diagnostic yet (see below).
+
+**Not wired into any real control point** — no import from
+`hierarchical_memory.py` exists in `simulation/engine.py`/`server.py`,
+no real persisted `World` state is tiered through a `MemoryTierManager`
+yet, and `pressure_response` is never called against a live `HostProbe`
+reading. Real future work: choosing a first concrete consumer (a large
+per-world persisted structure — e.g. `Agent.memories`'s full history,
+or `World.emergence_log`'s archive — genuinely benefits from tiering;
+smaller bounded/capped structures elsewhere in the codebase don't need
+it) and threading B7's real `HostProbe.sample()` into `pressure_
+response` from an actual scheduling call site.
 
 ## B12 — History compression [Hard Rule 13] [PARTIAL]
 

@@ -534,6 +534,80 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.178)
+
+Explicit user instruction: "Start B11" (docs/HEARTHBENCH-RUNTIME-
+2026-07-23.md, Tier 5, Hard Rule 12). New `hearthmind/simulation/
+hierarchical_memory.py`, same "never big-bang" discipline as every
+prior Tier 5 Runtime module — not wired into `simulation/engine.py`/
+`server.py`. Deliberately reuses two already-shipped Runtime
+primitives rather than building parallel ones, per the project's own
+standing "extend before inventing" discipline: B11.2's idle-time
+tracking is B9.2's `ElapsedTimeTracker` (`simulation/timescales.py`)
+used directly, not a second tracker; B11.4's pressure signal is B7.4's
+`GoodCitizenPolicy.should_back_off(probe)` used directly, not a
+second pressure detector.
+
+B11.1 `Tier` (hot/warm/cold/archive) + `MemoryTierManager`: an
+explicit per-key current tier, `demote_stale(tick, thresholds)`
+migrates a key exactly ONE tier down per call once its current tier's
+own configured idle threshold is exceeded — never skips a tier,
+verified directly (a key demoted at tick 100 does not immediately
+demote again at tick 105 — the idle clock resets on every real
+migration) — and archive is a genuine floor, verified against
+1,000,000 idle ticks with zero further migration. Deliberately
+storage-agnostic: this module owns WHEN a key moves tiers, never HOW a
+tier's bytes are represented, so it composes with whatever real
+persistence mechanism a future integration uses. B11.2
+`MemoryTierManager.touch`: a real access always promotes a key
+straight back to hot and resets its idle clock — verified a key
+touched every 50 ticks across 20 simulated cycles (well under every
+threshold) is NEVER demoted, the actual proof access-driven migration
+works rather than a flat timer. B11.3 `TransparentHandle.get(key,
+tick)`: the one call gameplay code would make — never has to know or
+check a key's tier; a cold/archive read "faults in" via the caller's
+own `load_fn(key, tier)` (told the REAL prior tier, verified directly)
+and is promoted to hot as a side effect, indistinguishable in call
+shape from reading an already-hot key. B11.4 `pressure_response`:
+demotes using a tighter threshold set exactly when `GoodCitizenPolicy.
+should_back_off(probe)` is true — verified both directions directly
+(a pressured `HostProbe`, 500MB available of 8192MB/200MB swap in
+use, demotes a key the base threshold wouldn't have yet; the
+identical key under a healthy `HostProbe`, 6000MB available/0 swap,
+correctly does not).
+
+All four B11 sub-items shipped this pass — unlike B9.3/B10.2, no
+sub-item here needed deferring to a real live-judgment audit; B11's
+own doc text names four independently-buildable mechanisms with no
+"needs individual per-site judgment" item among them.
+
+**Not wired into any real control point** — no import from
+`hierarchical_memory.py` exists in `simulation/engine.py`/`server.py`,
+no real persisted `World` state is tiered through a
+`MemoryTierManager` yet, and `pressure_response` is never called
+against a live `HostProbe` reading. Real future work: picking a first
+concrete large persisted-state consumer (a per-world unbounded/large
+history structure genuinely benefits from tiering; the many already-
+capped/bounded structures elsewhere in this codebase don't need it)
+and threading B7's real `HostProbe.sample()` into `pressure_response`
+from an actual scheduling call site.
+
+Verified: `scripts/verify_hierarchical_memory.py` (20 checks — default
+tier, touch promotion/clock-reset, one-tier-at-a-time demotion, the
+idle-clock-resets-on-migration case, the full hot→warm→cold→archive
+ladder plus the archive floor at 1,000,000 idle ticks, the regularly-
+touched-key-never-demotes case, `TransparentHandle`'s fault-in/
+promotion/repeat-read behavior, and `pressure_response`'s both-
+directions threshold-set selection) — all pass, first run, no bug
+found. `pyflakes` clean on both the new module and its verify script.
+`scripts/verify_runtime_invariant.py`/`verify_task_graph.py`/
+`verify_scheduler.py`/`verify_dormancy.py`/`verify_tuning.py`/
+`verify_hardware_profile.py`/`verify_forecasting.py`/
+`verify_timescales.py`/`verify_ml_substrate.py`/`verify_ml_
+evolution.py`/`verify_locality.py` re-run clean (unaffected). No
+native module, persisted `World` state, or real engine code path
+touched — no soak re-run needed.
+
 ## Current state (v1.34.177)
 
 Explicit user instruction: "Start B10" (docs/HEARTHBENCH-RUNTIME-
