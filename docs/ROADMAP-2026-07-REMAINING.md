@@ -617,8 +617,28 @@ starts on an explicit instruction naming an item.
       the item's own text gates it behind B13.1-B13.2 being solid
       first, real distinct future work. `scripts/verify_optimization_
       hypothesis.py` (22 checks) all pass.
+      **B14 shipped in full, v1.34.181** (explicit user instruction:
+      "Start b14") — new `hearthmind/simulation/persistence_
+      scheduling.py`: `SnapshotScheduler.due` (B14.1, reuses B9.2's
+      `ElapsedTimeTracker` for real elapsed-tick integration and B8.4's
+      `is_quiet_window` directly as the idle-preference signal — due
+      once min_interval elapses AND the system is quiet, OR the
+      max_interval hard ceiling is reached regardless of load;
+      `register_snapshot_tunables` mirrors the real interval bounds
+      into B6's `TunableRegistry` as SAFE tunables, the "(B6.1)"
+      tie-in, metadata only); `SnapshotScheduler.plan` (B14.2, every
+      Nth genuinely due snapshot is FULL, the rest INCREMENTAL,
+      verified across a real cadence and end-to-end through a real
+      due->plan sequence; storage-format-agnostic, same discipline
+      B11/B12 hold); `batch_size_for_storage` (B14.3, solves for a
+      write-batch size directly from B7's own measured `HostProbe.
+      storage_write_mb_s` — no second storage-speed detector,
+      verified faster storage earns a larger batch, clamped, an
+      unmeasured/zero speed falls back to the conservative floor).
+      All three sub-items shipped this pass. `scripts/verify_
+      persistence_scheduling.py` (17 checks) all pass.
       A1.3, A2-A13, B0.3 (a scoping note, not an action item), B2.4,
-      B3.3, B4.2, B5.3, B9.3, B10.2, B13.5, and B14-B15 beyond B15.1
+      B3.3, B4.2, B5.3, B9.3, B10.2, B13.5, and B15 beyond B15.1
       remain unstarted; see
       the doc for the full 30+-item checklist and its own two-track
       SEQUENCE.

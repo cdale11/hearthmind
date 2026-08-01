@@ -1117,15 +1117,56 @@ retune of a constant like `llm_max_concurrent` — the exact constant
 whose own long documented CLAUDE.md history (4→2→1→2→1→2) this whole
 item exists to eventually automate.
 
-## B14 — Persistence & background work [MISSING]
+## B14 — Persistence & background work [PARTIAL]
 
-- [ ] **B14.1** — Snapshot/persistence becomes a scheduled, budgeted,
-  idle-preferring task with adaptive frequency (B6.1) rather than a
-  fixed cadence.
-- [ ] **B14.2** — Incremental/differential snapshots to cut write cost
-  and storage; full snapshot on a longer cycle.
-- [ ] **B14.3** — Storage-speed-aware batching from the machine profile
-  (B7.2).
+- [x] **B14.1 — Scheduled, budgeted, idle-preferring, adaptive-
+  frequency snapshotting — SHIPPED, v1.34.181.** New `hearthmind/
+  simulation/persistence_scheduling.py`'s `SnapshotScheduler.due`:
+  reuses B9.2's `ElapsedTimeTracker` for real elapsed-tick integration
+  and B8.4's `is_quiet_window` directly as the idle-preference signal
+  (no second idle detector) — a snapshot is due once EITHER
+  `min_interval_ticks` has elapsed AND the system is genuinely quiet,
+  OR `max_interval_ticks` has elapsed regardless of load (a hard
+  ceiling, verified: a permanently busy synthetic run still forces a
+  snapshot at the ceiling). The very first check never fires (no real
+  baseline yet), and a non-firing check never resets the clock —
+  verified directly, same contract `TimescaleGate`/`ElapsedTimeTracker`
+  already establish elsewhere. `register_snapshot_tunables` is the
+  "(B6.1)" tie-in: mirrors the scheduler's own real interval bounds
+  into B6's `TunableRegistry` as genuine `SAFE` `Tunable`s (cadence
+  never changes simulation outcomes, only when we persist) — metadata
+  only, same discipline `register_llm_pacing_tunables` (B6.3) already
+  established, not a live rewire.
+- [x] **B14.2 — Incremental/differential snapshots — SHIPPED,
+  v1.34.181.** `SnapshotScheduler.plan()`: every `full_snapshot_every`-
+  th genuinely DUE snapshot is `SnapshotKind.FULL`, every other due
+  snapshot is `SnapshotKind.INCREMENTAL` — verified across a real
+  cadence (1st/4th/7th full at `full_snapshot_every=3`) and end-to-end
+  through a real `due()` → `plan()` sequence. This module stays
+  storage-format-agnostic, same discipline B11/B12 hold: it decides
+  WHICH KIND is due, never how a diff is computed or written — a real
+  caller supplies its own diff/writer against `persistence/database.py`'s
+  actual snapshot format.
+- [x] **B14.3 — Storage-speed-aware batching — SHIPPED, v1.34.181.**
+  `batch_size_for_storage(storage_write_mb_s, target_write_latency_s,
+  min_batch_bytes, max_batch_bytes)`: solves `batch_bytes = write_
+  speed * target_latency` directly from B7.1/B7.2's own measured
+  `HostProbe.storage_write_mb_s` — no second storage-speed detector.
+  Verified: faster measured storage earns a genuinely larger batch,
+  clamped to `max_batch_bytes`; an unmeasured or zero/invalid speed
+  falls back to the conservative floor rather than guessing.
+
+**Not wired into any real control point** — no import from
+`persistence_scheduling.py` exists in `simulation/engine.py`/
+`persistence/database.py`; the real snapshot cadence there stays
+fixed, `plan()`'s `SnapshotKind` is never consulted by any real write
+path, and `batch_size_for_storage` has never been called against a
+live `HostProbe.sample()` reading. Real future work: wiring `Snapshot
+Scheduler.due`/`plan` into `persistence/database.py`'s actual save
+cadence (needs a real `diff_fn` against that module's snapshot
+format, which doesn't exist yet — B14.2 only decides WHICH kind is
+due) and threading a live `HostProbe` sample into `batch_size_for_
+storage` at the real write call site.
 
 ## B15 — Semantic safety: the determinism guarantee [Hard Rule 1]
 

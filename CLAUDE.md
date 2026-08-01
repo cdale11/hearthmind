@@ -534,6 +534,81 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.181)
+
+Explicit user instruction: "Start b14" (docs/HEARTHBENCH-RUNTIME-
+2026-07-23.md, Tier 5). New `hearthmind/simulation/persistence_
+scheduling.py`, same "never big-bang" discipline as every prior Tier
+5 Runtime module — not wired into `simulation/engine.py`/
+`persistence/database.py`'s real snapshot cadence yet. Deliberately
+reuses three already-shipped Runtime primitives rather than building
+parallel ones: B9.2's `ElapsedTimeTracker` for real elapsed-tick
+integration, B8.4's `is_quiet_window` directly as the idle-preference
+signal, and B7.1/B7.2's `HostProbe.storage_write_mb_s` for the
+storage-speed signal — no second idle detector or storage-speed
+detector anywhere in this module.
+
+B14.1 `SnapshotScheduler.due`: a snapshot is due once EITHER `min_
+interval_ticks` has elapsed AND the system is genuinely quiet
+(idle-preferring), OR `max_interval_ticks` has elapsed regardless of
+load (a hard ceiling — verified a permanently busy synthetic run
+still forces a snapshot at the ceiling). The very first check never
+fires (no real baseline yet) and a non-firing check never resets the
+clock — verified directly, same contract every `ElapsedTimeTracker`
+consumer already gets. `register_snapshot_tunables` is the "(B6.1)"
+tie-in named in the item's own text: mirrors the scheduler's real
+interval bounds into B6's `TunableRegistry` as genuine `SAFE`
+`Tunable`s (cadence never changes simulation outcomes, only when we
+persist) — metadata only, same discipline `register_llm_pacing_
+tunables` already established, not a live rewire.
+
+B14.2 `SnapshotScheduler.plan()`: every `full_snapshot_every`-th
+genuinely due snapshot is `SnapshotKind.FULL`, every other due
+snapshot is `SnapshotKind.INCREMENTAL` — verified across a real
+cadence (1st/4th/7th full at `full_snapshot_every=3`) and end-to-end
+through a real `due()`→`plan()` sequence. Storage-format-agnostic,
+same discipline B11/B12 hold: this decides WHICH KIND is due, never
+how a diff is computed or written — a real caller supplies its own
+diff/writer against `persistence/database.py`'s actual format.
+
+B14.3 `batch_size_for_storage`: solves `batch_bytes = write_speed *
+target_latency` directly from a real measured `HostProbe.storage_
+write_mb_s` — verified faster storage earns a genuinely larger batch,
+clamped to a max, and an unmeasured or zero/invalid speed falls back
+to the conservative floor rather than guessing.
+
+All three B14 sub-items shipped this pass.
+
+**Not wired into any real control point** — no import from
+`persistence_scheduling.py` exists in `simulation/engine.py`/
+`persistence/database.py`; the real snapshot cadence stays fixed,
+`SnapshotKind` is never consulted by any real write path, and `batch_
+size_for_storage` has never been called against a live `HostProbe.
+sample()` reading. Real future work: wiring `SnapshotScheduler.due`/
+`plan` into `persistence/database.py`'s actual save cadence (needs a
+real `diff_fn` against that module's snapshot format, which doesn't
+exist yet — B14.2 only decides WHICH kind is due) and threading a
+live `HostProbe` sample into `batch_size_for_storage` at the real
+write call site.
+
+Verified: `scripts/verify_persistence_scheduling.py` (17 checks —
+invalid-policy rejection, the first-check-never-fires/non-firing-
+never-resets-clock contract, idle-preferring due-at-min-when-quiet vs.
+not-due-when-busy, the hard ceiling forcing regardless of load, the
+full/incremental cadence across a real sequence and end-to-end through
+due->plan, storage-speed-scaled batch size incl. the conservative
+fallback and the max clamp, and the real B6 tunable-mirroring with
+correct SAFE classification) — all pass, first run, no bug found.
+`pyflakes` clean on both the new module and its verify script.
+`scripts/verify_runtime_invariant.py`/`verify_task_graph.py`/
+`verify_scheduler.py`/`verify_dormancy.py`/`verify_tuning.py`/
+`verify_hardware_profile.py`/`verify_forecasting.py`/
+`verify_timescales.py`/`verify_ml_substrate.py`/`verify_ml_
+evolution.py`/`verify_locality.py`/`verify_hierarchical_memory.py`/
+`verify_history_compression.py`/`verify_optimization_hypothesis.py`
+re-run clean (unaffected). No native module, persisted `World` state,
+or real engine code path touched — no soak re-run needed.
+
 ## Current state (v1.34.180)
 
 Explicit user instruction: "Start b13" (docs/HEARTHBENCH-RUNTIME-
