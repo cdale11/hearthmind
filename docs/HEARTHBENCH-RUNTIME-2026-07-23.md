@@ -541,18 +541,44 @@ and the scheduler has only ever been run against synthetic tasks
 ready for a future subsystem migration to actually use, not a
 migration itself.
 
-## B3 — Event-driven execution [Hard Rule 3] [MISSING]
+## B3 — Event-driven execution [Hard Rule 3] [PARTIAL — B3.1/B3.2 shipped v1.34.165, not yet wired into the live tick loop]
 
-- [ ] **B3.1 — Dirty tracking.** Every declared `writes[]` marks its
-  targets dirty; tasks whose `reads[]` are clean and whose trigger is
-  `OnDirty` simply don't run. This is the single biggest CPU win
-  available and the rule the current code most violates.
-- [ ] **B3.2 — Event bus.** Subsystems emit typed events; tasks
-  subscribe. Replaces "check every tick whether something happened."
-- [ ] **B3.3 — Audit polling.** Enumerate current per-tick work; for
-  each, classify as genuinely-continuous (fields, weather) vs.
-  polling-in-disguise (most checks). Convert the latter. Publish a
-  "polling remaining" count as a tracked metric so it trends to zero.
+- [x] **B3.1 — Dirty tracking — SHIPPED, v1.34.165.** New
+  `hearthmind/simulation/reactivity.py`'s `DirtyTracker`: every
+  `writes[]` key gets a monotonic per-key VERSION bump (not a plain
+  boolean flag — lets several independent `ON_DIRTY` readers of the
+  same key each observe one write exactly once, on their own schedule,
+  without racing to clear a shared bit first). `Scheduler.run_tick`
+  gates EVERY task (all priority classes, before any budget logic) on
+  a real `_is_due` check: an `ON_DIRTY` task with clean reads is
+  `skipped_clean` and never touches the budget/deferral machinery at
+  all — the actual CPU win the item's own text names. Verified
+  directly (two independent readers each see one write exactly once
+  and go clean immediately after; an `ON_DIRTY` task with no declared
+  `reads` never fires at all — a real, documented edge case, not a
+  bug: use `PERIODIC` for an unconditional task).
+- [x] **B3.2 — Event bus — SHIPPED, v1.34.165.** `reactivity.py`'s
+  `EventBus`: `publish(event_type)` queues a signal for the CURRENT
+  tick only, `clear()` (called by the scheduler at tick end) drops it
+  — deliberately one-shot, unlike `DirtyTracker`'s persistent
+  versions, since a discrete "did this happen" event has no "still
+  pending" concept once its tick has passed. `Task` gained an additive
+  `event_types: frozenset[str]` field (default empty — every
+  pre-B3 `Task`, including every `Task.legacy(...)`, is unaffected) an
+  `ON_EVENT` task subscribes with. Verified directly (a subscribed
+  task only runs on the tick its event was published, never before or
+  after).
+- [ ] **B3.3 — Audit polling — explicitly NOT attempted.** A real
+  case-by-case audit of the ~200 live schedule points in `engine.py`
+  (B0.3), each needing individual judgment plus live replay-hash
+  verification to convert safely — not a mechanism to build. Real
+  future work, same shape as B1.4's actual subsystem migration.
+
+**Not wired into the live tick loop this pass** — same discipline as
+B1/B2: no import from `reactivity.py` exists in `simulation/engine.py`,
+and both primitives have only ever been exercised against synthetic
+task sets (`scripts/verify_scheduler.py`, extended with 5 new B3
+checks alongside the existing 5 B2 ones).
 
 ## B4 — Dormancy [Hard Rule 4] [MISSING]
 

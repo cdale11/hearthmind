@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Tier 5 B2 verification (budgets & scheduling).
+"""Tier 5 B2/B3 verification (budgets & scheduling; dirty tracking &
+the event bus).
 
 Standalone verification script, not a unittest — same convention as
 every other verify_*.py in this directory. Exercises `hearthmind.
-simulation.scheduler` against a synthetic task set (this module is not
-wired into the live tick loop yet, per B1/B2's own "never big-bang").
+simulation.scheduler`/`reactivity` against synthetic task sets (these
+modules are not wired into the live tick loop yet, per B1/B2/B3's own
+"never big-bang").
 
 Checks:
   1. A CRITICAL task always runs, even with zero remaining budget.
@@ -19,11 +21,22 @@ Checks:
   5. B2.5's work-conserving pass: a deferred BACKGROUND task runs
      within the SAME tick when spare overall tick-time capacity exists,
      rather than waiting for a future tick.
+  6. B3.1: an ON_DIRTY task never runs while its read key has never
+     been written, runs exactly once a write happens, and goes clean
+     again immediately after (no re-trigger on the same write).
+  7. B3.1: two independent ON_DIRTY readers of the same key each
+     observe one write exactly once, on their own schedule — one
+     reader consuming the change never hides it from the other.
+  8. B3.1: an ON_DIRTY task with no declared `reads` never fires
+     (documented edge case, not a bug).
+  9. B3.2: an ON_EVENT task only runs on the tick its subscribed event
+     is published, and the event does not persist into the next tick.
 """
 from __future__ import annotations
 
 import sys
 
+from hearthmind.simulation.reactivity import DirtyTracker, EventBus
 from hearthmind.simulation.scheduler import DEFAULT_MAX_DEFERRALS, Scheduler, SubsystemBudget
 from hearthmind.simulation.task_graph import PriorityClass, Task, TaskRegistry, TriggerKind
 
@@ -115,6 +128,98 @@ def check_work_conserving_spare_capacity() -> None:
     assert not report2.deferred, report2.deferred
 
 
+def check_on_dirty_gating() -> None:
+    # A direct `dirty_tracker.mark_written(...)` call stands in for a
+    # real writer task's own effect (same thing `_run_one` does
+    # internally for any registered task's `writes[]`) — done this way
+    # rather than via a second PERIODIC writer task in the same
+    # registry, since a writer that fires every tick would keep the
+    # reader dirty every tick too (topological order runs a real
+    # writer before a dependent reader in the SAME tick), which would
+    # never demonstrate the "goes clean between writes" property this
+    # check is actually after.
+    calls = []
+    reg = TaskRegistry()
+    reg.register(Task(id="reader", subsystem="x", fn=lambda: calls.append(1),
+                       trigger=TriggerKind.ON_DIRTY, reads=frozenset({"soil"})))
+    sched = Scheduler(reg)
+
+    report1 = sched.run_tick()
+    assert "reader" in report1.skipped_clean, report1.skipped_clean  # nothing ever written
+
+    sched.dirty_tracker.mark_written(["soil"])
+    report2 = sched.run_tick()
+    assert "reader" in report2.ran, report2.ran
+
+    report3 = sched.run_tick()
+    assert "reader" in report3.skipped_clean, report3.skipped_clean  # no new write since
+    assert calls == [1], calls
+
+
+def check_on_dirty_two_independent_readers() -> None:
+    seen_a, seen_b = [], []
+    reg = TaskRegistry()
+    reg.register(Task(id="reader_a", subsystem="x", fn=lambda: seen_a.append(1),
+                       trigger=TriggerKind.ON_DIRTY, reads=frozenset({"k"})))
+    reg.register(Task(id="reader_b", subsystem="x", fn=lambda: seen_b.append(1),
+                       trigger=TriggerKind.ON_DIRTY, reads=frozenset({"k"})))
+    sched = Scheduler(reg)
+    sched.run_tick()  # nothing written yet
+    sched.dirty_tracker.mark_written(["k"])
+    sched.run_tick()  # both readers should observe the single write
+    sched.run_tick()  # both should now be clean, no re-trigger
+    assert seen_a == [1], seen_a
+    assert seen_b == [1], seen_b
+
+
+def check_on_dirty_no_reads_never_fires() -> None:
+    calls = []
+    reg = TaskRegistry()
+    reg.register(Task(id="a", subsystem="x", fn=lambda: calls.append(1), trigger=TriggerKind.ON_DIRTY))
+    sched = Scheduler(reg)
+    for _ in range(5):
+        report = sched.run_tick()
+        assert "a" in report.skipped_clean, report.skipped_clean
+    assert calls == []
+
+
+def check_on_event_gating() -> None:
+    calls = []
+    reg = TaskRegistry()
+    reg.register(Task(id="a", subsystem="x", fn=lambda: calls.append(1),
+                       trigger=TriggerKind.ON_EVENT, event_types=frozenset({"disaster"})))
+    sched = Scheduler(reg)
+
+    report1 = sched.run_tick()
+    assert "a" in report1.skipped_clean, report1.skipped_clean
+
+    sched.event_bus.publish("disaster")
+    report2 = sched.run_tick()
+    assert "a" in report2.ran, report2.ran
+
+    # Published event must not persist into the next tick.
+    report3 = sched.run_tick()
+    assert "a" in report3.skipped_clean, report3.skipped_clean
+    assert calls == [1], calls
+
+
+def check_dirty_tracker_and_event_bus_directly() -> None:
+    dt = DirtyTracker()
+    observed: dict[str, int] = {}
+    assert dt.is_dirty_for(["k"], observed) is False
+    dt.mark_written(["k"])
+    assert dt.is_dirty_for(["k"], observed) is True
+    dt.mark_observed(["k"], observed)
+    assert dt.is_dirty_for(["k"], observed) is False
+
+    bus = EventBus()
+    assert bus.is_pending(["e"]) is False
+    bus.publish("e")
+    assert bus.is_pending(["e"]) is True
+    bus.clear()
+    assert bus.is_pending(["e"]) is False
+
+
 def main() -> int:
     checks = [
         check_critical_always_runs,
@@ -122,6 +227,11 @@ def main() -> int:
         check_bounded_deferral_promotes,
         check_overrun_debt_persists,
         check_work_conserving_spare_capacity,
+        check_on_dirty_gating,
+        check_on_dirty_two_independent_readers,
+        check_on_dirty_no_reads_never_fires,
+        check_on_event_gating,
+        check_dirty_tracker_and_event_bus_directly,
     ]
     for check in checks:
         check()

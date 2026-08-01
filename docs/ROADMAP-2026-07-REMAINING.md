@@ -418,9 +418,21 @@ starts on an explicit instruction naming an item.
       all four. B2.4 explicitly skipped (needs B10/B11 first, per its
       own text). Not wired into the live tick loop — same discipline
       as B1, only ever run against synthetic tasks so far.
+      **B3.1/B3.2 shipped, v1.34.165** (explicit user instruction:
+      "start B3") — new `hearthmind/simulation/reactivity.py`'s
+      `DirtyTracker` (per-key write-version tracking so an `ON_DIRTY`
+      task with nothing new to read is skipped BEFORE it ever touches
+      the budget/deferral machinery — B3.1's own "single biggest CPU
+      win") and `EventBus` (one-shot per-tick publish/subscribe for
+      `ON_EVENT` tasks — B3.2). `Task` gained an additive `event_types`
+      field; `Scheduler.run_tick` now gates every task on real
+      due-or-not reactivity before any B2 budget logic. `scripts/
+      verify_scheduler.py` extended 5 checks -> 10, all passing. B3.3
+      (audit + convert the ~200 real polling call sites) explicitly
+      not attempted — real case-by-case future work, not a mechanism.
       A1.3, A2-A13, B0.3 (a scoping note, not an action item), B2.4,
-      and B3-B15 beyond B15.1 remain unstarted; see the doc for the
-      full 30+-item checklist and its own two-track SEQUENCE.
+      B3.3, and B4-B15 beyond B15.1 remain unstarted; see the doc for
+      the full 30+-item checklist and its own two-track SEQUENCE.
 
 ### C++ native-porting backlog (R6/R7)
 

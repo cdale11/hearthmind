@@ -87,6 +87,12 @@ class Task:
     cost_hint: float = 1.0
     locality: Locality = Locality.GLOBAL
     determinism: Determinism = Determinism.STRICT
+    # B3.2: which typed event(s) a `trigger=ON_EVENT` task subscribes
+    # to (see `simulation/reactivity.py`'s `EventBus`). Ignored for
+    # every other trigger kind. Additive field, default empty — every
+    # Task built before B3 (including every `Task.legacy(...)`, which
+    # is always PERIODIC) is unaffected.
+    event_types: frozenset[str] = field(default_factory=frozenset)
 
     @classmethod
     def legacy(cls, id: str, subsystem: str, fn: Callable[..., object]) -> "Task":

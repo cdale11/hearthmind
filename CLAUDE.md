@@ -534,6 +534,54 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.165)
+
+Explicit user instruction: "start B3" (docs/HEARTHBENCH-RUNTIME-
+2026-07-23.md, Tier 5). New `hearthmind/simulation/reactivity.py`:
+B3.1's `DirtyTracker` (a monotonic per-key write-VERSION counter, not
+a plain boolean flag — lets several independent `ON_DIRTY` readers of
+the same key each observe one write exactly once, on their own
+schedule, without racing to clear a shared bit first) and B3.2's
+`EventBus` (one-shot per-tick publish/subscribe — `clear()` at tick
+end drops any unconsumed event, deliberately distinct from
+`DirtyTracker`'s persistent state: "did this happen" has no "still
+pending" concept once its tick has passed). `Task` gained an additive
+`event_types: frozenset[str]` field for `ON_EVENT` subscriptions
+(default empty — every pre-B3 `Task`, including every `Task.
+legacy(...)`, unaffected).
+
+`Scheduler.run_tick` now gates EVERY task (before any B2 budget/
+priority logic, all priority classes including CRITICAL) on a real
+`_is_due` check: an `ON_DIRTY` task with clean reads, or an `ON_EVENT`
+task whose event wasn't published this tick, is `skipped_clean` —
+never touches the budget/deferral machinery at all, which is B3.1's
+own named "single biggest CPU win." `PERIODIC` (and `PREDICTED`, not
+specially handled — flagged honestly) tasks stay unconditionally due,
+unchanged from B2's original behavior.
+
+**B3.3 (audit + convert the ~200 real per-tick polling call sites in
+`engine.py`) explicitly NOT attempted** — a real case-by-case audit
+needing individual judgment and live replay-hash verification per
+conversion, not a mechanism to build; same shape as B1.4's actual
+subsystem migration, real future work.
+
+**Still not wired into the live tick loop** — no import from
+`reactivity.py` exists in `simulation/engine.py`; both primitives have
+only ever been exercised against synthetic task sets.
+
+Verified: `scripts/verify_scheduler.py` extended 5 checks -> 10 (new:
+an `ON_DIRTY` task never fires with nothing written, fires exactly
+once after a write, goes clean again immediately after; two
+independent `ON_DIRTY` readers of the same key each observe one write
+exactly once; an `ON_DIRTY` task with no declared `reads` never fires;
+an `ON_EVENT` task only fires on the tick its event was published, not
+before or after; `DirtyTracker`/`EventBus` exercised directly) — all
+10 pass. `scripts/verify_task_graph.py`/`verify_hearthbench_
+isolation.py`/`verify_runtime_invariant.py` re-run clean (unaffected).
+`pyflakes` clean on all new/touched modules. No native module,
+persisted `World` state, or real engine code path touched — no soak
+re-run needed.
+
 ## Current state (v1.34.164)
 
 Explicit user instruction: "continue tier 5 with B2" (docs/
