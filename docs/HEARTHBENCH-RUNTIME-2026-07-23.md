@@ -688,22 +688,36 @@ checks alongside the existing 5 B2 ones).
   causal-chain metric) is out of scope — no causal-chain metric exists
   in this runtime yet.
 
-## B6 — Adaptive tuning [Hard Rule 6] [PARTIAL for LLM only]
+## B6 — Adaptive tuning [Hard Rule 6] [PARTIAL — B6.1/B6.2/B6.3 shipped v1.34.168, not wired into any real control point]
 
-- [ ] **B6.1 — Tunables registry:** update intervals, batch sizes,
-  worker counts, queue priorities/lengths, cache sizes, memory limits,
-  persistence frequency, LLM concurrency. Each with a legal range, a
-  step size, and a semantic-safety class (`safe` = cannot change
-  outcomes; `sensitive` = requires replay verification).
-- [ ] **B6.2 — Controllers.** Simple feedback control (PID-ish or
-  bang-bang with hysteresis) driving each tunable toward a target
-  (e.g. tick-time budget, memory headroom). Deterministic, no LLM —
-  per the doc's closing note (evolutionary algorithms, statistics,
-  optimization, feedback control).
-- [ ] **B6.3 — Existing LLM pacing folds in here.** `llm_pressure_*`
-  (slowdown band, pause, backpressure) is the one adaptive controller
-  that exists — re-express it as a registered tunable set under the
-  general framework rather than a special case.
+- [x] **B6.1 — Tunables registry — SHIPPED, v1.34.168.** New
+  `hearthmind/simulation/tuning.py`'s `Tunable`/`TunableRegistry`: a
+  real legal range (`min_value`/`max_value`), a step size, and a
+  `SafetyClass` (`SAFE`/`SENSITIVE`) per tunable — `adjust`/`set_value`
+  always clamp to range, verified directly (repeated adjustment past
+  either bound never overshoots).
+- [x] **B6.2 — Controllers — SHIPPED (bang-bang only), v1.34.168.**
+  `BangBangController`: pushes a named tunable one step toward a
+  target with a real hysteresis dead-zone (verified: several readings
+  inside the band produce zero change, not just "small" change) — the
+  doc's own "PID-ish OR bang-bang" gave a real choice; bang-bang was
+  picked as the simpler, more directly testable of the two. Genuinely
+  deterministic, no LLM anywhere in this module, matching the item's
+  own explicit instruction — see CLAUDE.md's v1.34.168 entry for the
+  broader LLM/ML-candidate audit this pass also ran, which reaches the
+  same "classical control, not a trained model" conclusion
+  independently.
+- [x] **B6.3 — Existing LLM pacing folds in here — SHIPPED (metadata
+  only), v1.34.168.** `register_llm_pacing_tunables` registers the
+  real existing `llm_pressure_*`/`llm_max_concurrent` constants
+  (CLAUDE.md's own long-documented lineage) as a real `Tunable` set
+  under this general framework — all `SENSITIVE`, all with real
+  descriptions. This does NOT rewire `simulation/engine.py`'s actual
+  pacing code to read from the registry — that's a real migration
+  needing the same kind of live-diagnostic verification every past
+  retune of these exact constants has needed, not something to flip
+  blind in this pass (same "one subsystem at a time" discipline as
+  every prior B-item's real migration work).
 
 ## B7 — Hardware model [Hard Rule 7] [MISSING]
 

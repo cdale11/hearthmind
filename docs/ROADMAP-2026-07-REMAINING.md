@@ -465,8 +465,29 @@ starts on an explicit instruction naming an item.
       scheduler.py` extended 10 checks -> 13. B5.3 (the real endpoint)
       and the trace's optional "full detail" toggle (nothing heavier
       to capture yet) explicitly not built.
+      **B6.1/B6.2/B6.3 shipped, v1.34.168** (explicit user instruction:
+      "Start B6 and audit the code... to see if some LLM jobs can be
+      replaced by true AI/ML applications... maybe for adaptive
+      runtime too") — new `hearthmind/simulation/tuning.py`:
+      `Tunable`/`TunableRegistry` (B6.1, real range/step/safety-class,
+      clamped adjustment verified) and `BangBangController` (B6.2,
+      real hysteresis dead-zone, deterministic — no LLM, per the
+      item's own instruction); `register_llm_pacing_tunables` (B6.3)
+      registers the real existing `llm_pressure_*` constants as a
+      tunable set under this framework (metadata only — doesn't
+      rewire `engine.py`'s real pacing code). `scripts/verify_
+      tuning.py` (6 checks) verifies all three. **The requested LLM/ML
+      audit found no case for replacing an LLM job or a runtime
+      controller with a trained model** — see CLAUDE.md's v1.34.168
+      entry for the full reasoning (design-priority conflict with
+      "prefer LLM reasoning over deterministic rules," no training
+      infra/labeled data per the standing §8 LoRA decision, and the
+      doc's own B6/B13.5 text already independently reaching the same
+      "classical control, ML only as an optional *later*,
+      safety-gated evolutionary search" conclusion). Docs-only finding,
+      no code changed as a result.
       A1.3, A2-A13, B0.3 (a scoping note, not an action item), B2.4,
-      B3.3, B4.2, B5.3, and B6-B15 beyond B15.1 remain unstarted; see
+      B3.3, B4.2, B5.3, and B7-B15 beyond B15.1 remain unstarted; see
       the doc for the full 30+-item checklist and its own two-track
       SEQUENCE.
 

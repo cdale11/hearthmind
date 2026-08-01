@@ -534,6 +534,106 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.168)
+
+Explicit user instruction: "Start B6 and audit the code for current
+and future implementations to see if some LLM jobs can be replaced by
+true AI/ML applications like neural nets etc. maybe for adaptive
+runtime too" (docs/HEARTHBENCH-RUNTIME-2026-07-23.md, Tier 5).
+
+**B6 — adaptive tuning.** New `hearthmind/simulation/tuning.py`:
+B6.1's `Tunable`/`TunableRegistry` (real min/max/step + a `SafetyClass`
+of `SAFE`/`SENSITIVE`, `adjust`/`set_value` always clamp — verified
+directly, repeated over-adjustment never overshoots either bound);
+B6.2's `BangBangController` (deterministic feedback control with a
+real hysteresis dead-zone — several in-band readings produce zero
+change, the mechanism that stops a controller chattering; "PID-ish or
+bang-bang" per the item's own text, bang-bang chosen as the simpler,
+more directly testable of the two); B6.3's `register_llm_pacing_
+tunables` registers the real existing `llm_pressure_*`/`llm_max_
+concurrent` constants (this file's own long-documented lineage) as a
+real tunable set under the general framework — metadata only, does
+NOT rewire `engine.py`'s actual pacing code, which needs the same
+live-diagnostic verification every past retune of these exact
+constants has needed, not something to flip blind. `scripts/verify_
+tuning.py` (6 checks, including both bang-bang direction polarities)
+all pass. Not wired into any real control point, same discipline as
+every prior B-item.
+
+**The LLM/ML-candidate audit** (docs-only, no code changed as a
+result): reviewed all ~45 modules under `llm/` plus Part B's own text.
+Three independent findings converge on the same answer — nothing in
+this codebase should be replaced by a trained model right now:
+
+1. **Most `llm/` jobs are free-text generation** (dialogue, chronicle,
+   folklore, legend, letters, dream, omens, religion, naming, world_
+   genesis, ...) — a classifier/regressor cannot generate prose; the
+   only model class that could is another generative model, i.e.
+   still "an LLM," not a different category of ML.
+2. **The remaining structured-decision jobs are exactly the ones this
+   project already has a standing, explicit rule against automating
+   away**: "Everything involving judgement, interpretation, creativity,
+   uncertainty, psychology, or social behavior should default to the
+   local LLM... don't replace LLM reasoning with a large deterministic
+   rule system just because it's easier to implement" (see "Design
+   priorities" above). A trained classifier is architecturally the
+   same category of thing as the deterministic-rule-system alternative
+   already rejected for these decisions — a fixed, non-emergent
+   decision function — for the exact reason emergence tops this
+   project's own priority order. The v1.3.35 batch already did the
+   real available migration in the OTHER direction: LLM calls that
+   were actually objective/computable got converted to deterministic
+   Body values with the LLM narrating, not vice versa; nothing found
+   this pass reopens that boundary.
+3. **No training infrastructure or labeled ground truth exists, and
+   this is an explicit standing decision, not an oversight**: v1.34.159
+   already declined a real LoRA/fine-tuning pipeline ("no torch/peft/
+   transformers, this environment has no training infrastructure and
+   none was added") and `llm/eval_harness.py`'s `training_readiness_
+   report` already exists specifically to say "not enough labeled
+   volume yet" per task (`MIN_SFT_EXAMPLES_PER_TASK=200`) — the
+   tooling to notice when this becomes viable already exists and
+   already reports it isn't yet.
+
+**For the Adaptive Runtime specifically**, the source doc had already
+independently reached the same conclusion before this audit: B6's own
+text says "Deterministic, no LLM... evolutionary algorithms,
+statistics, optimization, feedback control," and the only ML-adjacent
+technique named anywhere in Part B is B13.5's "optional evolutionary
+search over tunable sets" — explicitly optional, explicitly gated
+behind B13.1/B13.2 (a hypothesis-loop + replay-hash safety gate) being
+solid FIRST. This isn't an oversight to fix; it's the right call for
+this specific system: B15's core safety guarantee ("a performance win
+that changes outcomes is automatically rejected, no judgment call")
+is far easier to bound and verify for an interpretable bang-bang
+controller with a known worst-case step than for a trained black-box
+model's decision boundary. Building B13.5 later remains real,
+legitimate future work — flagged, not built this pass (B13 itself is
+entirely unbuilt).
+
+**One real, narrow opportunity flagged for a future pass, NOT built
+here**: `llm/quality_labels.py`/`eval_harness.py` are HearthBench's
+existing rule-based (not ML) scorers (A4's "Tier 1: deterministic
+scorers"). A stdlib-only linear/logistic classifier trained offline on
+the recorder archive, used purely to pre-screen completions before a
+human or judge-model review, would stay within HearthBench's scoring
+domain (already explicitly an evaluation concern, not a live
+simulation decision) and would need zero new dependency — but needs
+real labeled outcome data this project doesn't have yet either. Not
+attempted this pass; a genuinely different judgment from "replace a
+live cognition decision with a trained model," which the audit found
+no case for anywhere.
+
+Verified: `scripts/verify_tuning.py` (6 checks — duplicate-name
+rejection, clamping in both directions, bang-bang basic direction, the
+inverted-polarity case proving the direction flag is load-bearing, the
+hysteresis dead-zone, and the real B6.3 tunable set) all pass.
+`scripts/verify_scheduler.py`/`verify_task_graph.py`/`verify_
+dormancy.py`/`verify_hearthbench_isolation.py`/`verify_runtime_
+invariant.py` re-run clean (unaffected). `pyflakes` clean on the new
+module and script. No native module, persisted `World` state, or real
+engine code path touched — no soak re-run needed.
+
 ## Current state (v1.34.167)
 
 Explicit user instruction: "Continue B5" (docs/HEARTHBENCH-RUNTIME-
