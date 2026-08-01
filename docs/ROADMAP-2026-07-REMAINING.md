@@ -705,9 +705,44 @@ world's models actually learning over years of simulated play)
       still genuinely learning the new task) — all pass. `pyflakes`
       clean.
 
+**L6 — evolutionary participation** (added v1.34.176, explicit user
+instruction: "Every AI/ML subsystem should itself participate in
+Hearthmind's evolutionary architecture... support variation,
+inheritance and adaptation... become part of the simulation's
+long-term emergent ecosystem rather than remaining a static
+optimization layer.")
+- [x] **L6.1-L6.3 primitives SHIPPED, v1.34.176.**
+      `hearthmind/ml/evolution.py`: `ModelGenome` (a model's own
+      tunable hyperparameters as a real heritable genome — `lineage`/
+      `fitness_history`/`generation` fields mirror `world.ontology.
+      InventedConcept`'s exact shape, reused not reinvented);
+      `mutate_genome`/`crossover_genome` (asexual/sexual variation +
+      inheritance, the crossover gene-draw mirrors `agents/
+      population.py`'s diploid allele inheritance); `GenomePopulation.
+      evaluate_and_select` (a real (μ+λ) evolutionary step — survivors
+      by fitness, refilled via mutation/crossover); `train_and_score_
+      genome` (the one place a genome becomes a real trained model and
+      gets scored). Gives model POPULATIONS real phylogeny (variation/
+      selection across configurations), complementing L5's per-model
+      ontogeny (continual learning within one lineage) rather than
+      duplicating it. Reuses L5.3's `passes_shadow_gate` as the real
+      swap-safety check a genome's trained model must clear.
+      **Not wired to any real evolutionary cadence or `simulation/
+      engine.py` call site** — same "never big-bang" discipline as
+      every Tier 5/6 module. Verified: `scripts/verify_ml_evolution.py`
+      (27 checks — gene bounds under repeated mutation/crossover,
+      lineage/generation correctness for both asexual and sexual
+      descent, cross-species crossover rejection, and the load-bearing
+      check: a genome population's mean fitness climbs substantially
+      and the best genome's hyperparameters genuinely converge toward
+      a real synthetic optimum over 15 generations) — all pass.
+      `pyflakes` clean.
+
 **Later, explicitly gated**
-- [ ] **B13.5 evolutionary tunable search** over B6's registry, gated by
-      B13.2's replay-hash check.
+- [ ] **B13.5 evolutionary tunable search** over B6's registry (Runtime
+      CONTROL parameters — concurrency, cache sizes — a different gene
+      space from L6's LEARNED MODEL hyperparameters), gated by B13.2's
+      replay-hash check.
 
 **Removed by the architecture pass** (recorded so they aren't
 rediscovered as gaps): a learned task-cost model (`TaskMetrics` already

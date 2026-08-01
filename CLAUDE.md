@@ -534,6 +534,78 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.176)
+
+Explicit user instruction: "Every AI/ML subsystem should itself
+participate in Hearthmind's evolutionary architecture. It should
+accumulate experience, periodically retrain from the world's history,
+support variation, inheritance and adaptation where appropriate, and
+become part of the simulation's long-term emergent ecosystem rather
+than remaining a static optimization layer." A real gap: L5 (v1.34.172)
+gives one model lineage ONTOGENY — continual learning across its own
+lifetime — but nothing gave a model population real PHYLOGENY:
+variation and selection across many candidate configurations. Every
+model in L0-L5 was, structurally, still "the one true configuration,
+retrained in place."
+
+New `hearthmind/ml/evolution.py` (Tier 6's L6), deliberately reusing —
+not reinventing — the exact evolutionary shape this codebase already
+has twice over: `world/ontology.py`'s `InventedConcept` (a `lineage`
+dict of `evolved_from`/`merged_from`, a bounded `fitness_history`, a
+`generation` counter, fitness-gated `run_selection`) and `agents/
+population.py`'s diploid genetic inheritance (draw each gene from a
+randomly-chosen parent allele, small-scale mutation, never a full
+reroll). `ModelGenome`: a model's own tunable hyperparameters
+(learning rate, hidden width, epochs, replay fraction) as a real
+heritable genome, field-for-field mirroring `InventedConcept`.
+`mutate_genome` (asexual variation + inheritance, clamped so mutation
+explores rather than teleports) and `crossover_genome` (sexual
+variation + inheritance, uniform gene-by-gene draw from one of two
+parents — rejects crossing two genomes of different species).
+`GenomePopulation.evaluate_and_select`: a real (μ+λ) evolutionary
+step — score every genome, keep the fittest survivors, refill the
+population via mutation/crossover of survivors. `train_and_score_
+genome`: the one place a genome's genes become a real trained
+`primitives.MLP` (via `ml.training.train_mlp_sgd`) and get scored
+(fitness = `1/(1+holdout_loss)`, bounded, NaN-safe).
+
+Composes with what's already shipped rather than duplicating it: L5
+still owns how ONE resulting model keeps learning across its own
+lifetime; L5.3's `passes_shadow_gate` is reused directly as the real
+safety check a genome's trained model must clear before replacing a
+live champion; cross-run pooling (`cross_run.py`) still supplies the
+data a genome gets scored against. Distinct from B13.5's own
+evolutionary tunable search (Runtime CONTROL parameters — concurrency,
+cache sizes) — L6 evolves LEARNED MODEL hyperparameters, a different
+gene space, same evolutionary mechanism, no duplication.
+
+**Not wired into any real evolutionary cadence or `simulation/
+engine.py` call site** — same "never big-bang" discipline as every
+Tier 5/6 module. Real future work: a genuine per-species evolutionary
+cadence keyed to simulated time (same shape B9's `TimescaleGate` would
+drive), and threading a `GenomePopulation`'s champion genome into L5's
+own continual-retrain loop so a model's hyperparameters keep adapting
+alongside its weights, not just its weights alone.
+
+Verified: `scripts/verify_ml_evolution.py` (27 checks — every gene
+stays within its legal bounds across 50 random draws and 50 repeated
+large mutations; mutation records real variation plus correct parent/
+generation lineage; crossover inherits each gene from one of exactly
+two named parents and rejects cross-species crossover; a well-tuned
+genome scores measurably higher than a badly-tuned one on the same
+toy task; the load-bearing check — a genome population's mean fitness
+climbs substantially and the best genome's hyperparameters genuinely
+converge toward a real synthetic optimum over 15 generations; fitness
+history persists across survivors) — all pass. `pyflakes` clean on
+the new module (the 4 pre-existing `engine.py` findings — undefined
+names `Agent`/`Building`/`Institution` — are long-documented and
+unrelated to this change). `scripts/verify_runtime_invariant.py`/
+`verify_task_graph.py`/`verify_scheduler.py`/`verify_dormancy.py`/
+`verify_tuning.py`/`verify_hardware_profile.py`/`verify_ml_substrate.py`/
+`verify_forecasting.py`/`verify_timescales.py` re-run clean
+(unaffected). No native module, persisted `World` state, or real
+engine code path touched — no soak re-run needed.
+
 ## Current state (v1.34.175)
 
 Explicit user instruction: "Start B9" (docs/HEARTHBENCH-RUNTIME-

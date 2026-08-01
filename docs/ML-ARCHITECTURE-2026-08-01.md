@@ -60,6 +60,11 @@ LAYER 5 — LIFELONG LEARNING LOOP (closes the loop over simulated time)
   L5.2  Warm-start + replay rehearsal  fine-tune existing weights, never reinit from scratch
   L5.3  Shadow evaluation + swap gate  candidate must not regress before it goes live
   L5.4  Versioned checkpoint history   bounded per-world log, rollback on a bad swap
+
+LAYER 6 — EVOLUTIONARY PARTICIPATION (phylogeny: variation across configurations)
+  L6.1  ModelGenome + lineage          heritable hyperparameters, mirrors InventedConcept's shape
+  L6.2  mutate / crossover             asexual + sexual variation, mirrors Agent.genome's shape
+  L6.3  GenomePopulation selection     real (mu+lambda) evolutionary step, the adaptation mechanism
 ```
 
 **Layer 5 exists to fix a real gap in the audit/architecture as
@@ -340,6 +345,84 @@ matters for emergence.
 
 ---
 
+### L6 — Evolutionary participation *(phylogeny, added v1.34.176)*
+
+**Explicit user instruction: "Every AI/ML subsystem should itself
+participate in Hearthmind's evolutionary architecture. It should
+accumulate experience, periodically retrain from the world's history,
+support variation, inheritance and adaptation where appropriate, and
+become part of the simulation's long-term emergent ecosystem rather
+than remaining a static optimization layer."**
+
+L5 gives a model **ontogeny** — one lineage learning across its own
+lifetime. L6 gives a model population real **phylogeny** — variation,
+inheritance, and selection ACROSS many candidate configurations, not
+just within one. This closes the gap the instruction names: without
+L6, every model in L0-L5 is still, structurally, "the one true
+configuration, retrained in place" — a static optimization layer that
+merely updates its weights, never actually varies, competes, or
+adapts its own shape.
+
+Deliberately reuses the exact mechanism `world/ontology.py`'s
+`InventedConcept` already uses for cultural-concept evolution (a
+`lineage` dict of `evolved_from`/`merged_from`, a bounded `fitness_
+history`, a `generation` counter, `run_selection`-style fitness-gated
+survival) and `agents/population.py`'s diploid genetic inheritance
+(draw each gene from a randomly-chosen parent allele, small-scale
+mutation, never a full reroll) — the same "extend existing mechanics
+before inventing new ones" discipline this project holds throughout,
+applied to model hyperparameters instead of cultural concepts or
+psychology traits.
+
+`hearthmind/ml/evolution.py`:
+- **`ModelGenome`** — a model's own tunable hyperparameters (learning
+  rate, hidden width, epoch count, replay fraction) as a real,
+  heritable, mutable genome. Field shape mirrors `InventedConcept`
+  exactly: `lineage` (`parent_id` for asexual descent, `parents` for
+  crossover), `fitness_history` (bounded), `generation`.
+- **`mutate_genome`** — asexual variation + inheritance: each gene
+  independently nudged by a bounded fraction of its legal range,
+  clamped so mutation explores rather than teleports.
+- **`crossover_genome`** — sexual variation + inheritance: each gene
+  independently drawn from one of two parents (uniform crossover),
+  the same shape `agents/population.py`'s diploid allele draw uses.
+- **`GenomePopulation`** — a bounded population per model "species"
+  (e.g. `"workload_forecaster"`); `evaluate_and_select` is a real
+  (μ+λ) evolutionary step: score every genome, keep the fittest
+  survivors, refill the population via mutation/crossover of
+  survivors. **This is the adaptation mechanism** — verified directly
+  that a population's mean fitness climbs substantially over
+  generations on a synthetic landscape with a real optimum, and that
+  the fittest genome's hyperparameters genuinely converge toward it.
+- **`train_and_score_genome`** — the one place a genome's genes become
+  a real trained `primitives.MLP` and get scored, shared by every
+  consumer so genome semantics stay consistent everywhere.
+
+**How this composes with what's already shipped, not a parallel
+system:** L6 evolves the HYPERPARAMETERS a model is trained with; L5
+(`lifelong.py`) still owns how ONE resulting model keeps learning
+across its own lifetime (warm-start + replay); L5.3's `passes_shadow_
+gate` is reused, not duplicated, as the real gate a genome's trained
+model must clear before replacing a live champion. Cross-run pooling
+(`cross_run.py`) still supplies the training data a genome gets scored
+against. Nothing here duplicates B13.5's own evolutionary-tunable-
+search (Adaptive Runtime scheduling knobs) — that evolves runtime
+CONTROL parameters (concurrency, cache sizes); L6 evolves LEARNED
+MODEL hyperparameters. Same evolutionary mechanism, two genuinely
+different gene spaces, same non-duplication discipline as every other
+L-layer boundary in this document.
+
+**Not wired into any real control point** — same "never big-bang"
+discipline as every Tier 5/6 module. No import from `evolution.py`
+exists in `simulation/engine.py`; no genome population is ever
+actually evaluated against real recorder/metrics data yet. Real future
+work: a genuine per-species evolutionary cadence (keyed to simulated
+time, same shape B9's `TimescaleGate` would drive), and threading a
+`GenomePopulation`'s champion genome into L5's own continual-retrain
+loop so a model's hyperparameters keep adapting alongside its weights.
+
+---
+
 ## 2. Implementation order
 
 Ordered by (value × certainty) ÷ risk. Each stage independently
@@ -358,7 +441,9 @@ shippable and revertible.
 | 9 | **L4.1** calibration | low | calibration curve on held-out beliefs |
 | 10 | **L5.1-L5.4** lifelong loop primitives — **SHIPPED v1.34.172** | none (inert, unwired) | `scripts/verify_ml_substrate.py` — reservoir-sampling fairness, checkpoint bounds/rollback, shadow-gate direction, and the load-bearing check: a model continually retrained with replay rehearsal keeps old-task performance far closer to baseline than one retrained without it |
 | 11 | **L5.1** wired to a real retrain cadence, starting with L2.2 | **high** | same gates as step 8, plus the shadow gate (L5.3) on every swap |
-| 12 | **B13.5** evolutionary search | low | B13.2 replay-hash gate (already specced) |
+| 12 | **L6.1-L6.3** evolutionary genome primitives — **SHIPPED v1.34.176** | none (inert, unwired) | `scripts/verify_ml_evolution.py` (27 checks) — genome bounds/lineage under mutation and crossover, and the load-bearing check: population mean fitness climbs substantially and the best genome's hyperparameters converge toward a real synthetic optimum over generations |
+| 13 | **L6** wired to a real per-species evolutionary cadence | **high** | L5.3's shadow gate on every champion swap, same discipline as step 11 |
+| 14 | **B13.5** evolutionary search (Runtime tunables, a different gene space from L6) | low | B13.2 replay-hash gate (already specced) |
 
 Steps 1-3 are pure infrastructure and carry no behavioural risk; the
 first real behaviour change is step 4. Step 10 (the lifelong-loop
@@ -422,6 +507,15 @@ both live, and is correctly sequenced after L2.2 exists to retrain.
    gate (L5.3) before it replaces the live weights — the retraining
    loop gets the exact same "no judgment call, no silent regression"
    discipline guardrail #5 gives every other behaviour-touching change.
+10. **Evolutionary variation reuses existing lineage/fitness mechanics,
+    never invents a parallel one** (L6, added v1.34.176). A
+    `ModelGenome`'s `lineage`/`fitness_history`/`generation` fields are
+    the same shape `world.ontology.InventedConcept` already uses; a
+    genome's trained model still has to clear L5.3's shadow gate
+    before it can replace a live champion — evolution selects WHICH
+    hyperparameters to train with, it never bypasses the "no
+    regression without a judgment call" discipline every other
+    behaviour-touching change in this document already holds to.
 
 ## 4. Explicitly rejected
 
