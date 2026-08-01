@@ -534,6 +534,58 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.167)
+
+Explicit user instruction: "Continue B5" (docs/HEARTHBENCH-RUNTIME-
+2026-07-23.md, Tier 5). New `hearthmind/simulation/profiling.py`:
+B5.1's `TaskMetrics` (call/error/skipped/deferred/promoted/spare-
+capacity counts, a bounded wall-time ring buffer, derived `idle_
+ratio()`) and B5.4's `TickTrace`/`TaskTraceEntry`. `Scheduler` now
+creates a `TaskMetrics` entry for every task the moment it's first
+processed — no registered task can escape being metered, which is the
+real structural version of B5.3's "no subsystem may be a black box"
+review rule (no CI exists in this repo to add that rule to anyway).
+`run_tick` builds a full `TickTrace` EVERY tick (not an opt-in
+profiling mode) with a specific reason string per task explaining
+which trigger fired and why — e.g. "ON_DIRTY: reads ['soil'] changed
+since last observed", "budget exhausted for 'x' (remaining=
+0.000000s)", "deferral bound reached (3 >= 3) -- force-run" — appended
+to a bounded 500-tick ring buffer (`Scheduler.tick_traces`). Built in
+the same pass as the B2/B3 scheduling logic it explains, honoring the
+item's own "build it with B1, not after" instruction rather than
+bolting it on later. `EventBus` gained a small additive `pending()`
+accessor the tracer needs to name which event(s) made an `ON_EVENT`
+task due.
+
+B5.2's overhead is measured, not assumed: a new verification check
+times 50 synthetic tasks x 200 ticks under the real `Scheduler`
+against the same functions called bare, and prints the real per-task-
+tick overhead (~12us on this environment) — "a profiler that costs 5%
+must say so" now has a real number attached, with a sanity bound that
+would catch a future accidental O(n²) regression.
+
+**B5.3 (a real `/diagnostics/runtime` endpoint + dev-console wiring)
+explicitly NOT attempted** — no real engine subsystem runs through
+`Scheduler` yet to expose. **B5.4's own second half (an on-demand
+"trace next tick in full detail" toggle for something heavier than the
+always-on trace) also NOT built** — at this module's current
+abstraction there's no real task-argument/state snapshot to make a
+"more expensive" capture mode meaningfully different from what's
+already always-on; a toggle doing nothing extra would be theater.
+
+Verified: `scripts/verify_scheduler.py` extended 10 checks -> 13 (new:
+per-task metrics track real call/deferred/promoted counts and a
+correct `idle_ratio()` across several ticks; a tick's trace records
+every task's real outcome and a specific correct reason including the
+promoted/spare-capacity cases; the instrumentation overhead check
+above) — all 13 pass. `scripts/verify_task_graph.py`/`verify_
+dormancy.py`/`verify_hearthbench_isolation.py`/`verify_runtime_
+invariant.py` re-run clean (unaffected). `pyflakes` clean on all new/
+touched modules (only the four known pre-existing `engine.py` findings
+elsewhere, already confirmed harmless). No native module, persisted
+`World` state, or real engine code path touched — no soak re-run
+needed.
+
 ## Current state (v1.34.166)
 
 Explicit user instruction: "Start B4" (docs/HEARTHBENCH-RUNTIME-

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Tier 5 B2/B3 verification (budgets & scheduling; dirty tracking &
-the event bus).
+"""Tier 5 B2/B3/B5 verification (budgets & scheduling; dirty tracking
+& the event bus; continuous profiling).
 
 Standalone verification script, not a unittest — same convention as
 every other verify_*.py in this directory. Exercises `hearthmind.
-simulation.scheduler`/`reactivity` against synthetic task sets (these
-modules are not wired into the live tick loop yet, per B1/B2/B3's own
-"never big-bang").
+simulation.scheduler`/`reactivity`/`profiling` against synthetic task
+sets (these modules are not wired into the live tick loop yet, per
+B1/B2/B3/B5's own "never big-bang").
 
 Checks:
   1. A CRITICAL task always runs, even with zero remaining budget.
@@ -31,6 +31,15 @@ Checks:
      (documented edge case, not a bug).
   9. B3.2: an ON_EVENT task only runs on the tick its subscribed event
      is published, and the event does not persist into the next tick.
+  10. B5.1: per-task metrics (call_count, deferred_count, promoted_
+      count, skipped_clean_count, idle_ratio) track real history
+      correctly across several ticks.
+  11. B5.4: a tick's trace records every task's real outcome and a
+      specific, correct reason — including the promoted/deferred/
+      spare-capacity cases, not just the plain ran/skipped ones.
+  12. B5.2: the instrumentation's own per-task overhead is measured
+      directly (not just asserted) and printed, so a future change
+      that makes it expensive would be visible here.
 """
 from __future__ import annotations
 
@@ -220,6 +229,111 @@ def check_dirty_tracker_and_event_bus_directly() -> None:
     assert bus.is_pending(["e"]) is False
 
 
+def check_metrics_track_real_history() -> None:
+    reg = TaskRegistry()
+    reg.register(Task(id="a", subsystem="x", fn=_fast, trigger=TriggerKind.PERIODIC,
+                       priority_class=PriorityClass.CRITICAL))
+    sched = Scheduler(reg)
+    for _ in range(5):
+        sched.run_tick()
+    m = sched.metrics_for("a")
+    assert m.call_count == 5, m.call_count
+    assert m.ticks_observed == 5, m.ticks_observed
+    assert m.idle_ratio() == 0.0, m.idle_ratio()
+    assert m.error_count == 0
+
+    # A DEFERRABLE task, always over budget, deferred every tick until
+    # its bound is crossed and it's force-run once (promoted).
+    reg2 = TaskRegistry()
+    reg2.register(Task(id="b", subsystem="y", fn=_fast, trigger=TriggerKind.PERIODIC,
+                        priority_class=PriorityClass.DEFERRABLE))
+    sched2 = Scheduler(reg2, {"y": SubsystemBudget(subsystem="y", seconds_per_tick=0.0)})
+    bound = DEFAULT_MAX_DEFERRALS[PriorityClass.DEFERRABLE]
+    for _ in range(bound + 1):
+        sched2.run_tick()
+    m2 = sched2.metrics_for("b")
+    assert m2.deferred_count == bound, m2.deferred_count
+    assert m2.promoted_count == 1, m2.promoted_count
+    assert m2.call_count == 1, m2.call_count
+    assert m2.ticks_observed == bound + 1, m2.ticks_observed
+    assert 0.0 < m2.idle_ratio() < 1.0, m2.idle_ratio()
+
+
+def check_trace_records_real_reasons() -> None:
+    reg = TaskRegistry()
+    reg.register(Task(id="crit", subsystem="core", fn=_fast, trigger=TriggerKind.PERIODIC,
+                       priority_class=PriorityClass.CRITICAL))
+    reg.register(Task(id="dirty_reader", subsystem="x", fn=_fast,
+                       trigger=TriggerKind.ON_DIRTY, reads=frozenset({"soil"})))
+    reg.register(Task(id="ev", subsystem="x", fn=_fast,
+                       trigger=TriggerKind.ON_EVENT, event_types=frozenset({"disaster"})))
+    reg.register(Task(id="bg", subsystem="y", fn=_fast, trigger=TriggerKind.PERIODIC,
+                       priority_class=PriorityClass.BACKGROUND))
+    budgets = {"y": SubsystemBudget(subsystem="y", seconds_per_tick=0.0)}
+    sched = Scheduler(reg, budgets)
+
+    sched.event_bus.publish("disaster")
+    report = sched.run_tick(tick_time_budget_seconds=1.0)
+    assert report.ran_via_spare_capacity == ["bg"], report.ran_via_spare_capacity
+
+    trace = sched.tick_traces[-1]
+    assert trace.tick == 0
+
+    crit_entry = trace.entry_for("crit")
+    assert crit_entry.outcome == "ran"
+    assert "CRITICAL" in crit_entry.reason
+    assert crit_entry.cost_seconds is not None
+
+    dirty_entry = trace.entry_for("dirty_reader")
+    assert dirty_entry.outcome == "skipped_clean"
+    assert "unchanged" in dirty_entry.reason
+
+    ev_entry = trace.entry_for("ev")
+    assert ev_entry.outcome == "ran"
+    assert "disaster" in ev_entry.reason
+
+    bg_entry = trace.entry_for("bg")
+    assert bg_entry.outcome == "ran"
+    assert bg_entry.ran_via_spare_capacity is True
+    assert "spare" in bg_entry.reason
+
+
+def check_instrumentation_overhead_measured() -> None:
+    # B5.2: measure the real per-task overhead of running under
+    # Scheduler's instrumentation (metrics + trace building) versus
+    # calling the same functions directly, and print it -- "a profiler
+    # that costs 5% must say so," not just assert it's cheap.
+    reg = TaskRegistry()
+    n = 50
+    for i in range(n):
+        reg.register(Task(id=f"t{i}", subsystem="x", fn=_fast, trigger=TriggerKind.PERIODIC))
+    sched = Scheduler(reg, {"x": SubsystemBudget(subsystem="x", seconds_per_tick=10.0)})
+
+    import time as _time
+    iterations = 200
+
+    start = _time.perf_counter()
+    for _ in range(iterations):
+        sched.run_tick()
+    scheduled_total = _time.perf_counter() - start
+
+    start = _time.perf_counter()
+    for _ in range(iterations):
+        for _ in range(n):
+            _fast()
+    bare_total = _time.perf_counter() - start
+
+    per_task_scheduled_us = (scheduled_total / (iterations * n)) * 1e6
+    per_task_bare_us = (bare_total / (iterations * n)) * 1e6
+    overhead_us = per_task_scheduled_us - per_task_bare_us
+    print(f"    (B5.2 measured overhead: {overhead_us:.2f}us/task-tick "
+          f"scheduled={per_task_scheduled_us:.2f}us bare={per_task_bare_us:.2f}us)")
+    # Sanity bound, not a tight perf assertion -- catches a genuine
+    # regression (e.g. an accidental O(n^2)) without being flaky on
+    # slow CI hardware.
+    assert overhead_us < 500, overhead_us
+
+
 def main() -> int:
     checks = [
         check_critical_always_runs,
@@ -232,6 +346,9 @@ def main() -> int:
         check_on_dirty_no_reads_never_fires,
         check_on_event_gating,
         check_dirty_tracker_and_event_bus_directly,
+        check_metrics_track_real_history,
+        check_trace_records_real_reasons,
+        check_instrumentation_overhead_measured,
     ]
     for check in checks:
         check()

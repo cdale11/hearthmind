@@ -76,5 +76,11 @@ class EventBus:
     def is_pending(self, event_types: Iterable[str]) -> bool:
         return bool(self._pending.intersection(event_types))
 
+    def pending(self) -> frozenset[str]:
+        """Read-only snapshot of everything published this tick — used
+        by B5.4's tick tracing to explain WHICH event(s) made an
+        `ON_EVENT` task due, not just that it was due."""
+        return frozenset(self._pending)
+
     def clear(self) -> None:
         self._pending.clear()

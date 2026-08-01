@@ -447,9 +447,27 @@ starts on an explicit instruction naming an item.
       explicitly not attempted — each needs real, live-tested sleep/
       wake criteria touching actual gameplay code, same "one subsystem
       at a time" discipline as B0.3/B1.4/B3.3.
+      **B5.1/B5.2/B5.4 shipped, v1.34.167** (explicit user instruction:
+      "Continue B5") — new `hearthmind/simulation/profiling.py`:
+      `TaskMetrics` (B5.1, real subset — call/error/deferred/promoted
+      counts, wall-time ring buffer, idle ratio; queue-depth/cache-hit
+      honestly untracked, no such mechanism exists) tracked
+      automatically by `Scheduler` for every task (structural "no
+      black box" guarantee — B5.3's own review rule made moot rather
+      than built as a CI check, since B5.3 itself needs a real
+      `/diagnostics/runtime` endpoint this pass doesn't add, no live
+      subsystem to expose yet); `TickTrace`/`TaskTraceEntry` (B5.4,
+      "explain this tick" — every task's real outcome + a specific
+      reason string, built EVERY tick into a bounded 500-tick ring
+      buffer, built alongside B2/B3 per the item's own "build it with
+      B1, not after"). B5.2's overhead is measured and printed, not
+      assumed (~12us/task-tick on this environment). `scripts/verify_
+      scheduler.py` extended 10 checks -> 13. B5.3 (the real endpoint)
+      and the trace's optional "full detail" toggle (nothing heavier
+      to capture yet) explicitly not built.
       A1.3, A2-A13, B0.3 (a scoping note, not an action item), B2.4,
-      B3.3, B4.2, and B5-B15 beyond B15.1 remain unstarted; see the
-      doc for the full 30+-item checklist and its own two-track
+      B3.3, B4.2, B5.3, and B6-B15 beyond B15.1 remain unstarted; see
+      the doc for the full 30+-item checklist and its own two-track
       SEQUENCE.
 
 ### C++ native-porting backlog (R6/R7)

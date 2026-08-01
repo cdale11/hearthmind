@@ -626,37 +626,67 @@ checks alongside the existing 5 B2 ones).
   synthetic counter; wiring that up is real future work, not this
   pass's scope.
 
-## B5 — Continuous profiling [Hard Rules 5, 15] [PARTIAL]
+## B5 — Continuous profiling [Hard Rules 5, 15] [PARTIAL — B5.1/B5.2/B5.4 shipped v1.34.167]
 
-- [ ] **B5.1 — Per-task instrumentation, always on:** CPU time, wall
-  time, call count, wake frequency, idle ratio, queue depth, cache
-  hit rate, memory delta, budget utilization, deferral debt. Ring-buffer
-  aggregates, not raw logs. No "profiling mode" — profiling *is* the
-  runtime.
-- [ ] **B5.2 — Low-overhead design.** Sampling + counters, with the
-  profiler's own overhead measured and reported (a profiler that costs
-  5% must say so).
-- [ ] **B5.3 — Expose everything** at `/diagnostics/runtime` and in the
-  dev console: per-subsystem tables, flame-ish breakdown by task,
-  adaptation history. **No subsystem may be a black box** — make it a
-  review rule that a new task declaring no metrics fails CI.
-
-- [ ] **B5.4 — "Explain this tick" [APPROVED 2026-07-23].** For any
-  chosen tick, a full execution trace: every task that ran, **why** it
-  ran (which trigger fired — periodic, event, dirty-flag, prediction),
-  what it cost, what it read and wrote, what was deferred and to when,
-  what was skipped because a dependency was clean, and what slept.
-  - **Build it with B1, not after.** The moment work moves from
-    "everything runs every tick" to conditional scheduling, the question
-    "why didn't X run?" becomes constant — and unanswerable without
-    this. It is the debugging tool that makes the whole runtime
-    tractable to reason about.
-  - **Implementation:** a ring buffer of the last N tick-traces (cheap,
-    bounded) plus an on-demand "trace next tick in full detail" toggle
-    for expensive capture.
-  - **Also the emergence lens:** paired with the causal-chain metric,
-    this answers "what actually happened in the world this tick, and in
-    what order" — useful far beyond performance work.
+- [x] **B5.1 — Per-task instrumentation, always on — SHIPPED (real
+  subset), v1.34.167.** New `hearthmind/simulation/profiling.py`'s
+  `TaskMetrics`, one entry per task, updated by `Scheduler` itself so
+  no registered task can go unmetered (see B5.3 below): `call_count`,
+  `error_count`, `skipped_clean_count`, `deferred_count`, `promoted_
+  count`, `ran_via_spare_capacity_count`, `total_wall_seconds`, a
+  bounded ring buffer of recent per-call wall times (`recent_wall_
+  seconds`, `mean_wall_seconds()`), and a derived `idle_ratio()`. Of
+  the item's own named list, "queue depth"/"cache hit rate" are
+  honestly NOT tracked — no per-task queue or cache exists anywhere in
+  this runtime for either to read from; "memory delta" is also not
+  tracked — real per-call `tracemalloc` sampling is a genuine,
+  not-yet-built follow-up, not silently skipped. Wall time doubles as
+  the CPU-time proxy (this scheduler is single-threaded and
+  synchronous, where the two are the same number). "Budget
+  utilization"/"deferral debt" are already real and live on
+  `SubsystemBudget` (B2.1/B2.3), not duplicated here.
+- [x] **B5.2 — Low-overhead design — SHIPPED (measured, not just
+  asserted), v1.34.167.** `scripts/verify_scheduler.py`'s `check_
+  instrumentation_overhead_measured` times 50 tasks x 200 ticks under
+  the real `Scheduler` against the same functions called bare, and
+  PRINTS the real measured per-task-tick overhead (~12us on this
+  environment's hardware) rather than assuming instrumentation is
+  cheap — "a profiler that costs 5% must say so" now has a real number
+  attached, checked against a sanity bound so a future accidental
+  O(n²) regression would fail this script, not just look fine in review.
+- [ ] **B5.3 — Expose everything at `/diagnostics/runtime` + dev
+  console — explicitly NOT attempted.** There's no real engine
+  subsystem running through `Scheduler` yet to expose (same "not wired
+  into the live tick loop" reason every prior B-item gives). The "no
+  subsystem may be a black box" review rule is instead a real
+  STRUCTURAL guarantee in this design, not a CI policy: `Scheduler.
+  metrics_for`/`all_metrics` mean every task processed even once
+  already has a real `TaskMetrics` entry — there is no code path for a
+  registered task to skip being metered, so a CI rule enforcing it
+  would have nothing to catch.
+- [x] **B5.4 — "Explain this tick" — SHIPPED, v1.34.167.** New
+  `profiling.py`'s `TickTrace`/`TaskTraceEntry`: `Scheduler.run_tick`
+  now builds a full trace EVERY tick (not an opt-in "profiling mode")
+  recording, per task, its real outcome (`ran`/`deferred`/`skipped_
+  clean`/`error`) and a SPECIFIC reason string naming which trigger
+  fired and why (e.g. `"ON_DIRTY: reads ['soil'] changed since last
+  observed"`, `"budget exhausted for 'x' (remaining=0.000000s)"`,
+  `"deferral bound reached (3 >= 3) -- force-run"`), plus real cost
+  and the promoted/spare-capacity flags — appended to a bounded ring
+  buffer (`Scheduler.tick_traces`, `TICK_TRACE_HISTORY=500`), matching
+  the item's own "ring buffer of the last N tick-traces (cheap,
+  bounded)" implementation note. **Built alongside B2/B3 rather than
+  after**, honoring the item's own "build it with B1, not after" —
+  this ships in the same pass the scheduling logic it explains was
+  extended, not as a bolt-on later. The item's second half — an
+  on-demand "trace next tick in FULL detail" toggle for something more
+  expensive than the always-on trace — is NOT built: at this module's
+  current abstraction (no real task arguments/state to snapshot) there
+  is nothing genuinely heavier to capture yet; a toggle with nothing
+  extra behind it would be theater, so it's left honestly unbuilt
+  rather than faked. The emergence-lens framing (pairing this with a
+  causal-chain metric) is out of scope — no causal-chain metric exists
+  in this runtime yet.
 
 ## B6 — Adaptive tuning [Hard Rule 6] [PARTIAL for LLM only]
 
