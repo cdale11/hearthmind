@@ -1050,26 +1050,72 @@ reconstructable archived detail today) and wiring `condense_fn` at
 each stage to a real existing narrative job (chronicle for raw->
 episode, documentary/culture_digest for episode->summary, etc.).
 
-## B13 — Optimization hypotheses [Hard Rule 14] [MISSING]
+## B13 — Optimization hypotheses [Hard Rule 14] [PARTIAL]
 
-- [ ] **B13.1 — Hypothesis loop:** observe → hypothesize ("ecology at 45
-  min instead of 30 may cut CPU without changing outcomes") → apply
-  behind a flag → measure → **keep or roll back**, all recorded.
-- [ ] **B13.2 — Semantic-safety gate:** any `sensitive` tunable change
-  must pass a replay-hash equivalence check (B17.1) on a forked run
-  before it is kept. A performance win that changes outcomes is
-  automatically rejected — no judgment call.
-- [ ] **B13.3 — Adaptation history** as a first-class, browsable record:
-  what was tried, measured, kept, rolled back, and why.
-- [ ] **B13.4 — Strict separation from Reflection.** The Runtime
-  optimizes *execution*; Reflection (the pillar) optimizes *world
-  balance*. They must never touch each other's tunables. Write this as
-  an invariant — two self-modifying systems with overlapping authority
-  is the single most dangerous failure mode in this design.
+- [x] **B13.1 — Hypothesis loop — SHIPPED, v1.34.180.** New
+  `hearthmind/simulation/optimization_hypothesis.py`'s `HypothesisLoop.
+  apply_and_measure`: observe (`measure_fn`, called before) →
+  hypothesize (the caller's own free-text hypothesis) → apply (through
+  the registry's normal clamp, no special path) → measure (`measure_
+  fn`, called after) → keep or roll back, every attempt recorded as a
+  real `AdaptationRecord` (B13.3). Reuses B6's `Tunable`/
+  `TunableRegistry`/`SafetyClass` (`simulation/tuning.py`) directly
+  rather than a second tunable model — this module is the LOOP over an
+  existing tunable, not a parallel value store.
+- [x] **B13.2 — Semantic-safety gate — SHIPPED, v1.34.180.** A
+  `SafetyClass.SENSITIVE` change may ONLY be kept if a caller-supplied
+  `equivalence_check_fn` (real production wiring: B15.1's `verify_
+  replay_hash.py` machinery run on a forked world) reports `True` —
+  verified directly: a SENSITIVE tunable with a genuine measured
+  improvement but NO `equivalence_check_fn` at all is automatically
+  rejected (no free pass), and one with a `False`-returning check is
+  rejected despite the real improvement — "a performance win that
+  changes outcomes is automatically rejected, no judgment call" is
+  enforced in code, not left as a convention. `SAFE` tunables skip the
+  gate entirely (cannot change outcomes by construction, per B6.1's own
+  `SafetyClass` docstring) — verified a SAFE change is kept/rolled back
+  purely on measurement. Efficiency check: `equivalence_check_fn` is
+  never even called when the measurement itself didn't improve first
+  (verified directly) — no reason to pay for a real replay-hash check
+  on a change that wouldn't be kept anyway.
+- [x] **B13.3 — Adaptation history — SHIPPED, v1.34.180.**
+  `AdaptationHistory`: a bounded (`ADAPTATION_HISTORY_MAX=500`),
+  browsable, append-only record — hypothesis text, tunable name,
+  before/after value, measured before/after, whether the safety gate
+  applied and its verdict, and the final kept/rolled-back decision with
+  a real non-empty reason string. Verified: bounded at the cap with the
+  oldest entries genuinely dropped, `kept()`/`rolled_back()` split
+  correctly.
+- [x] **B13.4 — Strict separation from Reflection — SHIPPED, v1.34.180,
+  as real code, not just prose.** A `HypothesisLoop` is constructed
+  with a fixed `owned_tunable_names` frozenset; `CrossAuthorityError`
+  is raised IMMEDIATELY (before anything is measured or applied) on any
+  attempt to touch a tunable outside that set — verified directly with
+  two loops built over disjoint name sets (one standing in for this
+  Runtime's own tunables, one for Reflection's): each can freely touch
+  its own tunable, and each is provably blocked from the other's.
 - [ ] **B13.5 — Optional evolutionary search** over multi-dimensional
-  tunable sets (the doc's suggestion): population of configurations,
-  fitness = throughput under the semantic-safety constraint. Only after
-  B13.1–B13.2 are solid.
+  tunable sets — explicitly NOT built this pass, per the item's own
+  text ("only after B13.1–B13.2 are solid" — now true, but this is real
+  separate future work: jointly evolving several tunables under this
+  same safety-gate constraint, distinct from B6.2's single-tunable
+  bang-bang control and distinct from Tier 6's L6 model-genome
+  evolution, which evolves LEARNED MODEL hyperparameters, not runtime
+  CONTROL parameters).
+
+**Not wired into any real control point** — no import from
+`optimization_hypothesis.py` exists in `simulation/engine.py`/
+`server.py`; no real `HypothesisLoop` has ever been constructed over
+B6.3's actual registered LLM-pacing tunables, and `equivalence_check_
+fn` has only ever been exercised with a synthetic stand-in, never
+against a real `scripts/verify_replay_hash.py` invocation on a forked
+world. Real future work: a live-diagnostic-driven pass that
+constructs a real `HypothesisLoop` over `register_llm_pacing_
+tunables`'s actual registry, wires `equivalence_check_fn` to a real
+forked-world replay-hash comparison, and lets it propose the next
+retune of a constant like `llm_max_concurrent` — the exact constant
+whose own long documented CLAUDE.md history (4→2→1→2→1→2) this whole
+item exists to eventually automate.
 
 ## B14 — Persistence & background work [MISSING]
 

@@ -534,6 +534,87 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.180)
+
+Explicit user instruction: "Start b13" (docs/HEARTHBENCH-RUNTIME-
+2026-07-23.md, Tier 5, Hard Rule 14). New `hearthmind/simulation/
+optimization_hypothesis.py`, same "never big-bang" discipline as
+every prior Tier 5 Runtime module — not wired into `simulation/
+engine.py`/`server.py`. Reuses B6's `Tunable`/`TunableRegistry`/
+`SafetyClass` (`simulation/tuning.py`) directly rather than a second
+tunable model — this module is the LOOP over an existing tunable, not
+a parallel value store. `SafetyClass.SENSITIVE`'s own docstring had
+already named this exact gap ("would need B13.2's replay-hash
+equivalence gate... B13 itself is unbuilt") — this is that gate,
+finally built.
+
+B13.1 `HypothesisLoop.apply_and_measure`: a real observe (`measure_
+fn`, called before) → hypothesize (caller's free-text) → apply
+(through the registry's normal clamp) → measure (`measure_fn`, called
+after) → keep-or-roll-back loop, every attempt recorded. B13.2 the
+semantic-safety gate: a `SENSITIVE` change is kept ONLY if a caller-
+supplied `equivalence_check_fn` (real production wiring: B15.1's
+`verify_replay_hash.py` machinery run on a forked world) reports
+`True` — verified directly that NO `equivalence_check_fn` at all is
+treated as a FAILED gate (never a free pass) and a `False`-returning
+check rejects the change despite a genuine measured improvement;
+`SAFE` tunables skip the gate entirely (cannot change outcomes by
+construction). Efficiency check, verified: `equivalence_check_fn` is
+never even called when the measurement itself didn't improve — no
+reason to pay for a real replay-hash check on a losing change. B13.3
+`AdaptationHistory`: bounded (`ADAPTATION_HISTORY_MAX=500`),
+browsable, append-only — hypothesis text, tunable, before/after
+value, measured before/after, gate applied/verdict, and the final
+decision with a real non-empty reason — verified the oldest entries
+genuinely drop once the cap is hit. B13.4 the Runtime/Reflection
+separation as real code, not prose: a `HypothesisLoop` is constructed
+with a fixed `owned_tunable_names` frozenset; `CrossAuthorityError`
+raises immediately (before anything is measured or applied) on any
+attempt to touch a tunable outside it — verified with two disjoint
+loops (standing in for Runtime vs. Reflection), each freely touching
+its own tunable and provably blocked from the other's.
+
+B13.5 (evolutionary search over multi-dimensional tunable sets)
+explicitly NOT built this pass, per the item's own text ("only after
+B13.1–B13.2 are solid" — now true, but this is real distinct future
+work: jointly evolving several tunables under this same safety-gate
+constraint, different from B6.2's single-tunable bang-bang control
+and from Tier 6's L6 model-genome evolution, which evolves LEARNED
+MODEL hyperparameters, not runtime CONTROL parameters).
+
+**Not wired into any real control point** — no import from
+`optimization_hypothesis.py` exists in `simulation/engine.py`/
+`server.py`; no real `HypothesisLoop` has ever been constructed over
+B6.3's actual registered LLM-pacing tunables, and `equivalence_check_
+fn` has only ever been exercised with a synthetic stand-in, never a
+real `scripts/verify_replay_hash.py` invocation. Real future work: a
+live-diagnostic-driven pass constructing a real `HypothesisLoop` over
+`register_llm_pacing_tunables`'s actual registry, wiring `equivalence_
+check_fn` to a real forked-world replay-hash comparison, and letting
+it propose the next retune of a constant like `llm_max_concurrent` —
+the exact constant whose own long documented history (4→2→1→2→1→2)
+this whole item exists to eventually automate.
+
+Verified: `scripts/verify_optimization_hypothesis.py` (22 checks —
+cross-authority rejection incl. a symmetric two-loop proof, SAFE
+tunable kept/rolled-back purely on measurement with no gate at all,
+SENSITIVE tunable rejected both with no equivalence check and with a
+failing one despite real improvement, SENSITIVE tunable kept once
+both improvement and equivalence pass, the equivalence-check-skipped-
+on-no-improvement efficiency case, history recording/bounding) — all
+pass, first run except one pyflakes-caught unused-variable fix in the
+verify script itself (a constructed-but-unexercised second loop,
+fixed by giving it a real symmetric touch of its own tunable — no
+bug in the module under test). `pyflakes` clean on both files.
+`scripts/verify_runtime_invariant.py`/`verify_task_graph.py`/
+`verify_scheduler.py`/`verify_dormancy.py`/`verify_tuning.py`/
+`verify_hardware_profile.py`/`verify_forecasting.py`/
+`verify_timescales.py`/`verify_ml_substrate.py`/`verify_ml_
+evolution.py`/`verify_locality.py`/`verify_hierarchical_memory.py`/
+`verify_history_compression.py` re-run clean (unaffected). No native
+module, persisted `World` state, or real engine code path touched —
+no soak re-run needed.
+
 ## Current state (v1.34.179)
 
 Explicit user instruction: "Start b12" (docs/HEARTHBENCH-RUNTIME-

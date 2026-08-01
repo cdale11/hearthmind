@@ -596,9 +596,30 @@ starts on an explicit instruction naming an item.
       genuinely pruned key honestly returns nothing rather than
       fabricating content). All three sub-items shipped this pass.
       `scripts/verify_history_compression.py` (29 checks) all pass.
+      **B13.1-B13.4 shipped, v1.34.180** (explicit user instruction:
+      "Start b13") — new `hearthmind/simulation/optimization_
+      hypothesis.py`: `HypothesisLoop.apply_and_measure` (B13.1, a real
+      observe -> hypothesize -> apply -> measure -> keep-or-roll-back
+      loop over B6's existing `Tunable`/`TunableRegistry`, every
+      attempt recorded); the semantic-safety gate (B13.2, a SENSITIVE
+      tunable with no `equivalence_check_fn` or a failing one is
+      automatically rejected even given a genuine measured improvement
+      — "no judgment call" enforced in code, verified directly both
+      ways, plus an efficiency check that the equivalence check is
+      never even called when the measurement itself didn't improve);
+      `AdaptationHistory` (B13.3, bounded/browsable, oldest-dropped
+      verified); the Runtime/Reflection separation as real code, not
+      just prose (B13.4, `CrossAuthorityError` raised immediately on
+      any cross-authority tunable touch, verified with two disjoint
+      `HypothesisLoop`s each freely touching its own tunable and
+      provably blocked from the other's). B13.5 (evolutionary search
+      over multi-dimensional tunable sets) explicitly not attempted —
+      the item's own text gates it behind B13.1-B13.2 being solid
+      first, real distinct future work. `scripts/verify_optimization_
+      hypothesis.py` (22 checks) all pass.
       A1.3, A2-A13, B0.3 (a scoping note, not an action item), B2.4,
-      B3.3, B4.2, B5.3, B9.3, B10.2, and B13-B15 beyond B15.1 remain
-      unstarted; see
+      B3.3, B4.2, B5.3, B9.3, B10.2, B13.5, and B14-B15 beyond B15.1
+      remain unstarted; see
       the doc for the full 30+-item checklist and its own two-track
       SEQUENCE.
 
