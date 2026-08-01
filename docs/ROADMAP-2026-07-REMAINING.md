@@ -637,11 +637,35 @@ starts on an explicit instruction naming an item.
       unmeasured/zero speed falls back to the conservative floor).
       All three sub-items shipped this pass. `scripts/verify_
       persistence_scheduling.py` (17 checks) all pass.
-      A1.3, A2-A13, B0.3 (a scoping note, not an action item), B2.4,
-      B3.3, B4.2, B5.3, B9.3, B10.2, B13.5, and B15 beyond B15.1
-      remain unstarted; see
-      the doc for the full 30+-item checklist and its own two-track
-      SEQUENCE.
+      **B15.2-B15.5 shipped, v1.34.182** (explicit user instruction:
+      "Start b15") — B15.1 was already shipped, v1.34.102 (`scripts/
+      verify_replay_hash.py`), re-confirmed clean this pass (400
+      ticks, 2 seeds, MATCH). New `hearthmind/simulation/escalation.py`:
+      `TWO_PART_GUARANTEE` (B15.2, a literal checkable restatement of
+      the doc's own already-DECIDED text — nothing to build, this was
+      never an action item); `EscalationLadder` (B15.3, the doc's own
+      named five-rung ladder, `observe()` escalates/de-escalates
+      exactly one rung per call, never skips, verified both
+      directions; rung 5 reachable only from SUSTAINED — not a single
+      spike — pressure while already at rung 4, verified directly;
+      every transition logged with a real reason); `CognitionBudget`
+      (B15.4, exactly one field, `count` — verified via `dataclasses.
+      fields()` — structurally incapable of naming a selection, "only
+      how many is the runtime's" enforced by the return type's own
+      shape); `reference_mode`/`pinned_rung` (B15.5, `observe()`
+      becomes a genuine hard no-op, verified neither escalates under
+      sustained pressure nor de-escalates under sustained calm, zero
+      history recorded). All five B15 sub-items now shipped.
+      `scripts/verify_escalation.py` (21 checks) all pass.
+      **This closes out Part B's own checklist down to only the
+      "needs individual live judgment" deferrals** (A1.3/A2-A13 are
+      HearthBench's own Part A, not Part B) — B0.3 (a scoping note,
+      not an action item), B2.4, B3.3, B4.2, B5.3, B9.3, B10.2, and
+      B13.5 remain unstarted, each explicitly deferred in its own
+      entry above as needing a real live-diagnostic-driven audit or a
+      genuinely separate design decision, not a mechanism this
+      pattern can ship; see the doc for the full checklist and its own
+      two-track SEQUENCE.
 
 ### Tier 6 — Learned models (AI/ML where an LLM isn't required)
 

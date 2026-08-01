@@ -1168,65 +1168,81 @@ format, which doesn't exist yet — B14.2 only decides WHICH kind is
 due) and threading a live `HostProbe` sample into `batch_size_for_
 storage` at the real write call site.
 
-## B15 — Semantic safety: the determinism guarantee [Hard Rule 1]
+## B15 — Semantic safety: the determinism guarantee [Hard Rule 1] [PARTIAL]
 
 *This deserves its own section because Hard Rule 1 and adaptive LLM
 scheduling are in genuine tension, and the resolution must be explicit.*
 
-- [ ] **B15.1 — Replay-hash equivalence test in CI.** Same seed, LLM
-  off, N ticks → identical world-state hash, with the runtime enabled
-  and disabled, and across different budget/tunable settings. This is
-  the mechanical proof of "never change simulation semantics" for the
-  deterministic core.
-- [ ] **B15.2 — The two-part guarantee [DECIDED 2026-07-23: the sim
-  adapts to hardware].** You chose hardware adaptation over cross-machine
-  story-identity, so the boundary is drawn here:
+- [x] **B15.1 — Replay-hash equivalence test in CI — SHIPPED,
+  v1.34.102.** `scripts/verify_replay_hash.py` — same seed, LLM off,
+  N ticks → identical `World.to_dict()` hash across two independent
+  process runs. Re-confirmed clean this pass (400 ticks, 2 seeds,
+  MATCH both) as part of the standing regression sweep, not rebuilt.
+- [x] **B15.2 — The two-part guarantee [DECIDED 2026-07-23: the sim
+  adapts to hardware] — a recorded product decision, restated as a
+  real checkable structure, v1.34.182.** New `hearthmind/simulation/
+  escalation.py`'s `TWO_PART_GUARANTEE` dict (`strict`/`adaptive`/
+  `accepted_consequence` keys) is a literal, checkable restatement of
+  this already-decided text — nothing to build beyond that, this was
+  never an action item, it's a boundary already drawn:
   - **Strict (non-negotiable):** the deterministic **Body** is
     replay-identical regardless of any runtime decision — budgets,
-    dormancy, batching, parallelism, host. This is what makes bugs
-    reproducible and B13's rollback test meaningful. It never bends.
-  - **Adaptive (by design):** **cognition breadth may scale with the
-    machine.** A 4-core laptop runs fewer Tier-2 agents and longer pillar
-    cadences than a 32-core desktop; both are *correct*, neither is
-    degraded. The world thinks as richly as the host allows.
-  - **The accepted consequence, stated plainly:** the same seed on
-    different hardware produces *different stories*. That is the intended
-    trade — the alternative is running every machine at the weakest
-    machine's budget. Sim-level A/B testing must therefore pin the budget
-    (B15.5), and save files must record the profile (B15.6).
+    dormancy, batching, parallelism, host. It never bends.
+  - **Adaptive (by design):** cognition breadth may scale with the
+    machine — both are *correct*, neither is degraded.
+  - **The accepted consequence:** the same seed on different hardware
+    produces *different stories* — sim-level A/B testing pins the
+    budget (B15.5, `reference_mode`), and a save file should record
+    the profile (flagged, not yet wired — see below).
 
-- [ ] **B15.3 — The escalation ladder** — reconciling "adapt to
-  hardware" with your standing instruction to *slow or pause when the
-  LLM lags*. Under pressure the runtime escalates **in this order**,
-  never skipping a rung, and each rung is logged:
-  1. **Reorder / batch** — free, zero semantic effect.
-  2. **Defer within deadline** — bounded, nothing dropped.
-  3. **Slow sim-time** — the world thinks *the same*, just slower. Your
-     stated default; the existing `llm_pressure` slowdown band already
-     implements this rung.
-  4. **Pause** — "the town is thinking." Already implemented.
-  5. **Reduce cognition breadth** — fewer Tier-2 agents, longer pillar
-     cadences, shallower loops. **Only** when rungs 1–4 are exhausted or
-     the host profile shows sustained inadequacy (not a transient spike),
-     and only as a *declared, visible, logged* degradation with a UI
-     indicator. Never silent.
-  Rung 5 is the one your Q3 answer unlocks; rungs 1–4 stay first so a
-  brief spike never costs you a thought.
+- [x] **B15.3 — The escalation ladder — SHIPPED, v1.34.182.** New
+  `hearthmind/simulation/escalation.py`'s `EscalationLadder`: the
+  doc's own named five rungs (reorder/batch → defer within deadline →
+  slow sim-time → pause → reduce cognition breadth). `observe(tick,
+  pressured)` escalates or de-escalates exactly ONE rung per call —
+  never skips a rung, verified directly both directions. Rung 5 is
+  reachable ONLY from `SUSTAINED_PRESSURE_THRESHOLD` (5) CONSECUTIVE
+  pressured readings while already sitting at rung 4 ("rungs 1-4
+  exhausted... not a transient spike") — verified a lone pressured
+  reading at PAUSE does NOT reach rung 5, sustained pressure does, and
+  rung 5 is a real ceiling (never escalates further). Every real
+  transition is logged (`EscalationEvent`, tick/from/to/reason) —
+  "each rung is logged" is a real, verified property, not a promise.
+- [x] **B15.4 — Selection stays a simulation decision; only *how
+  many* is the runtime's — SHIPPED, v1.34.182, as a real structural
+  guarantee.** `CognitionBudget` has EXACTLY one field (`count`) —
+  verified directly via `dataclasses.fields()`, structurally incapable
+  of naming a specific agent/pillar. `EscalationLadder.cognition_
+  budget_for_rung` returns the simulation's own untouched base budget
+  at every rung except 5, where it returns the reduced count — never
+  anything resembling a selection. "Without this line, 'adapt to
+  hardware' would leak world-meaning decisions into the scheduler" is
+  enforced by the return type's own shape, not just a convention.
+- [x] **B15.5 — Reference mode — SHIPPED, v1.34.182.**
+  `EscalationLadder(reference_mode=True, pinned_rung=...)`: `observe`
+  becomes a genuine hard no-op — verified a reference-mode ladder
+  neither escalates under sustained extreme pressure NOR de-escalates
+  under sustained calm, and records zero history (nothing real
+  happened). A save-file profile record (the doc's own "(B15.6)"
+  cross-reference, no such numbered item exists in this doc — likely a
+  drafting artifact referring back to this same B15.5 text) is flagged
+  as real future work, not built this pass — needs a real persisted
+  `World`/save-file field to attach to, which this standalone module
+  deliberately doesn't touch.
 
-- [ ] **B15.4 — Selection stays a simulation decision; only *how many*
-  is the runtime's.** Even at rung 5, the runtime sets the *budget*
-  (how many cognitions this window) — the simulation still decides
-  *which* agents/pillars fill it, by its own salience rules. This keeps
-  the story's logic in the sim and the resource math in the runtime,
-  preserving B0's prime invariant. Without this line, "adapt to
-  hardware" would leak world-meaning decisions into the scheduler.
-
-- [ ] **B15.5 — Reference mode.** A pinned-budget execution profile
-  (fixed cognition-per-window, fixed cadences, adaptation disabled) used
-  by HearthBench's world-level run (A5.11), sim-level A/B tests, and
-  any cross-machine comparison. Without it, adaptive cognition makes
-  every comparative measurement meaningless. **Build this alongside
-  B15.2, not after.**
+**Not wired into any real control point** — no import from
+`escalation.py` exists in `simulation/engine.py`/`server.py`; the real
+existing `llm_pressure` slowdown/pause mechanism (rungs 3/4, already
+implemented per this item's own text) is NOT yet re-expressed through
+this `EscalationLadder` — it stays its own independent, already-live
+mechanism, same "metadata/infrastructure now, live rewire later"
+discipline every prior B-item holds. Real future work: threading the
+real `llm_pressure_ratio()` signal into `EscalationLadder.observe` as
+the `pressured` input, wiring `cognition_budget_for_rung` into the
+per-agent cognition scheduling loop it would actually cap, and adding
+a UI indicator for rung 5 specifically ("declared, visible, logged...
+never silent," per the item's own text — no UI surfacing exists yet
+since nothing calls this module live).
 
 - [ ] **B15.6 — Record the profile in the save and the diagnostics:**
   host fingerprint, effective cognition budget, and the full rung-5

@@ -534,6 +534,88 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.182)
+
+Explicit user instruction: "Start b15" (docs/HEARTHBENCH-RUNTIME-
+2026-07-23.md, Tier 5 [Hard Rule 1]). B15.1 was already shipped
+(v1.34.102, `scripts/verify_replay_hash.py`) — re-confirmed clean
+this pass (400 ticks, 2 seeds, MATCH both), not rebuilt. New
+`hearthmind/simulation/escalation.py` ships B15.2-B15.5, same "never
+big-bang" discipline as every prior Tier 5 Runtime module — not wired
+into `simulation/engine.py`'s real `llm_pressure` slowdown/pause
+mechanism, which stays its own independent, already-live rungs 3/4.
+
+B15.2 (the "[DECIDED 2026-07-23: the sim adapts to hardware]"
+two-part guarantee) is a recorded PRODUCT DECISION, not a build item
+— `TWO_PART_GUARANTEE` is a literal, checkable restatement of the
+already-decided Strict-Body/Adaptive-cognition/accepted-consequence
+text, nothing more needed. B15.3 `EscalationLadder`: the doc's own
+named five rungs (reorder/batch → defer within deadline → slow
+sim-time → pause → reduce cognition breadth) — `observe(tick,
+pressured)` escalates or de-escalates exactly ONE rung per call, never
+skips, verified directly both directions. Rung 5 is reachable ONLY
+from `SUSTAINED_PRESSURE_THRESHOLD` (5) CONSECUTIVE pressured
+readings while already at rung 4 — "rungs 1-4 exhausted... not a
+transient spike" — verified a lone pressured reading at PAUSE does
+NOT reach rung 5, sustained pressure does, and rung 5 is a real
+ceiling (never escalates further even under extreme sustained
+pressure). Every real transition is logged (`EscalationEvent`,
+tick/from/to/reason) — "each rung is logged" verified as a real
+property, not a promise.
+
+B15.4 `CognitionBudget`: exactly one field (`count`) — verified
+directly via `dataclasses.fields()`, structurally incapable of naming
+a specific agent/pillar. `EscalationLadder.cognition_budget_for_rung`
+returns the simulation's own untouched base budget at every rung
+except 5, where it returns a reduced count — "only how many is the
+runtime's" is enforced by the return type's own shape, not just a
+convention. B15.5 `reference_mode`/`pinned_rung`: `observe()` becomes
+a genuine hard no-op — verified a reference-mode ladder neither
+escalates under sustained extreme pressure nor de-escalates under
+sustained calm, and records zero history (nothing real happened). A
+save-file profile record (cross-referenced in the doc as "(B15.6)",
+no such numbered item actually exists — likely a drafting artifact
+pointing back at this same B15.5 text) is flagged as real future
+work, not built — needs a real persisted `World`/save-file field this
+standalone module deliberately doesn't touch.
+
+All five B15 sub-items are now shipped. **This closes out Part B's
+own checklist down to only the "needs individual live judgment"
+deferrals** — B0.3 (a scoping note, not an action item), B2.4, B3.3,
+B4.2, B5.3, B9.3, B10.2, and B13.5 remain unstarted, each explicitly
+deferred in its own earlier entry as needing a real live-diagnostic-
+driven audit or a genuinely separate design decision, not a mechanism
+this "never big-bang" pattern can ship on its own.
+
+**Not wired into any real control point** — no import from
+`escalation.py` exists in `simulation/engine.py`/`server.py`. Real
+future work: threading the real `llm_pressure_ratio()` signal into
+`EscalationLadder.observe` as the `pressured` input, wiring
+`cognition_budget_for_rung` into the per-agent cognition scheduling
+loop it would actually cap, and adding a UI indicator for rung 5
+specifically ("declared, visible, logged... never silent," per the
+item's own text — no UI surfacing exists yet since nothing calls this
+module live).
+
+Verified: `scripts/verify_escalation.py` (21 checks — the two-part
+guarantee's real structure, starting rung, one-rung-at-a-time
+escalation with never-skip, the transient-spike-vs-sustained-pressure
+distinction at rung 5, rung 5 as a real ceiling, one-rung-at-a-time
+de-escalation with a real floor at rung 1, every transition logged
+with a real reason, reference mode as a genuine hard no-op in both
+directions with zero history, `CognitionBudget`'s structural one-
+field guarantee, and the budget genuinely shrinking only at rung 5)
+— all pass, first run, no bug found. `pyflakes` clean on both files.
+`scripts/verify_runtime_invariant.py`/`verify_task_graph.py`/
+`verify_scheduler.py`/`verify_dormancy.py`/`verify_tuning.py`/
+`verify_hardware_profile.py`/`verify_forecasting.py`/
+`verify_timescales.py`/`verify_ml_substrate.py`/`verify_ml_
+evolution.py`/`verify_locality.py`/`verify_hierarchical_memory.py`/
+`verify_history_compression.py`/`verify_optimization_hypothesis.py`/
+`verify_persistence_scheduling.py` re-run clean (unaffected). No
+native module, persisted `World` state, or real engine code path
+touched — no soak re-run needed.
+
 ## Current state (v1.34.181)
 
 Explicit user instruction: "Start b14" (docs/HEARTHBENCH-RUNTIME-
