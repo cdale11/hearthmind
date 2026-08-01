@@ -48,6 +48,16 @@ moved to `docs/archive/` (see the path-change note at the bottom).
   (HearthBench model-selection benchmark + the Adaptive Runtime).
   Deliberately not started; sequenced after Tiers 0–4.
 
+- **`ML-AUDIT-2026-08-01.md`** — the AI/ML-vs-LLM audit: every current
+  and planned LLM task classified (keep-LLM / split decision-from-
+  narration / already-deterministic), plus the deterministic systems
+  with high emergence potential that should instead learn (memory
+  retrieval, attention, social graph, belief confidence, adaptive
+  runtime). Carries the 9-stage M0–M9 plan the roadmap's **Tier 6**
+  tracks, and the hard boundary on what must stay LLM-authored. Also
+  records a correction to v1.34.168's over-broad "nothing should be
+  replaced" finding.
+
 - **`REFACTOR-2026-07.md`** — mostly shipped (R1–R5), but **R6/R7/R8
   are standing rules**, not history: R6 is the opportunistic C++-port
   queue, R7 mandates that new physical-substrate code is written in C++

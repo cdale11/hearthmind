@@ -491,6 +491,59 @@ starts on an explicit instruction naming an item.
       the doc for the full 30+-item checklist and its own two-track
       SEQUENCE.
 
+### Tier 6 — Learned models (AI/ML where an LLM isn't required)
+
+Filed v1.34.169 on explicit user instruction to audit every current and
+planned LLM task for replaceability, and to find deterministic systems
+with high emergence potential that should instead learn. **Full audit,
+evidence table, per-item rationale/benefit/risk and guardrails:
+`docs/ML-AUDIT-2026-08-01.md`.** That document also records a
+correction: v1.34.168's blanket "nothing should be replaced" finding
+was too broad, and two of its three arguments were wrong (a model
+trained on the world's own history is not the same category of thing as
+a hand-authored rule system; and labeled data *does* already
+accumulate, via `llm/recorder.py`'s four-layer schema and the `metrics`
+table).
+
+**Not started — this is a filed plan, not shipped work.** Same standing
+convention as every other vision doc here: work from it on future
+explicit direction naming a stage.
+
+- [ ] **M0 — Learning substrate.** `hearthmind/ml/`: stdlib
+      linear/logistic + small MLP, feature encoder, versioned weights
+      blob; C++ forward pass under `cpp/src/` with the usual
+      pure-Python fallback. No consumer; inert until used.
+- [ ] **M1 — Runtime cost model.** Learn `Task.cost_hint` from B5's
+      `TaskMetrics`; learn LLM latency from `recorder.latency_ms`.
+      Zero emergence risk (B0 execution-layer only).
+- [ ] **M2 — Workload forecaster (B8.1).** Time-series regression over
+      the `metrics` table; feeds B8.2 reservation.
+- [ ] **M3 — Learned embeddings** ⭐ replacing token-overlap in
+      `retrieve_relevant_memories`, `pillar.word_overlap`, and the four
+      dedup sites. Largest perceived-sentience gain per unit of work.
+- [ ] **M4 — Memory-retrieval weight learning** (the three hand-set
+      weights at `agents/agent.py:472-474`).
+- [ ] **M5 — Cognition goal policy** ⭐ the flagship: a 7-class policy
+      over the closed `AgentGoal` set, trained on the recorder's
+      existing `(structured_input → goal)` pairs, replacing
+      `fallback_goal`'s if-ladder for the non-core population. LLM keeps
+      authoring `reason`. Strictest gate of any stage.
+- [ ] **M6 — Attention/priority learning** — unblocks B2.4
+      ("attention follows change"), which has been blocked on exactly
+      this.
+- [ ] **M7 — Belief-confidence calibration** from accumulated evidence.
+- [ ] **M8 — Social-graph GNN** over `agents/ledger.py`'s pair graph.
+      Highest complexity; sequence last.
+- [ ] **M9 — B13.5 evolutionary tunable search** over B6's registry,
+      gated by B13.2's replay-hash check.
+
+**Never in scope** (the audit's own hard boundary): dialogue,
+chronicle/folklore/legend, naming, world genesis, and the entire
+ontology-expansion family (`ontology`, `invention`, `rule_propose`,
+`composite_reaction_propose`, `species_variant`, `nature_mind`). A
+classifier can only choose among classes it was trained on, which is
+the exact opposite of what `world/ontology.py` exists to do.
+
 ### C++ native-porting backlog (R6/R7)
 
 - [ ] **First step, before any porting:** a direct read pass confirming

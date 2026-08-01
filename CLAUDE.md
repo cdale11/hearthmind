@@ -534,6 +534,62 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.169)
+
+Explicit user instruction: audit the whole repo (code + docs) for every
+current and planned LLM task, decide what genuinely needs an LLM vs.
+what can be a deterministic algorithm or specialized AI/ML (ANNs, GNNs,
+RL, boosting, evolutionary, symbolic); also find deterministic systems
+with high emergence/sentience potential that should instead learn;
+produce a prioritized plan and update the roadmap. **Docs-only — no
+code changed.** Full audit: `docs/ML-AUDIT-2026-08-01.md`; the staged
+plan is tracked as the roadmap's new **Tier 6** (M0-M9).
+
+**This corrects v1.34.168's finding, which was too broad.** Two of its
+three arguments were wrong, and the error is worth recording so it
+isn't repeated: (1) "a trained classifier is the same category of thing
+as the hand-authored rule system already rejected" is false — a model
+trained on *this world's* accumulated history encodes that world's
+lived statistics and diverges between worlds, which is a mechanism FOR
+emergence; the standing "don't replace LLM reasoning with a rule
+system" rule was written against hand-authored rules and doesn't reach
+learned models. (2) "no labeled ground truth exists" is contradicted by
+this repo's own code — `llm/recorder.py` has recorded
+`layer1_structured_input` -> `layer4_parsed_output` plus `latency_ms`/
+`fallback_used` since v0.87.28, and `persistence/database.py:98`'s
+`metrics` table is a per-tick persisted time series. Both are real
+supervised datasets. Only the third argument survives: most `llm/`
+modules are free-text generation, and that still governs the majority
+of the surface.
+
+**Feasibility, which is what makes this actionable:** the "no training
+infrastructure" objection applies to LoRA-fine-tuning a 4B LLM (still
+correctly out of scope, unchanged from v1.34.159). It does NOT apply to
+small task-specific models. The viable shape is train offline -> ship
+weights as data -> infer in C++ with a pure-Python fallback, exactly
+what all 24 `cpp/src/` modules already do. Zero new runtime dependency.
+
+**Hard boundary, unchanged:** dialogue, chronicle/folklore/legend,
+naming, world genesis, and the entire ontology-expansion family
+(`ontology`, `invention`, `rule_propose`, `composite_reaction_propose`,
+`species_variant`, `nature_mind`) stay LLM-authored. A classifier can
+only choose among classes it was trained on — the exact opposite of
+what `world/ontology.py`'s registry exists to do.
+
+**Flagship findings** (all evidence-cited in the audit doc): (a)
+`cognition`'s output is `{goal: one of 7 closed values, reason: free
+text}` — a clean split, where the goal half is a classification the
+recorder already has training pairs for, and replacing
+`fallback_goal`'s hand-written if-ladder would give the WHOLE
+population learned judgment instead of a fixed ladder (more agents
+thinking, not fewer); (b) `retrieve_relevant_memories` is already a
+linear model with three hand-set weights and a bag-of-words relevance
+term — one learned embedding would upgrade it plus `pillar.
+word_overlap` and four dedup sites at once; (c) `Task.cost_hint` is a
+hand-set `1.0` even though B5 now measures the real number; (d) B2.4
+("attention follows change") has been blocked on exactly the learned
+priority model M6 proposes.
+
 ## Current state (v1.34.168)
 
 Explicit user instruction: "Start B6 and audit the code for current
