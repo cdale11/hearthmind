@@ -48,7 +48,15 @@ moved to `docs/archive/` (see the path-change note at the bottom).
   (HearthBench model-selection benchmark + the Adaptive Runtime).
   Deliberately not started; sequenced after Tiers 0–4.
 
-- **`ML-AUDIT-2026-08-01.md`** — the AI/ML-vs-LLM audit: every current
+- **`ML-ARCHITECTURE-2026-08-01.md`** — **the AI/ML architecture to
+  build.** Supersedes the audit's M0-M9 staging: every proposed model
+  challenged, four removed or merged, two promoted, plus
+  teacher→student distillation and outcome/reward learning folded in.
+  4 layers / 8 models with three shared components. Read this for
+  *what to implement*; read the audit below for *why*.
+
+- **`ML-AUDIT-2026-08-01.md`** — the AI/ML-vs-LLM audit (**baseline
+  evidence**, superseded on staging only): every current
   and planned LLM task classified (keep-LLM / split decision-from-
   narration / already-deterministic), plus the deterministic systems
   with high emergence potential that should instead learn (memory

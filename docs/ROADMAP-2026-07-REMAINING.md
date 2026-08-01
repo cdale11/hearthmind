@@ -509,33 +509,71 @@ table).
 convention as every other vision doc here: work from it on future
 explicit direction naming a stage.
 
-- [ ] **M0 — Learning substrate.** `hearthmind/ml/`: stdlib
-      linear/logistic + small MLP, feature encoder, versioned weights
-      blob; C++ forward pass under `cpp/src/` with the usual
-      pure-Python fallback. No consumer; inert until used.
-- [ ] **M1 — Runtime cost model.** Learn `Task.cost_hint` from B5's
-      `TaskMetrics`; learn LLM latency from `recorder.latency_ms`.
-      Zero emergence risk (B0 execution-layer only).
-- [ ] **M2 — Workload forecaster (B8.1).** Time-series regression over
-      the `metrics` table; feeds B8.2 reservation.
-- [ ] **M3 — Learned embeddings** ⭐ replacing token-overlap in
-      `retrieve_relevant_memories`, `pillar.word_overlap`, and the four
-      dedup sites. Largest perceived-sentience gain per unit of work.
-- [ ] **M4 — Memory-retrieval weight learning** (the three hand-set
-      weights at `agents/agent.py:472-474`).
-- [ ] **M5 — Cognition goal policy** ⭐ the flagship: a 7-class policy
-      over the closed `AgentGoal` set, trained on the recorder's
-      existing `(structured_input → goal)` pairs, replacing
-      `fallback_goal`'s if-ladder for the non-core population. LLM keeps
-      authoring `reason`. Strictest gate of any stage.
-- [ ] **M6 — Attention/priority learning** — unblocks B2.4
-      ("attention follows change"), which has been blocked on exactly
-      this.
-- [ ] **M7 — Belief-confidence calibration** from accumulated evidence.
-- [ ] **M8 — Social-graph GNN** over `agents/ledger.py`'s pair graph.
-      Highest complexity; sequence last.
-- [ ] **M9 — B13.5 evolutionary tunable search** over B6's registry,
-      gated by B13.2's replay-hash check.
+**The M0-M9 staging below was superseded by a final architecture pass
+(v1.34.170): `docs/ML-ARCHITECTURE-2026-08-01.md`.** That pass
+challenged every proposed model, removed or merged four, promoted two,
+and folded in teacher→student distillation and outcome/reward learning.
+The audit doc remains the baseline evidence; the architecture doc is
+what to build. Net: 9 loose stages → **4 layers / 8 justified models**
+with three shared components.
+
+**L0 — substrate** (no behaviour, reused by everything)
+- [ ] **L0** Feature encoder + model primitives (linear/logistic, small
+      MLP, calibration) + versioned weights blob + C++ forward pass with
+      pure-Python fallback. Inert until consumed.
+
+**L1 — shared representation**
+- [ ] **L1.1 Semantic embedding** ⭐ of the sim's own vocabulary. 6+
+      consumers (memory retrieval, four dedup sites,
+      `pillar.word_overlap`, topic novelty, plan encoding). The
+      strongest reuse case in the plan — one shared answer to "do these
+      two texts mean the same thing in this world?"
+- [ ] **L1.2 Social structure features** — one round of message passing
+      over the ledger graph. **Downgraded from the audit's full GNN**:
+      `graph_algorithms.py` already computes the structural signal; the
+      real gap is that nothing feeds it to the decision models. Full
+      GNN explicitly deferred.
+
+**L2 — cognition** (the emergence layer)
+- [ ] **L2.1 Value/consequence model** — "how consequential is this
+      state?", trained on `emergence.magnitude` + downstream
+      `life_events`. **Two consumers, one model**: attention allocation
+      (unblocks **B2.4**) and policy advantage weighting.
+- [ ] **L2.2 Goal policy** ⭐ the flagship. Closed 7-value `AgentGoal`
+      output; LLM keeps `reason`. **Two-phase curriculum:** phase 1
+      distills the recorder's existing `(structured_input → goal)`
+      pairs (teacher→student); phase 2 reweights by realized outcome so
+      the student can **exceed** the teacher where the world says it was
+      wrong. This is where per-world divergence actually comes from.
+      Absorbs planning (`Agent.plan` becomes an embedded input, not a
+      separate model). **Anti-homogenization is mandatory**:
+      personality-conditioned, entropy floor, survival overrides stay
+      deterministic.
+- [ ] **L2.3 Semantic retrieval scorer** — **merges the audit's M3
+      consumer + M4**: one learned scorer over L1.1 + recency +
+      salience + causal, replacing both the hand-set weights and the
+      bag-of-words relevance term at `agents/agent.py:472-474`.
+
+**L3 — runtime** (zero emergence risk, B0-owned)
+- [ ] **L3.1 LLM cost regressor** — predict `latency_ms` before issuing
+      a call; attacks `calls_dropped_backpressure` at its root.
+- [ ] **L3.2 Demand forecaster (B8.1)** — autoregression over the
+      `metrics` table; feeds B8.2 reservation.
+
+**L4 — calibration**
+- [ ] **L4.1 Belief confidence** — isotonic/Platt calibration.
+      **Deliberately not a network** (demoted from the audit's M7).
+
+**Later, explicitly gated**
+- [ ] **B13.5 evolutionary tunable search** over B6's registry, gated by
+      B13.2's replay-hash check.
+
+**Removed by the architecture pass** (recorded so they aren't
+rediscovered as gaps): a learned task-cost model (`TaskMetrics` already
+measures it — plumbing, not ML); a separate planning model (folds into
+L2.2); a neural belief-confidence model (calibration is the right
+tool); per-agent policy networks (conditioning solves homogenization,
+not 300 networks); the full social GNN (deferred, see L1.2).
 
 **Never in scope** (the audit's own hard boundary): dialogue,
 chronicle/folklore/legend, naming, world genesis, and the entire

@@ -534,6 +534,76 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.170)
+
+Explicit user instruction: a final architecture pass over v1.34.169's
+audit before implementation — challenge every proposed model, merge
+only where there's clear architectural benefit, avoid both
+fragmentation and over-generalization, and extend with distillation,
+outcome/reward learning, semantic retrieval, planning policy,
+attention, runtime prediction, social learning, and belief calibration.
+**Docs-only.** Final architecture: `docs/ML-ARCHITECTURE-2026-08-01.md`
+(the audit stays the baseline evidence; the architecture doc is what to
+build). Roadmap Tier 6 rewritten to match.
+
+**9 loose stages -> 4 layers / 8 models**, with three shared components
+(feature encoder, semantic embedding, value head) that most of the rest
+reuse.
+
+**Four things removed or demoted, each for a stated reason** — this is
+the part worth remembering, since each was in the audit's own plan:
+(a) the learned *task*-cost model: `TaskMetrics.mean_wall_seconds()`
+already computes it, so feeding it to `cost_hint` is plumbing, not
+learning — calling it a model would be theater; (b) a separate planning
+model: `Agent.plan` maps onto the same closed `AgentGoal` set the
+policy already outputs, so it folds in as an embedded input feature;
+(c) a neural belief-confidence model: calibration (isotonic/Platt) is
+the right tool for a 1-D problem, and a network there is exactly the
+unnecessary generalization this pass exists to remove; (d) the full
+social GNN: `world/graph_algorithms.py` ALREADY ships `build_
+relationship_graph`/`degree_centrality`/`bfs_distances` — the real gap
+is that nothing feeds those to the decision models, so this became a
+1-layer message-passing FEATURE EXTRACTOR (L1.2), with end-to-end graph
+learning explicitly deferred rather than built speculatively.
+
+**Two merges, each because it's literally the same computation asked
+twice:** the audit's M3-consumer + M4 became one learned retrieval
+scorer (learning combination weights over a frozen bag-of-words
+relevance term, or a good embedding under hand-set weights, each leaves
+half the win unclaimed); and attention allocation + policy advantage
+weighting now share one **value/consequence head** (L2.1) trained on
+`emergence.magnitude` + downstream `life_events`. The *ranking* and
+*action* logic stay separate — different problems.
+
+**The biggest design change is L2.2's two-phase curriculum**, the
+extension the instruction asked for and strictly better than either
+half alone: phase 1 distills the recorder's existing `(structured_
+input -> goal)` pairs (teacher->student, no cold start, no hand-written
+ladder); phase 2 reweights by realized world outcome so the student can
+**diverge from and exceed the teacher** where the world says the LLM was
+wrong. That second phase is where genuine per-world divergence comes
+from — two worlds with different histories reward different policies,
+so their agents think differently because of what happened to them, not
+because of a seed. Pure imitation caps at the teacher; a fixed ladder
+can't do it at all.
+
+**Homogenization is named as the hard risk and designed against**, not
+just flagged: one shared policy would make every agent think alike —
+precisely the failure mode v0.88.0 fixed for traits. Three mandatory
+mitigations: personality-conditioning (one net, different behavior per
+agent state), an entropy floor (never argmax), and survival overrides
+staying deterministic and untouched. Per-agent networks were explicitly
+rejected — conditioning solves this, 300 networks is fragmentation.
+
+**One further guardrail added this pass:** never train a model on its
+own unweighted outputs. Phase 1 uses LLM-authored decisions only; phase
+2 admits the student's own decisions ONLY weighted by realized
+outcomes. That's the guard against self-reinforcing collapse.
+
+Model weights are **per-world state**, snapshotted — that's the
+emergence mechanism, and it's also what keeps `verify_replay_hash.py`
+meaningful (same seed + same weights = same result).
+
 ## Current state (v1.34.169)
 
 Explicit user instruction: audit the whole repo (code + docs) for every
