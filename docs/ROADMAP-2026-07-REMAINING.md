@@ -509,8 +509,26 @@ starts on an explicit instruction naming an item.
       lightweight numpy-only `ml` extra); neither is installed or
       exercised by any code yet, reserved for a future Tier 6 model
       that genuinely outgrows what L0's small MLP primitives express.
+      **B8.1-B8.4 shipped, v1.34.174** (explicit user instruction:
+      "Continue tier 5 and the AI/ML models should learn from all
+      previous runs if possible") — new `hearthmind/simulation/
+      forecasting.py`: `WorkloadForecaster` (B8.1, an MLP over backlog/
+      dialogue-cognition-rate/disaster/festival/season features —
+      verified to learn a real disaster→higher-load correlation from
+      synthetic data), `plan_reservation` (B8.2, deterministic and
+      capacity-bounded), `ForecastAccuracyTracker` (B8.3, a naive-
+      baseline-relative reliability weight — verified an accurate
+      forecaster scores high, a consistently-wrong one scores low),
+      `is_quiet_window` (B8.4). New `hearthmind/ml/cross_run.py`'s
+      `pool_examples_across_runs` is the direct answer to "learn from
+      all previous runs" — pools training examples across every past
+      run archived under a directory, fault-tolerant per run, fairly
+      capped; verified a forecaster trained on a 3-run synthetic pool
+      learns as well as one trained on a single run. `scripts/verify_
+      forecasting.py` (29 checks) all pass. Same "never big-bang"
+      discipline — not wired into `simulation/engine.py`/`server.py`.
       A1.3, A2-A13, B0.3 (a scoping note, not an action item), B2.4,
-      B3.3, B4.2, B5.3, and B8-B15 beyond B15.1 remain unstarted; see
+      B3.3, B4.2, B5.3, and B9-B15 beyond B15.1 remain unstarted; see
       the doc for the full 30+-item checklist and its own two-track
       SEQUENCE.
 
@@ -626,8 +644,13 @@ with three shared components.
 **L3 — runtime** (zero emergence risk, B0-owned)
 - [ ] **L3.1 LLM cost regressor** — predict `latency_ms` before issuing
       a call; attacks `calls_dropped_backpressure` at its root.
-- [ ] **L3.2 Demand forecaster (B8.1)** — autoregression over the
-      `metrics` table; feeds B8.2 reservation.
+- [x] **L3.2 Demand forecaster (B8.1) — first instance SHIPPED,
+      v1.34.174** as `WorkloadForecaster`/`plan_reservation`/
+      `ForecastAccuracyTracker`/`is_quiet_window` — see Tier 5's B8
+      entry above for detail. A true autoregression over the `metrics`
+      table specifically remains open (this instance is state-
+      conditioned, not a metrics-table time series) — real, distinct
+      future work.
 
 **L4 — calibration**
 - [ ] **L4.1 Belief confidence** — isotonic/Platt calibration.

@@ -534,6 +534,90 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.174)
+
+Explicit user instruction: "Continue tier 5 and the AI/ML models
+should learn from all previous runs if possible."
+
+**Tier 5's B8 — Predictive scheduling, all four sub-items.** New
+`hearthmind/simulation/forecasting.py`, same "never big-bang"
+discipline as every prior Tier 5 Runtime module. B8.1
+`WorkloadForecaster`: a small `hearthmind.ml.primitives.MLP` regressor
+over `WORKLOAD_FORECAST_SCHEMA` (backlog, recent dialogue/cognition
+rate, active-disaster flag, festival-scheduled flag, season) — the
+item's own three named triggers (storm → dialogue/cognition spike,
+harvest season → economy surge, a scheduled festival → event burst)
+map directly onto this vector, so a new trigger is a schema field, not
+a new pipeline. Verified: training measurably cuts loss on synthetic
+data and the trained model correctly predicts higher load when
+`active_disaster=1`. B8.2 `plan_reservation`: a deterministic,
+capacity-bounded reservation hint (never a hard block) scaled by both
+predicted load and forecaster reliability. B8.3 `ForecastAccuracyTracker`:
+a bounded (predicted, actual) history plus a reliability weight scaled
+against a naive "always predict the historical mean" baseline — an
+accurate forecaster scores high, a consistently-wrong one scores low,
+a fresh tracker with no evidence defaults to full trust rather than
+false distrust. B8.4 `is_quiet_window`: true only when every recent
+reading stayed below a threshold fraction of capacity.
+
+**"Learn from all previous runs" — new `hearthmind/ml/cross_run.py`.**
+`pool_examples_across_runs`/`discover_runs`: pools training examples
+from every past-run archive found under a `runs_root` directory via a
+caller-supplied `example_loader` per run — a corrupted/unreadable run
+is skipped, not fatal, and each run is capped (uniform random sample)
+both individually and in the combined total so one unusually large run
+can't drown out every other one. Deliberately distinct from L5's
+per-world continual-learning loop (`hearthmind/ml/lifelong.py`,
+v1.34.172): L5 keeps ONE world's own Mind models learning across its
+own lifetime and stays per-world by design (`docs/ML-ARCHITECTURE-
+2026-08-01.md`'s guardrail #3 — weights are per-world state, and two
+worlds should diverge, not converge); cross-run pooling is for models
+that describe the MACHINE, not any one world's cognition — B8.1's
+forecaster (this pass's first concrete consumer, and L3.2's own first
+shipped instance) has no reason to start learning from nothing every
+session just because it happens to run inside one particular world.
+Verified end-to-end: a `WorkloadForecaster` trained on a pool
+assembled from three synthetic past-run directories learns just as
+well as one trained on a single run's data, and correctly keeps
+contributing from every run even when one archive raises during
+loading. Both `docs/ML-ARCHITECTURE-2026-08-01.md` (L3.1/L3.2 section)
+and `docs/HEARTHBENCH-RUNTIME-2026-07-23.md` (B8) updated to record
+this as the direct answer to the instruction.
+
+**Not wired into any real control point** — no import from
+`forecasting.py`/`cross_run.py` exists in `simulation/engine.py`/
+`server.py`, no real recorder/metrics archive is ever fed through
+`pool_examples_across_runs`, and `plan_reservation`'s output isn't
+consulted by B2's real scheduler. Real future work, naturally paired
+with B7's own unwired `select_strategy`/`GoodCitizenPolicy`.
+
+One real bug caught and fixed during verification, not by the user:
+the first version of the synthetic training check used raw-scale
+features (backlog 0-10, target volume up to ~28) — plain SGD (no
+batch-norm/Adam) reliably diverged to NaN at every learning rate tried,
+including ones an order of magnitude below what every other check in
+this codebase uses safely. Root cause: `MLP.random_init`'s weight scale
+assumes roughly unit-scale inputs; un-normalized 0-10-range features
+against that init blow up the first few gradient steps. Fixed by using
+normalized ~[0,1]-scale synthetic features (what a real forecaster's
+inputs would actually look like — fractions/rates, not raw unbounded
+counts) rather than further lowering the learning rate, which alone
+did not fix it. Documented at the call site rather than silently
+tuned away.
+
+Verified: `scripts/verify_forecasting.py` (29 checks — `discover_runs`/
+`pool_examples_across_runs` correctness incl. per-run/total capping and
+fault tolerance, the forecaster's real training + a correct learned
+disaster→load correlation, cross-run pooled training, accuracy-tracker
+reliability-weight direction in both directions plus the cold-start
+default, `plan_reservation`'s monotonicity/capacity-bound/zero-
+reliability cases, `is_quiet_window`'s single-spike-breaks-quiet case)
+— all pass. `pyflakes` clean. `scripts/verify_runtime_invariant.py`/
+`verify_task_graph.py`/`verify_scheduler.py`/`verify_dormancy.py`/
+`verify_tuning.py`/`verify_hardware_profile.py`/`verify_ml_substrate.py`
+re-run clean (unaffected). No native module, persisted `World` state,
+or real engine code path touched — no soak re-run needed.
+
 ## Current state (v1.34.173)
 
 Explicit user instruction: "Start tier 5 and you are allowed to use

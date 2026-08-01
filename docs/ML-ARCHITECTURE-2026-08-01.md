@@ -229,11 +229,32 @@ failure is a mis-scheduled task, caught by `verify_replay_hash.py`.
   reports at its root rather than after the fact.
 - **L3.2 Demand forecaster** — autoregression over the `metrics` table
   (`persistence/database.py:98`) predicting near-term LLM demand.
-  Feeds B8.2's reservation mechanism.
+  Feeds B8.2's reservation mechanism. **A first concrete instance
+  shipped v1.34.174** as B8.1's `WorkloadForecaster`
+  (`hearthmind/simulation/forecasting.py`) — a small MLP over
+  simulation-state features rather than the metrics table's own time
+  series specifically; a true `metrics`-table autoregression remains
+  open, real future work, distinguishable from this pass's
+  state-conditioned forecaster.
 
 These stay two models, not one: per-call cost regression and aggregate
 time-series forecasting are different model classes on different
 features. Merging them would be generalization for its own sake.
+
+**Cross-run pooling (added v1.34.174, explicit user instruction: "the
+AI/ML models should learn from all previous runs if possible").**
+Runtime-scoped models like L3.1/L3.2/B8.1 describe THIS MACHINE's
+behaviour, not any one world's cognition — unlike a per-world Mind
+model (guardrail #3 below), nothing says they have to start learning
+from nothing each session. New `hearthmind/ml/cross_run.py`'s
+`pool_examples_across_runs` pools training examples across every past
+run archived on disk (fault-tolerant per run, fairly capped so one
+large run can't drown out the others). This is the companion axis to
+L5's continual loop, not a replacement for it: L5 keeps ONE world's own
+Mind models learning across its own lifetime; cross-run pooling lets a
+runtime-scoped model (or a deliberate warm-start seed before a fresh
+world's own Mind models start specializing) learn from every run that
+has ever happened on this host.
 
 ### L4.1 — Belief confidence calibration *(not a network)*
 
@@ -327,7 +348,7 @@ shippable and revertible.
 | # | Stage | Risk | Gate |
 |---|---|---|---|
 | 1 | **L0** substrate — **SHIPPED v1.34.171** | none (inert) | `scripts/verify_ml_substrate.py`, 17 checks incl. numpy-vs-pure-Python forward-pass equivalence |
-| 2 | **L3.1 + L3.2** runtime | none (B0 layer) | replay-hash unchanged |
+| 2 | **L3.1 + L3.2** runtime — **L3.2's first instance (B8.1) + cross-run pooling SHIPPED v1.34.174** | none (B0 layer) | replay-hash unchanged; `scripts/verify_forecasting.py` (29 checks) |
 | 3 | **L1.1** embedding | low (offline artifact) | held-out similarity eval |
 | 4 | **L2.3** retrieval | medium | A/B vs. current retrieval, config flag |
 | 5 | **L1.2** social features | low (features only) | no behaviour change until consumed |

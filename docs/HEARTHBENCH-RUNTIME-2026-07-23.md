@@ -782,21 +782,67 @@ a real server run. Real future work, naturally paired with B6.3's own
 already-registered `llm_pressure_*`/`llm_max_concurrent` tunables once
 a real migration pass wires either.
 
-## B8 — Predictive scheduling [Hard Rule 8] [MISSING]
+## B8 — Predictive scheduling [Hard Rule 8] [PARTIAL — B8.1-B8.4 shipped v1.34.174, not wired into any real control point]
 
-- [ ] **B8.1 — Workload forecaster:** short-horizon predictions from
-  simulation state and history — storm approaching → dialogue/cognition
-  spike → pre-reserve LLM capacity; harvest season → economy update
-  surge → preallocate workers; a festival scheduled → event burst.
-- [ ] **B8.2 — Reservation mechanism:** the scheduler can hold capacity
-  for a predicted need without idling (fill with background work that is
-  cheap to preempt).
-- [ ] **B8.3 — Forecast accuracy is measured** and feeds back; a
-  consistently wrong predictor is down-weighted automatically. Prediction
-  that is never scored becomes superstition.
-- [ ] **B8.4 — Idle-window scheduling:** expensive maintenance
-  (compression, persistence, archive migration, index rebuilds) is
-  deliberately scheduled into predicted-quiet periods.
+- [x] **B8.1 — Workload forecaster — SHIPPED, v1.34.174.** New
+  `hearthmind/simulation/forecasting.py`'s `WorkloadForecaster`: a
+  small `hearthmind.ml.primitives.MLP` regressor over a generic
+  `WORKLOAD_FORECAST_SCHEMA` (backlog, recent dialogue/cognition rate,
+  active-disaster flag, festival-scheduled flag, season) — the item's
+  own three named triggers (storm → dialogue/cognition spike, harvest
+  season → economy surge, a scheduled festival → event burst) map
+  directly onto this vector; a new trigger is a schema field, never a
+  new pipeline. Verified directly: training measurably cuts loss on a
+  synthetic ground truth, and the trained model correctly predicts
+  higher load when `active_disaster=1` than otherwise. **Explicit user
+  instruction, same pass: "the AI/ML models should learn from all
+  previous runs if possible."** New `hearthmind/ml/cross_run.py`'s
+  `pool_examples_across_runs`/`discover_runs`: pools training examples
+  from every past-run archive found under a `runs_root` directory (a
+  caller-supplied `example_loader` per run, tolerant of a corrupted/
+  unreadable run — skipped, not fatal), capped per-run and in total via
+  uniform random sampling so one unusually large run can't drown out
+  every other one. This is deliberately distinct from L5's per-world
+  continual-learning loop (`hearthmind/ml/lifelong.py`) — L5 keeps ONE
+  world's own Mind models learning across its own lifetime (and stays
+  per-world by `docs/ML-ARCHITECTURE-2026-08-01.md`'s guardrail #3);
+  cross-run pooling is for models that describe the MACHINE, not any
+  one world's cognition, so nothing prevents them from learning across
+  every run that has ever happened on this host. Verified end-to-end: a
+  `WorkloadForecaster` trained on a pool assembled from three synthetic
+  past-run directories learns just as well as one trained on a single
+  run's worth of data.
+- [x] **B8.2 — Reservation mechanism — SHIPPED, v1.34.174.**
+  `plan_reservation(predicted_load, current_capacity, reliability_
+  weight)`: a deterministic, capacity-bounded hint (never a hard
+  block) — verified to scale with both predicted load and reliability,
+  never exceed capacity, and reserve nothing at zero reliability. The
+  actual "fill reserved capacity with cheap-to-preempt background
+  work" mechanism is B2's own job (its `PriorityClass`/deferral
+  machinery already exists) — this ships the reservation SIZE
+  computation, not a second scheduler.
+- [x] **B8.3 — Forecast accuracy tracking — SHIPPED, v1.34.174.**
+  `ForecastAccuracyTracker`: a bounded (predicted, actual) history plus
+  `reliability_weight()`, scaled against the MAE of a naive "always
+  predict the historical mean" baseline — a forecaster doing no better
+  than that baseline scores 0.0 (full distrust), a perfect one scores
+  1.0. Verified directly: an accurate forecaster scores high, a
+  consistently-wrong one scores low, a fresh tracker with no evidence
+  yet defaults to full trust rather than false distrust.
+- [x] **B8.4 — Idle-window scheduling — SHIPPED, v1.34.174.**
+  `is_quiet_window(recent_loads, capacity, threshold_fraction)`: a
+  plain deterministic read of recent load history — true only when
+  EVERY recent reading stayed below the threshold fraction of
+  capacity, so a single spike correctly breaks "quiet."
+
+**Not wired into any real control point** — same "never big-bang"
+discipline as every prior B-item: no import from `forecasting.py`/
+`cross_run.py` exists in `simulation/engine.py`/`server.py`, no real
+recorder/metrics archive is ever fed through `pool_examples_across_
+runs`, and `plan_reservation`'s output isn't consulted by B2's real
+scheduler. Real future work, naturally paired with B7's own unwired
+`select_strategy`/`GoodCitizenPolicy` once a real migration pass wires
+the Runtime modules into the live tick loop.
 
 ## B9 — Hierarchical timescales [Hard Rule 10] [MISSING]
 
