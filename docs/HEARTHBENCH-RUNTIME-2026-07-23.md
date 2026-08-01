@@ -719,28 +719,68 @@ checks alongside the existing 5 B2 ones).
   blind in this pass (same "one subsystem at a time" discipline as
   every prior B-item's real migration work).
 
-## B7 — Hardware model [Hard Rule 7] [MISSING]
+## B7 — Hardware model [Hard Rule 7] [PARTIAL — B7.1-B7.4 shipped v1.34.173, not wired into any real control point]
 
-- [ ] **B7.1 — Host probe at startup + periodically:** CPU topology
-  (physical/logical cores), cache sizes, RAM capacity + availability,
-  memory pressure, swap, NUMA nodes, storage latency/throughput
-  (micro-benchmark), GPU presence/utilization, thermal + power state,
-  current system load.
-- [ ] **B7.2 — Persistent machine profile** keyed by a host fingerprint,
-  stored across runs, refined each session: measured LLM throughput,
-  optimal worker count, optimal batch size, storage characteristics.
-  The doc's "gradually evolves into the most efficient strategy for
-  *this* machine" needs persistence to be true.
-- [ ] **B7.3 — Strategy selection from the profile,** not from
-  hardware-specific code paths in gameplay: many-core → more
-  parallelism; low-RAM → smaller caches, earlier compression;
-  battery/thermal-throttled → aggressive dormancy, lower LLM
-  concurrency; fast GPU → higher concurrency.
-- [ ] **B7.4 — Host-OS citizenship [Runtime Philosophy]:** respect
-  system memory pressure (back off before the OS swaps), yield under
-  external CPU load, lower priority for background work, respond to
-  thermal throttling, coexist cleanly. Explicit "good citizen" policy
-  with configurable aggressiveness (a dedicated box may want more).
+- [x] **B7.1 — Host probe — SHIPPED, v1.34.173.** New
+  `hearthmind/simulation/hardware_profile.py`'s `HostProbe.sample()`:
+  logical + usable (`os.sched_getaffinity`, cgroup/taskset-aware, same
+  discipline as `setup.py`'s parallel-build core count) cores, RAM
+  total/available + swap (reuses the `/proc/meminfo` parsing shape
+  `system_memory_report()` already established in `engine.py`, kept as
+  a fresh standalone read rather than importing engine.py), 1-minute
+  load average, a small (4 MiB) storage write/read micro-benchmark,
+  best-effort GPU presence (`/proc/driver/nvidia`) and thermal state
+  (`/sys/class/thermal`, "throttled" past 90°C). Zero new dependency;
+  every field degrades to `None` rather than raising when unavailable
+  on this platform/kernel — a probe must never be able to crash the
+  process that calls it. NUMA nodes and true physical-vs-logical core
+  counts are NOT distinguished (would need a real dependency or manual
+  `/sys/devices/system/cpu` topology parsing beyond this pass's scope)
+  — `usable_cores` is the honest, already-useful substitute.
+- [x] **B7.2 — Persistent machine profile — SHIPPED, v1.34.173.**
+  `MachineProfile`, keyed by `host_fingerprint()` (hostname + cpu_count
+  + machine arch, stable across runs on the same host). Every measured
+  field (`measured_llm_throughput_tokens_per_s`, `optimal_worker_
+  count`, `storage_write_mb_s`/`storage_read_mb_s`) is an exponential
+  moving average across sessions (`record_llm_throughput`/`record_
+  storage_benchmark`), not a flat overwrite — "gradually evolves,"
+  verified directly (a single new sample moves the average partway,
+  never all the way; a sustained new value converges the average to
+  it). Versioned JSON blob `save`/`load`, same "ship as data" discipline
+  the ML weight blobs already use, incl. rejecting an unsupported
+  `schema_version`.
+- [x] **B7.3 — Strategy selection — SHIPPED, v1.34.173.**
+  `select_strategy(probe, profile=None)`: a pure function over profile
+  data (never a hardware-specific branch baked into gameplay code, per
+  the item's own text) producing `llm_max_concurrent_hint`/`worker_
+  count_hint`/`cache_size_hint`/`dormancy_aggressiveness`. Verified
+  directly: a many-core/high-RAM host gets more concurrency/workers/
+  cache than a modest one; memory pressure, active swap, or thermal
+  throttling all lower concurrency and raise dormancy aggressiveness
+  regardless of how beefy the raw hardware otherwise reads; a
+  `MachineProfile`'s own measured `optimal_worker_count` overrides the
+  generic hint once one exists.
+- [x] **B7.4 — Host-OS citizenship — SHIPPED, v1.34.173.**
+  `GoodCitizenPolicy` (`Aggressiveness.CONSERVATIVE`/`BALANCED`/
+  `AGGRESSIVE`, each with its own memory-headroom fraction and load
+  multiplier threshold): `should_back_off(probe)` — verified directly
+  that a conservative policy backs off at moderate memory pressure or
+  ANY active swap use while an aggressive policy tolerates both, that
+  extreme external load or thermal throttling trigger back-off
+  regardless of aggressiveness setting, and that a genuinely healthy
+  reading never backs off under any setting. "Lower priority for
+  background work" itself needs a real scheduler to lower priority
+  IN — that's B2's job, not this module's; `should_back_off` is the
+  input signal such a scheduler would consult, not the mechanism.
+
+**Not wired into any real control point** — same "never big-bang"
+discipline as every prior B-item: no import from `hardware_profile.py`
+exists in `simulation/engine.py` or `server.py`, `select_strategy`'s
+output isn't consulted by any real LLM-concurrency/scheduling code
+yet, and no `MachineProfile` is ever actually persisted/loaded across
+a real server run. Real future work, naturally paired with B6.3's own
+already-registered `llm_pressure_*`/`llm_max_concurrent` tunables once
+a real migration pass wires either.
 
 ## B8 — Predictive scheduling [Hard Rule 8] [MISSING]
 

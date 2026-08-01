@@ -534,6 +534,67 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.173)
+
+Explicit user instruction: "Start tier 5 and you are allowed to use
+PyTorch/tensorflow etc also." Two independent pieces, one batch.
+
+**Tier 5's B7 — Hardware model, all four sub-items.** New
+`hearthmind/simulation/hardware_profile.py`, same "never big-bang"
+discipline as every prior Tier 5 Runtime module (task_graph.py,
+scheduler.py, reactivity.py, dormancy.py, profiling.py, tuning.py) —
+not wired into `simulation/engine.py`/`server.py`. B7.1 `HostProbe.
+sample()`: logical + usable (`os.sched_getaffinity`, cgroup/taskset-
+aware, same discipline as `setup.py`'s parallel-build core count)
+cores, RAM total/available/swap (a fresh `/proc/meminfo` read, same
+shape `engine.py`'s existing `system_memory_report()` already uses,
+kept standalone rather than importing engine.py), 1-minute load
+average, a 4 MiB storage write/read micro-benchmark, best-effort GPU
+presence (`/proc/driver/nvidia`) and thermal state (`/sys/class/
+thermal`, "throttled" past 90°C) — every field degrades to `None`
+rather than raising when unavailable, a probe must never be able to
+crash its caller. B7.2 `MachineProfile`: host-fingerprinted, every
+measured field (LLM throughput, storage benchmark) is an exponential
+moving average across sessions, not a flat overwrite — "gradually
+evolves," verified directly; versioned JSON blob save/load, rejecting
+an unsupported `schema_version`, same discipline as the ML weight
+blobs. B7.3 `select_strategy`: a pure function over profile data
+(never a hardware-specific branch in gameplay code, per the item's own
+text) — verified a many-core/high-RAM host gets more LLM concurrency/
+workers/cache than a modest one, and that memory pressure, active
+swap, or thermal throttling all lower concurrency and raise dormancy
+aggressiveness regardless of how beefy the raw hardware otherwise
+reads. B7.4 `GoodCitizenPolicy`: `CONSERVATIVE`/`BALANCED`/
+`AGGRESSIVE` back-off levels — verified a conservative policy backs
+off at moderate memory pressure or any active swap while an aggressive
+one tolerates both, and that extreme external load or thermal
+throttling trigger back-off regardless of setting. NUMA nodes and true
+physical-vs-logical core counts deliberately not distinguished (would
+need a real dependency or manual sysfs topology parsing beyond this
+pass's scope) — `usable_cores` is the honest, already-useful
+substitute. Verified: `scripts/verify_hardware_profile.py` (29 checks)
+all pass. `pyflakes` clean.
+
+**Extended v1.34.171's dependency relaxation to deep-learning
+frameworks.** `pyproject.toml` gained `ml-torch = ["torch>=2.2"]` and
+`ml-tensorflow = ["tensorflow>=2.15"]`, kept separate from the
+lightweight `ml` (numpy) extra so a numpy-only training pass never
+pulls a multi-GB framework it doesn't need. Same contract as `ml`:
+offline training only, never a runtime/inference dependency — the
+shipped inference path stays stdlib + `cpp/src/` regardless of which
+extras (if any) are installed. Neither extra is installed or exercised
+by any code in this pass — reserved for a future Tier 6 model that
+genuinely outgrows what L0's small MLP primitives can express (e.g.
+L1.1's embedding at real vocabulary scale), not adopted speculatively.
+`docs/ML-ARCHITECTURE-2026-08-01.md`'s guardrail #7 and `docs/ML-
+AUDIT-2026-08-01.md`'s guardrail #6 both updated to record this.
+
+`scripts/verify_runtime_invariant.py`/`verify_task_graph.py`/
+`verify_scheduler.py`/`verify_dormancy.py`/`verify_tuning.py`/
+`verify_ml_substrate.py` re-run clean (unaffected). No native module,
+persisted `World` state, or real engine code path touched — no soak
+re-run needed.
+
 ## Current state (v1.34.172)
 
 Explicit user correction: "Also your ML arch and audit is missing

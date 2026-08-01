@@ -486,8 +486,31 @@ starts on an explicit instruction naming an item.
       "classical control, ML only as an optional *later*,
       safety-gated evolutionary search" conclusion). Docs-only finding,
       no code changed as a result.
+      **B7.1-B7.4 shipped, v1.34.173** (explicit user instruction:
+      "Start tier 5 and you are allowed to use PyTorch/tensorflow etc
+      also") — new `hearthmind/simulation/hardware_profile.py`:
+      `HostProbe.sample()` (B7.1, cores/RAM/swap/load/a storage
+      micro-benchmark/GPU+thermal best-effort reads, zero new
+      dependency, every field degrades to `None` rather than raising);
+      `MachineProfile` (B7.2, host-fingerprinted, EMA-refined across
+      sessions, versioned JSON `save`/`load`); `select_strategy` (B7.3,
+      a pure function over profile data — verified a many-core/high-RAM
+      host gets more concurrency/workers/cache, and that memory
+      pressure/swap/thermal throttling lower concurrency regardless of
+      raw hardware); `GoodCitizenPolicy` (B7.4, configurable
+      `CONSERVATIVE`/`BALANCED`/`AGGRESSIVE` back-off). `scripts/
+      verify_hardware_profile.py` (29 checks) all pass. Same "never
+      big-bang" discipline as every prior B-item — not wired into
+      `simulation/engine.py`/`server.py`. See CLAUDE.md's v1.34.173
+      entry for detail. **The same instruction also extended v1.34.171's
+      "external libraries for offline training only" permission to
+      PyTorch/TensorFlow** — new `pyproject.toml` `ml-torch`/
+      `ml-tensorflow` optional extras (kept separate from the
+      lightweight numpy-only `ml` extra); neither is installed or
+      exercised by any code yet, reserved for a future Tier 6 model
+      that genuinely outgrows what L0's small MLP primitives express.
       A1.3, A2-A13, B0.3 (a scoping note, not an action item), B2.4,
-      B3.3, B4.2, B5.3, and B7-B15 beyond B15.1 remain unstarted; see
+      B3.3, B4.2, B5.3, and B8-B15 beyond B15.1 remain unstarted; see
       the doc for the full 30+-item checklist and its own two-track
       SEQUENCE.
 

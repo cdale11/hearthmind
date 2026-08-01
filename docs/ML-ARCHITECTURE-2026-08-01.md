@@ -378,10 +378,17 @@ both live, and is correctly sequenced after L2.2 exists to retrain.
    the student's own decisions *only* weighted by realized world
    outcomes. This is the guard against self-reinforcing collapse.
 7. **External libraries permitted for offline training only** (revised
-   v1.34.171). numpy is allowed behind the new `ml` optional extra;
-   the shipped runtime inference path is always stdlib + the existing
-   `cpp/src/` path, so the `ml` extra is never required to run the
-   simulation, only to retrain.
+   v1.34.171; extended v1.34.173 to explicitly include deep-learning
+   frameworks). numpy is allowed behind the `ml` extra; PyTorch/
+   TensorFlow are allowed behind their own separate `ml-torch`/
+   `ml-tensorflow` extras (kept separate so a numpy-only training pass
+   never pulls a multi-GB framework it doesn't need). The shipped
+   runtime inference path is always stdlib + the existing `cpp/src/`
+   path regardless — none of these extras are ever required to run the
+   simulation, only to retrain. Reach for torch/TensorFlow only once a
+   real model genuinely outgrows what L0's small MLP primitives can
+   comfortably express (e.g. L1.1's embedding at real vocabulary scale,
+   or L1.2 if the full GNN ever gets built) — not speculatively.
 8. **Anti-homogenization is a hard requirement, not a nicety** — every
    per-agent model is personality-conditioned and samples with an
    entropy floor.
