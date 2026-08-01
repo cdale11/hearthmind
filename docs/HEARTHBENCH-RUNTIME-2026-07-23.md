@@ -844,19 +844,52 @@ scheduler. Real future work, naturally paired with B7's own unwired
 `select_strategy`/`GoodCitizenPolicy` once a real migration pass wires
 the Runtime modules into the live tick loop.
 
-## B9 — Hierarchical timescales [Hard Rule 10] [MISSING]
+## B9 — Hierarchical timescales [Hard Rule 10] [PARTIAL — B9.1/B9.2 shipped v1.34.175, B9.3 (the real audit) not attempted]
 
-- [ ] **B9.1 — Declared timescale per task** (the doc's ladder):
-  physics ~ms, humans ~minutes, culture ~days, institutions ~months,
-  civilizations ~years. The scheduler *enforces* that a slow system
-  cannot be scheduled at a fast frequency.
-- [ ] **B9.2 — Elapsed-time integration** for slow systems: they compute
-  from `Δt` since last run, so running them less often is
-  mathematically equivalent, not an approximation. Required for B4
-  dormancy and B2.4 attention scaling to be semantically safe.
+- [x] **B9.1 — Declared timescale per task — SHIPPED, v1.34.175.** New
+  `hearthmind/simulation/timescales.py`'s `TimescaleLadder`: the doc's
+  own named ladder (tick → minute → hour → day → week → month → season
+  → year), with every rung's minimum real-tick interval DERIVED from a
+  world's own calendar shape — the same `sim_minutes_per_tick`/
+  `minutes_per_day`/`days_per_month` conventions `SimClock` itself uses
+  — rather than a guessed constant; verified directly against hand-
+  computed calendar math (1440 min/day at 5 sim-min/tick = exactly 288
+  ticks/day) and that a faster tick rate produces a correspondingly
+  larger tick-count floor for the same real calendar day. `enforce
+  (timescale, requested_interval)` is the real enforcement the item's
+  own text asks for: a task's own configured interval can never be
+  shorter than its declared timescale's calendar floor — a per-tick
+  request against a "day" timescale is clamped up to the real floor,
+  not merely warned about.
+- [x] **B9.2 — Elapsed-time integration — SHIPPED, v1.34.175.**
+  `ElapsedTimeTracker` generalizes `DormancyManager.wake()`'s own
+  "always return the real elapsed tick count" contract (B4.3) beyond
+  dormancy specifically — `elapsed_since` is non-mutating (repeated
+  peeks report the same value, verified directly) and returns `None`
+  rather than `0` for a task with no prior baseline (there is
+  genuinely no history to integrate from yet, a different case from
+  "zero time has passed"). `TimescaleGate.check` combines both halves
+  into the one call a real scheduled task would make: verified a
+  brand-new task never fires on its first observation, fires exactly
+  once its declared timescale's real floor has elapsed, and that
+  elapsed time is measured from the last REAL firing (not from an
+  intervening no-op check) — the property that makes "running a slow
+  system less often is mathematically equivalent, not an
+  approximation" actually true for a generic consumer. Also verified
+  two tasks at different declared timescales (daily vs. monthly)
+  behave fully independently against the same ladder.
 - [ ] **B9.3 — Audit every current subsystem** for timescale mismatch
-  (things running per-tick that need only run per-day). Expect large,
-  immediate CPU wins here.
+  — explicitly NOT attempted this pass, same "needs individual live
+  judgment, not a mechanism" class as B3.3's own audit deferral. This
+  pass ships the tool such an audit would use to convert a finding
+  into a real enforced timescale, not the audit itself.
+
+**Not wired into any real control point** — no import from
+`timescales.py` exists in `simulation/engine.py`, and `Task.timescale`
+(the free-string field B1 already added) is not yet cross-checked
+against a real `TimescaleLadder` anywhere. Real future work, naturally
+paired with B9.3's own still-open audit and the rest of the unwired
+Runtime modules (B2 through B8) once a real migration pass begins.
 
 ## B10 — Locality [Hard Rule 11] [MISSING]
 

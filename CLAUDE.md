@@ -534,6 +534,60 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.175)
+
+Explicit user instruction: "Start B9" (docs/HEARTHBENCH-RUNTIME-
+2026-07-23.md, Tier 5). New `hearthmind/simulation/timescales.py`'s
+`TimescaleLadder`: the doc's own tick→minute→hour→day→week→month→
+season→year ladder, with every rung's minimum tick interval derived
+from a world's own calendar shape (`SimClock`'s own `sim_minutes_
+per_tick`/`minutes_per_day`/`days_per_month` conventions) rather than
+a guessed constant — verified against hand-computed calendar math
+(1440 min/day at 5 sim-min/tick = exactly 288 ticks/day) and that a
+faster tick rate produces a correspondingly larger tick-count floor
+for the same real calendar day. `enforce(timescale, requested_
+interval)` is B9.1's real enforcement: a task's own configured
+interval can never be shorter than its declared timescale's floor — a
+per-tick request against a "day" timescale is clamped up, not merely
+flagged.
+
+`ElapsedTimeTracker`/`TimescaleGate` (B9.2): generalizes `Dormancy
+Manager.wake()`'s own "always return the real elapsed tick count"
+contract (B4.3) beyond dormancy specifically — `elapsed_since` is
+non-mutating and returns `None` (not `0`) for a task with no prior
+baseline, since there's genuinely no history to integrate from yet,
+a different case from "zero time has passed." `TimescaleGate.check`
+combines both halves into the one call a real scheduled task would
+make: verified a brand-new task never fires on its first observation,
+fires exactly once its declared timescale's real floor has elapsed,
+and that elapsed time is measured from the last REAL firing rather
+than an intervening no-op check — the property that makes "running a
+slow system less often is mathematically equivalent, not an
+approximation" actually true for a generic consumer. Also verified two
+tasks at different declared timescales (daily vs. monthly) behave
+fully independently against the same ladder.
+
+B9.3 (a live audit of the ~200 real per-tick call sites in `engine.py`
+for timescale mismatch) explicitly NOT attempted — same "needs
+individual live judgment, not a mechanism" class as B3.3's own audit
+deferral; this pass ships the tool such an audit would use, not the
+audit itself. **Not wired into any real control point** — same
+"never big-bang" discipline as every prior B-item; no import from
+`timescales.py` exists in `simulation/engine.py`.
+
+Verified: `scripts/verify_timescales.py` (26 checks — ladder
+monotonicity, calendar-derived floor correctness, rank/is_slower_than,
+enforce()'s clamping in both directions, the elapsed-tracker's
+None-vs-baseline semantics and non-mutating peek, the gate's full
+due/elapsed lifecycle including the "measured from last real firing"
+property, and two independently-timescaled tasks not interfering) —
+all pass. `pyflakes` clean. `scripts/verify_runtime_invariant.py`/
+`verify_task_graph.py`/`verify_scheduler.py`/`verify_dormancy.py`/
+`verify_tuning.py`/`verify_hardware_profile.py`/`verify_ml_substrate.py`/
+`verify_forecasting.py` re-run clean (unaffected). No native module,
+persisted `World` state, or real engine code path touched — no soak
+re-run needed.
+
 ## Current state (v1.34.174)
 
 Explicit user instruction: "Continue tier 5 and the AI/ML models

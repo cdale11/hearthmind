@@ -528,7 +528,25 @@ starts on an explicit instruction naming an item.
       forecasting.py` (29 checks) all pass. Same "never big-bang"
       discipline — not wired into `simulation/engine.py`/`server.py`.
       A1.3, A2-A13, B0.3 (a scoping note, not an action item), B2.4,
-      B3.3, B4.2, B5.3, and B9-B15 beyond B15.1 remain unstarted; see
+      **B9.1/B9.2 shipped, v1.34.175** (explicit user instruction:
+      "Start B9") — new `hearthmind/simulation/timescales.py`:
+      `TimescaleLadder` (B9.1, the tick→minute→hour→day→week→month→
+      season→year ladder with every rung's minimum tick interval
+      DERIVED from a world's own calendar shape, same conventions
+      `SimClock` already uses — verified against hand-computed calendar
+      math; `enforce()` clamps a too-fast requested interval up to its
+      declared timescale's real floor) and `ElapsedTimeTracker`/
+      `TimescaleGate` (B9.2, generalizing `DormancyManager.wake()`'s
+      "always return real elapsed ticks" contract beyond dormancy —
+      verified a task fires exactly once its floor has elapsed, and
+      that elapsed time is measured from the last real firing, not an
+      intervening no-op check). `scripts/verify_timescales.py` (26
+      checks) all pass. B9.3 (the real audit of ~200 per-tick call
+      sites for timescale mismatch) explicitly not attempted — same
+      "needs individual live judgment" class as B3.3's own deferral.
+      A1.3, A2-A13, B0.3 (a scoping note, not an action item), B2.4,
+      B3.3, B4.2, B5.3, B9.3, and B10-B15 beyond B15.1 remain
+      unstarted; see
       the doc for the full 30+-item checklist and its own two-track
       SEQUENCE.
 
