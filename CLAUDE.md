@@ -534,6 +534,58 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.166)
+
+Explicit user instruction: "Start B4" (docs/HEARTHBENCH-RUNTIME-
+2026-07-23.md, Tier 5). New `hearthmind/simulation/dormancy.py`'s
+`DormancyManager`: B4.1's real `ACTIVE -> DROWSY -> DORMANT ->
+ARCHIVED` lifecycle (`is_scheduled()` reads False only for DORMANT/
+ARCHIVED — DROWSY stays scheduled, since the doc's own spectrum
+implies reduced attention, not zero, and B2.4's attention-follows-
+change, the real lever for that distinction, doesn't exist yet).
+B4.3's lossless-wake contract is baked directly into the API rather
+than left as a discipline to remember: `wake()` is the ONLY way to
+leave DORMANT/ARCHIVED and it ALWAYS returns the real elapsed-tick gap
+the entity was unscheduled for (0 for a safe no-op on an already-
+active entity) — a caller can ignore the return value, but can't
+accidentally not receive it. A second `sleep()` call while already
+dormant is a no-op that preserves the original clock, not a reset.
+
+B4.4's chaos-testing technique: `scripts/verify_dormancy.py`'s
+`check_chaos_dormancy_matches_no_dormancy_baseline` runs 20 random
+seeds x 500 ticks of force-sleep/wake against a synthetic accumulator
+entity (random sleep at 10%/tick while active, random wake at 20%/
+tick while dormant, a final forced wake to flush pending state), each
+seed asserted to produce the exact same final value as a no-dormancy
+baseline — proving the elapsed-time catch-up integration is genuinely
+lossless under adversarial random timing, not just in straight-line
+lifecycle checks. Since no real B4.2 candidate exists yet to point a
+real replay-hash chaos test at, this demonstrates the technique
+itself; the same approach applies directly to `scripts/verify_
+replay_hash.py`'s real hash once one does.
+
+**B4.2 (the five named real candidates — forgotten traditions,
+inactive settlements, distant wildlife, unused ideas, idle
+institutions) explicitly NOT attempted** — each needs real, live-
+tested sleep/wake criteria touching actual `world/`/`agents/`/
+`settlement/` gameplay code, the same "one subsystem at a time, never
+big-bang" discipline B0.3/B1.4/B3.3 all deferred for the same reason.
+`DormancyManager` is ready for the first one to use whenever that
+migration starts. "State compressed" from B4.1's own text is also not
+built — that's B12 (state compression), which doesn't exist yet; same
+honest-placeholder discipline as B2.1's "adaptive (B6)."
+
+Verified: `scripts/verify_dormancy.py` (8 checks — lifecycle state
+transitions, correct elapsed-tick counts, safe no-op wake on an
+already-active entity, ARCHIVED symmetric with DORMANT, a repeated
+sleep() call preserving the original clock, and the 20-seed chaos
+test) all pass. `scripts/verify_scheduler.py`/`verify_task_graph.py`/
+`verify_hearthbench_isolation.py`/`verify_runtime_invariant.py`
+re-run clean (unaffected). `pyflakes` clean on both new files. No
+native module, persisted `World` state, or real engine code path
+touched — no soak re-run needed (this module has no real gameplay
+consumer yet).
+
 ## Current state (v1.34.165)
 
 Explicit user instruction: "start B3" (docs/HEARTHBENCH-RUNTIME-

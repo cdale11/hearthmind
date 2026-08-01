@@ -430,9 +430,27 @@ starts on an explicit instruction naming an item.
       verify_scheduler.py` extended 5 checks -> 10, all passing. B3.3
       (audit + convert the ~200 real polling call sites) explicitly
       not attempted — real case-by-case future work, not a mechanism.
+      **B4.1/B4.3/B4.4 shipped (mechanism only), v1.34.166** (explicit
+      user instruction: "start B4") — new `hearthmind/simulation/
+      dormancy.py`'s `DormancyManager`: a real `ACTIVE -> DROWSY ->
+      DORMANT -> ARCHIVED` state machine (B4.1) whose `wake()` is the
+      only way out of DORMANT/ARCHIVED and always returns the real
+      elapsed-tick gap for deterministic catch-up integration (B4.3,
+      baked into the API, not left as a discipline to remember).
+      `scripts/verify_dormancy.py`'s chaos test (B4.4) runs 20 random
+      seeds x 500 ticks of force-sleep/wake against a synthetic
+      accumulator entity, each matching a no-dormancy baseline exactly
+      — demonstrating the technique since no real B4.2 candidate
+      exists yet to point a real replay-hash chaos test at. B4.2 (the
+      five named real candidates — forgotten traditions, inactive
+      settlements, distant wildlife, unused ideas, idle institutions)
+      explicitly not attempted — each needs real, live-tested sleep/
+      wake criteria touching actual gameplay code, same "one subsystem
+      at a time" discipline as B0.3/B1.4/B3.3.
       A1.3, A2-A13, B0.3 (a scoping note, not an action item), B2.4,
-      B3.3, and B4-B15 beyond B15.1 remain unstarted; see the doc for
-      the full 30+-item checklist and its own two-track SEQUENCE.
+      B3.3, B4.2, and B5-B15 beyond B15.1 remain unstarted; see the
+      doc for the full 30+-item checklist and its own two-track
+      SEQUENCE.
 
 ### C++ native-porting backlog (R6/R7)
 

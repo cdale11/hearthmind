@@ -580,31 +580,51 @@ and both primitives have only ever been exercised against synthetic
 task sets (`scripts/verify_scheduler.py`, extended with 5 new B3
 checks alongside the existing 5 B2 ones).
 
-## B4 — Dormancy [Hard Rule 4] [MISSING]
+## B4 — Dormancy [Hard Rule 4] [PARTIAL — B4.1/B4.3/B4.4 shipped v1.34.166 (generic mechanism only, no real candidate migrated)]
 
-- [ ] **B4.1 — `Dormant` lifecycle** for entities/subsystems:
-  `active → drowsy → dormant → archived`, with explicit wake triggers
-  (event on a subscribed channel, player attention, scheduled review).
-  Dormant = zero scheduled work, state compressed (B12).
-- [ ] **B4.2 — Candidates named in the brief:** forgotten traditions,
-  inactive settlements, distant wildlife, unused ideas, idle
-  institutions. Each needs a *sleep criterion* and a *wake criterion*,
-  declared next to the system.
-- [ ] **B4.3 — Semantic safety.** Dormancy must be *lossless*: on wake,
-  the entity computes catch-up deterministically (elapsed-time
-  integration) rather than pretending nothing happened, or it must be
-  provably inert while dormant. This is the subtlest correctness risk in
-  the whole runtime — every dormancy rule needs a replay test.
-
-- [ ] **B4.4 — Chaos testing for dormancy [APPROVED 2026-07-23].** A
-  test mode that randomly force-sleeps and force-wakes subsystems and
-  entities at arbitrary moments, then asserts the LLM-off replay hash
-  is unchanged versus a no-dormancy run. Because dormancy bugs are
-  *silent* (a sleeping institution that quietly stops accruing state
-  looks like normal behavior, not a crash), this is the only practical
-  way to trust B4 — review cannot catch a missing catch-up integration.
-  Run it in the nightly soak with a fresh chaos seed each night, and
-  keep the failing seed on any breakage for direct reproduction.
+- [x] **B4.1 — `Dormant` lifecycle — SHIPPED (mechanism only), v1.34.166.**
+  New `hearthmind/simulation/dormancy.py`'s `DormancyManager`: real
+  `ACTIVE -> DROWSY -> DORMANT -> ARCHIVED` state machine, `is_
+  scheduled()` reads False only for DORMANT/ARCHIVED (DROWSY stays
+  scheduled — the doc's own spectrum implies reduced attention, not
+  zero, and B2.4's attention-follows-change, the real lever for that,
+  doesn't exist yet). Wake triggers themselves (event/player-attention/
+  scheduled-review) are the CALLER's responsibility to decide when to
+  invoke `wake()` — this module supplies the state machine, not the
+  three trigger sources. "State compressed" from the item's own text
+  is NOT built — that's B12 (state compression), which doesn't exist
+  yet; same honest-placeholder discipline as B2.1's "adaptive (B6)."
+- [ ] **B4.2 — Candidates named in the brief — explicitly NOT
+  attempted.** Forgotten traditions/inactive settlements/distant
+  wildlife/unused ideas/idle institutions each need real, live-tested
+  sleep/wake criteria touching actual `world/`/`agents/`/`settlement/`
+  gameplay code — the same "one subsystem at a time, never big-bang"
+  migration discipline B0.3/B1.4/B3.3 all defer for the same reason.
+  Real future work; `DormancyManager` is ready for the first one to
+  use whenever that migration starts.
+- [x] **B4.3 — Semantic safety — SHIPPED, v1.34.166.** Baked directly
+  into the API rather than left as a discipline to remember: `wake()`
+  is the ONLY way to leave DORMANT/ARCHIVED and it ALWAYS returns the
+  real elapsed-tick gap the entity was unscheduled for (0 for a safe
+  no-op wake on an already-active entity) — a caller can silently
+  ignore the return value, but can't accidentally not receive it.
+  Verified directly (correct elapsed count across a sleep/wake pair;
+  a second `sleep()` call while already dormant does NOT reset the
+  original clock).
+- [x] **B4.4 — Chaos testing for dormancy — SHIPPED (technique
+  demonstrated, not yet pointed at a real subsystem), v1.34.166.**
+  `scripts/verify_dormancy.py`'s `check_chaos_dormancy_matches_no_
+  dormancy_baseline`: since no real candidate exists yet (B4.2), this
+  demonstrates the exact technique the item asks for — random force-
+  sleep/wake sequences across 20 seeds x 500 ticks against a synthetic
+  accumulator entity, each asserted to produce the EXACT SAME final
+  value as a no-dormancy baseline — proving B4.3's lossless-wake
+  catch-up integration actually holds under adversarial random
+  timing, not just in the straight-line lifecycle checks. Once a real
+  B4.2 candidate exists, the same technique applies directly to it
+  against `scripts/verify_replay_hash.py`'s real hash instead of a
+  synthetic counter; wiring that up is real future work, not this
+  pass's scope.
 
 ## B5 — Continuous profiling [Hard Rules 5, 15] [PARTIAL]
 
