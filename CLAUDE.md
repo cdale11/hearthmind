@@ -534,6 +534,112 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.183)
+
+Explicit user instruction: "Continue with part B and close it, wherever
+needed ask me questions. Nothing from this part should remain
+unbuilt." Shipped the three remaining B-items that were only unbuilt
+because a real prerequisite hadn't shipped yet — all now unblocked by
+this session's own earlier B9/B10/B13 work.
+
+**B2.4 (attention-follows-change).** New `hearthmind/simulation/
+attention.py`. Its own stated blocker ("requires timescales and
+locality machinery to be honest") is gone — reuses B9's real
+`TimescaleLadder` and B10's real `RegionGrid`/`region_key` directly.
+`RegionActivityTracker` aggregates real per-region writes with
+exponential decay (same "a write is the ground truth" discipline
+B3.1's `DirtyTracker` established, at region granularity).
+`attention_interval` compresses a busy region's check interval toward
+B9's own real calendar-derived floor and stretches a quiet region's
+toward a configured ceiling — verified NEVER violates the real floor
+regardless of activity, including under extreme sustained activity.
+`RegionAttentionGate` is the real per-region consumer gate (B9's own
+`TimescaleGate` shape, region-scoped, dynamic interval) — the
+load-bearing check: a busy region is genuinely due at the real
+timescale floor while an equally-timescaled quiet region is not yet
+due at that same point, only becoming due later, bounded by the real
+ceiling.
+
+**B5.3 (expose everything at `/diagnostics/runtime` + dev console).**
+New `hearthmind/simulation/runtime_diagnostics.py`. The structural
+blocker named at B5's own original pass is still true — no real
+engine subsystem runs through `Scheduler` yet, so no real HTTP route
+or dev-console panel is wired this pass either. What ships is the
+report-building mechanism itself: `runtime_diagnostics_report
+(scheduler)` builds the exact `/diagnostics/runtime` JSON shape from
+ONLY already-real `Scheduler` state, verified against a REAL
+`Scheduler` running real tasks through real ticks (a periodic task's
+real call count, a zero-budget subsystem's real accrued debt, an
+`ON_DIRTY` task's real skipped-clean count all appear correctly).
+`explain_tick(scheduler, tick)` is a real lookup that honestly returns
+`None` for an aged-out or nonexistent tick. `format_runtime_
+diagnostics_text` is the matching dev-console plain-text
+presentation. `Scheduler` gained a small additive `all_budgets()`
+accessor (same shape as the existing `all_metrics()`) so this report
+never has to reach into private scheduler state.
+
+**B13.5 (optional evolutionary search over multi-dimensional tunable
+sets).** New `hearthmind/simulation/tunable_evolution.py`. Mirrors
+Tier 6's L6 `ModelGenome`/`mutate_genome`/`crossover_genome`/
+`GenomePopulation` shape exactly (same mu+lambda evolutionary
+mechanism) over a genuinely different gene space — B6's runtime
+CONTROL tunables here, never learned model hyperparameters, distinct
+from both L6 and B6.2's own single-tunable bang-bang control.
+`evaluate_tunable_genome_fitness` is the item's own "fitness =
+throughput under the semantic-safety constraint," enforced in code:
+reuses B13.2's semantic-safety gate directly — a genome touching a
+`SENSITIVE` tunable with no (or a failing) `equivalence_check_fn` is
+disqualified (`DISQUALIFIED_FITNESS`) regardless of how good its raw
+measured throughput looked. Load-bearing check: a population's mean
+distance to a real synthetic optimum shrinks substantially over 15
+generations, and a disqualified genome is never kept as a
+population's sole survivor over a qualifying alternative. **This
+closes B13 in full** (all five sub-items now shipped).
+
+**What remains unbuilt in Part B, and why it's flagged rather than
+shipped this pass:** B0.3, B3.3, B4.2, B9.3, B10.2. Every one of
+these is explicitly, repeatedly documented — going back to when B1/
+B3/B4/B9/B10 themselves originally shipped — as a REAL case-by-case
+audit/migration of actual `world/`/`agents/`/`settlement/`/
+`engine.py` gameplay code (~200 real per-tick call sites for B3.3/
+B9.3 alone), each site needing individual live judgment plus a real
+`scripts/verify_replay_hash.py` equivalence check to convert safely —
+not a mechanism a new standalone file can ship, unlike literally
+everything else shipped across the whole B0-B15 pass (every prior
+item is a new, isolated module touching zero existing engine code).
+Rushing this through in one sweep would carry real risk of changing
+live simulation behavior, directly against this project's own
+standing "never big-bang, one subsystem at a time" discipline — and
+CLAUDE.md's own workflow rules require live-diagnostic verification
+for exactly this class of change, not something to guess through in a
+single offline pass. Asked the user via `AskUserQuestion` how to scope
+this real migration (which subsystem first, how many sites per pass,
+verification cadence) rather than guessing.
+
+Verified: `scripts/verify_attention.py` (19 checks), `scripts/
+verify_runtime_diagnostics.py` (19 checks), `scripts/verify_tunable_
+evolution.py` (65 checks) — all pass, first run except one test-design
+bug caught and fixed in `verify_attention.py` itself (an "extreme
+activity" case used a decay half-life so fast relative to the write
+rate that repeated writes self-limited to a low steady state instead
+of genuinely accumulating — fixed by using a much slower decay for
+that specific check; no bug in the module under test) and one in
+`verify_runtime_diagnostics.py` (the debt-accrual test ran too few
+ticks for the deliberately-zero-budget task to actually reach
+promotion and consume real time; fixed by running enough ticks for
+promotion to occur, per `DEFAULT_MAX_DEFERRALS`). `pyflakes` clean on
+all six touched/new files. `scripts/verify_runtime_invariant.py`/
+`verify_task_graph.py`/`verify_scheduler.py`/`verify_dormancy.py`/
+`verify_tuning.py`/`verify_hardware_profile.py`/`verify_forecasting.py`/
+`verify_timescales.py`/`verify_ml_substrate.py`/`verify_ml_
+evolution.py`/`verify_locality.py`/`verify_hierarchical_memory.py`/
+`verify_history_compression.py`/`verify_optimization_hypothesis.py`/
+`verify_persistence_scheduling.py`/`verify_escalation.py` re-run
+clean (unaffected) — this includes `verify_scheduler.py`, confirming
+the additive `Scheduler.all_budgets()` accessor changed no existing
+behavior. No native module, persisted `World` state, or real engine
+code path touched — no soak re-run needed.
+
 ## Current state (v1.34.182)
 
 Explicit user instruction: "Start b15" (docs/HEARTHBENCH-RUNTIME-

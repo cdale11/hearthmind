@@ -657,15 +657,52 @@ starts on an explicit instruction naming an item.
       sustained pressure nor de-escalates under sustained calm, zero
       history recorded). All five B15 sub-items now shipped.
       `scripts/verify_escalation.py` (21 checks) all pass.
-      **This closes out Part B's own checklist down to only the
-      "needs individual live judgment" deferrals** (A1.3/A2-A13 are
-      HearthBench's own Part A, not Part B) — B0.3 (a scoping note,
-      not an action item), B2.4, B3.3, B4.2, B5.3, B9.3, B10.2, and
-      B13.5 remain unstarted, each explicitly deferred in its own
-      entry above as needing a real live-diagnostic-driven audit or a
-      genuinely separate design decision, not a mechanism this
-      pattern can ship; see the doc for the full checklist and its own
-      two-track SEQUENCE.
+      **B2.4/B5.3/B13.5 shipped, v1.34.183** (explicit user instruction:
+      "Continue with part B and close it... nothing from this part
+      should remain unbuilt") — the three items that were ONLY
+      unbuilt because a real prerequisite hadn't shipped yet, now
+      unblocked. B2.4 (`hearthmind/simulation/attention.py`,
+      `RegionActivityTracker`/`attention_interval`/`RegionAttentionGate`)
+      reuses B9's real `TimescaleLadder` and B10's real `RegionGrid`/
+      `region_key` directly — its own stated blocker — verified a busy
+      region is genuinely due at the real timescale floor while an
+      equally-timescaled quiet region is not, and NEVER fires before
+      the real floor regardless of activity. B5.3 (`hearthmind/
+      simulation/runtime_diagnostics.py`, `runtime_diagnostics_report`/
+      `explain_tick`/`format_runtime_diagnostics_text`) ships the
+      report-building mechanism (a real `/diagnostics/runtime` JSON
+      shape verified against a real `Scheduler` running real tasks
+      through real ticks) — the actual HTTP route/dev-console wiring
+      stays blocked on a real subsystem migration, same as ever;
+      `Scheduler` gained a small additive `all_budgets()` accessor.
+      B13.5 (`hearthmind/simulation/tunable_evolution.py`) mirrors
+      Tier 6's L6 genome/mutate/crossover/population shape over B6's
+      `TunableRegistry` instead of model hyperparameters, with fitness
+      disqualified outright for any `SENSITIVE` tunable that fails
+      B13.2's own semantic-safety gate — "fitness = throughput under
+      the semantic-safety constraint" enforced in code. `scripts/
+      verify_attention.py` (19 checks)/`verify_runtime_diagnostics.py`
+      (19 checks)/`verify_tunable_evolution.py` (65 checks) all pass.
+
+      **What remains unbuilt in Part B, and why it's flagged rather
+      than shipped:** B0.3, B3.3, B4.2, B9.3, B10.2 are not standalone
+      infrastructure gaps like everything above — each is explicitly,
+      repeatedly documented (going back to when B1/B3/B4/B9/B10
+      themselves shipped) as a REAL case-by-case audit/migration of
+      actual `world/`/`agents/`/`settlement/`/`engine.py` gameplay
+      code (~200 real call sites for B3.3/B9.3 alone), each site
+      needing individual live judgment plus a real `scripts/verify_
+      replay_hash.py` equivalence check to convert safely — not a
+      mechanism a new file can ship. This is a qualitatively different
+      kind of work from every other B-item (which shipped as new,
+      isolated modules touching zero existing engine code) and
+      carries real risk of changing live simulation behavior if rushed
+      through in one pass, directly against this project's own
+      standing "never big-bang, one subsystem at a time" discipline.
+      Explicit user direction on how to scope this real migration
+      (which subsystem first, how many sites per pass, live-hardware
+      verification cadence) is needed before starting it — asked via
+      `AskUserQuestion` rather than guessed at.
 
 ### Tier 6 — Learned models (AI/ML where an LLM isn't required)
 

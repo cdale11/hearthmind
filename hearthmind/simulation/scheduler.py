@@ -161,6 +161,12 @@ class Scheduler:
             self._budgets[subsystem] = SubsystemBudget(subsystem=subsystem)
         return self._budgets[subsystem]
 
+    def all_budgets(self) -> dict[str, SubsystemBudget]:
+        """B5.3's read-only accessor -- same shape as `all_metrics()`,
+        added so a diagnostics report never has to reach into
+        `Scheduler`'s own private `_budgets` dict directly."""
+        return dict(self._budgets)
+
     def metrics_for(self, task_id: str) -> TaskMetrics:
         if task_id not in self._metrics:
             self._metrics[task_id] = TaskMetrics(task_id=task_id)

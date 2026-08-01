@@ -493,7 +493,7 @@ pack.
   — no engine code path was touched); a real per-subsystem migration
   pass must re-run it for real, per B1.4's own instruction.
 
-## B2 — Budgets & scheduling [Hard Rules 2, 9] [PARTIAL — B2.1/B2.2/B2.3/B2.5 shipped v1.34.164, not yet wired into the live tick loop]
+## B2 — Budgets & scheduling [Hard Rules 2, 9] [PARTIAL — B2.1-B2.5 shipped v1.34.164/v1.34.183, not yet wired into the live tick loop]
 
 - [x] **B2.1 — Explicit per-subsystem execution budgets — SHIPPED
   (static form), v1.34.164.** `hearthmind/simulation/scheduler.py`'s
@@ -517,11 +517,25 @@ pack.
   reset by `reset_tick()` — verified directly (debt strictly increases
   across two ticks of sustained overrun). No `/diagnostics/runtime`
   surface exists yet (that's B15) to expose it externally.
-- [ ] **B2.4 — Attention-follows-change [Rule 9] — explicitly NOT
-  attempted.** Its own text requires B10's timescales and B11's
-  locality "to be honest" — neither exists. A per-region activity
-  score built without real timescale/locality machinery behind it
-  would be a guess dressed as a feature; left open rather than faked.
+- [x] **B2.4 — Attention-follows-change [Rule 9] — SHIPPED,
+  v1.34.183.** Unblocked once its own named prerequisites (B9's real
+  `TimescaleLadder` and B10's real `RegionGrid`/`region_key`) both
+  shipped. New `hearthmind/simulation/attention.py`: `RegionActivity
+  Tracker` aggregates real per-region writes (same "a write is the
+  ground truth" discipline B3.1's `DirtyTracker` established) with
+  exponential decay back toward zero once a region goes quiet.
+  `attention_interval` compresses a region's real check interval
+  toward B9's own calendar-derived floor for busy regions and stretches
+  it toward a configured ceiling for quiet ones — verified NEVER
+  violates the real floor regardless of activity, including under
+  extreme sustained activity. `RegionAttentionGate` is the real
+  per-region consumer-facing gate (B9's own `TimescaleGate` shape,
+  region-scoped, with a dynamic instead of fixed interval) — the
+  load-bearing check: a busy region is genuinely due at the real
+  timescale floor while an equally-timescaled but quiet region is NOT
+  yet due at that same point, only becoming due later, bounded by the
+  real ceiling. "Attention follows change" is now a real, verified
+  property, not a description.
 - [x] **B2.5 — Work-conserving — SHIPPED, v1.34.164.** `Scheduler.
   run_tick`'s optional `tick_time_budget_seconds` param: once every
   subsystem-budgeted task has run or deferred, genuinely spare overall
@@ -626,7 +640,7 @@ checks alongside the existing 5 B2 ones).
   synthetic counter; wiring that up is real future work, not this
   pass's scope.
 
-## B5 — Continuous profiling [Hard Rules 5, 15] [PARTIAL — B5.1/B5.2/B5.4 shipped v1.34.167]
+## B5 — Continuous profiling [Hard Rules 5, 15] [PARTIAL — B5.1/B5.2/B5.4 shipped v1.34.167, B5.3 shipped v1.34.183, not wired into any real control point]
 
 - [x] **B5.1 — Per-task instrumentation, always on — SHIPPED (real
   subset), v1.34.167.** New `hearthmind/simulation/profiling.py`'s
@@ -654,16 +668,28 @@ checks alongside the existing 5 B2 ones).
   cheap — "a profiler that costs 5% must say so" now has a real number
   attached, checked against a sanity bound so a future accidental
   O(n²) regression would fail this script, not just look fine in review.
-- [ ] **B5.3 — Expose everything at `/diagnostics/runtime` + dev
-  console — explicitly NOT attempted.** There's no real engine
-  subsystem running through `Scheduler` yet to expose (same "not wired
-  into the live tick loop" reason every prior B-item gives). The "no
-  subsystem may be a black box" review rule is instead a real
-  STRUCTURAL guarantee in this design, not a CI policy: `Scheduler.
-  metrics_for`/`all_metrics` mean every task processed even once
-  already has a real `TaskMetrics` entry — there is no code path for a
-  registered task to skip being metered, so a CI rule enforcing it
-  would have nothing to catch.
+- [x] **B5.3 — Expose everything at `/diagnostics/runtime` + dev
+  console — SHIPPED (the report-building mechanism), v1.34.183.** The
+  structural blocker named at B5's own original pass is still true —
+  there's no real engine subsystem running through `Scheduler` yet, so
+  no real HTTP route or dev-console panel is wired this pass either.
+  What ships: new `hearthmind/simulation/runtime_diagnostics.py`'s
+  `runtime_diagnostics_report(scheduler)` — the exact `/diagnostics/
+  runtime` JSON payload shape, built from ONLY already-real `Scheduler`
+  state (`all_metrics()`, the new `all_budgets()` accessor added this
+  pass, `tick_traces`), verified against a REAL `Scheduler` running
+  real tasks through real ticks (not a mocked shape) — a periodic
+  task's real call count, a zero-budget subsystem's real accrued debt,
+  and an `ON_DIRTY` task's real skipped-clean count all appear
+  correctly in the report. `explain_tick(scheduler, tick)` is a real
+  lookup (not a linear scan a caller has to write) that honestly
+  returns `None` for a tick that aged out of the bounded trace history
+  or never happened. `format_runtime_diagnostics_text` is the matching
+  dev-console plain-text presentation, same data, no second source.
+  The "no subsystem may be a black box" rule remains the real
+  STRUCTURAL guarantee `profiling.py` already documents — `Scheduler.
+  metrics_for`/`all_metrics` mean every processed task already has a
+  real `TaskMetrics` entry, so there is nothing for a CI rule to catch.
 - [x] **B5.4 — "Explain this tick" — SHIPPED, v1.34.167.** New
   `profiling.py`'s `TickTrace`/`TaskTraceEntry`: `Scheduler.run_tick`
   now builds a full trace EVERY tick (not an opt-in "profiling mode")
@@ -939,7 +965,7 @@ wildcard-write tasks exist in practice today). Real future work,
 naturally paired with B2.4's attention allocation (the doc's own named
 partner for B10.3) and B10.2's still-open real audit.
 
-## B11 — Hierarchical memory [Hard Rule 12] [PARTIAL]
+## B11 — Hierarchical memory [Hard Rule 12] [PARTIAL — B11.1-B11.4 shipped v1.34.178, not wired into any real control point]
 
 - [x] **B11.1 — Four tiers with explicit migration policy — SHIPPED,
   v1.34.178.** New `hearthmind/simulation/hierarchical_memory.py`'s
@@ -1001,7 +1027,7 @@ smaller bounded/capped structures elsewhere in the codebase don't need
 it) and threading B7's real `HostProbe.sample()` into `pressure_
 response` from an actual scheduling call site.
 
-## B12 — History compression [Hard Rule 13] [PARTIAL]
+## B12 — History compression [Hard Rule 13] [PARTIAL — B12.1-B12.3 shipped v1.34.179, not wired into any real control point]
 
 - [x] **B12.1 — The ladder as an automatic pipeline — SHIPPED,
   v1.34.179.** New `hearthmind/simulation/history_compression.py`'s
@@ -1050,7 +1076,7 @@ reconstructable archived detail today) and wiring `condense_fn` at
 each stage to a real existing narrative job (chronicle for raw->
 episode, documentary/culture_digest for episode->summary, etc.).
 
-## B13 — Optimization hypotheses [Hard Rule 14] [PARTIAL]
+## B13 — Optimization hypotheses [Hard Rule 14] [PARTIAL — B13.1-B13.5 shipped v1.34.180/v1.34.183, not wired into any real control point]
 
 - [x] **B13.1 — Hypothesis loop — SHIPPED, v1.34.180.** New
   `hearthmind/simulation/optimization_hypothesis.py`'s `HypothesisLoop.
@@ -1094,14 +1120,24 @@ episode, documentary/culture_digest for episode->summary, etc.).
   two loops built over disjoint name sets (one standing in for this
   Runtime's own tunables, one for Reflection's): each can freely touch
   its own tunable, and each is provably blocked from the other's.
-- [ ] **B13.5 — Optional evolutionary search** over multi-dimensional
-  tunable sets — explicitly NOT built this pass, per the item's own
-  text ("only after B13.1–B13.2 are solid" — now true, but this is real
-  separate future work: jointly evolving several tunables under this
-  same safety-gate constraint, distinct from B6.2's single-tunable
-  bang-bang control and distinct from Tier 6's L6 model-genome
-  evolution, which evolves LEARNED MODEL hyperparameters, not runtime
-  CONTROL parameters).
+- [x] **B13.5 — Optional evolutionary search over multi-dimensional
+  tunable sets — SHIPPED, v1.34.183.** New `hearthmind/simulation/
+  tunable_evolution.py`: `TunableGenome`/`mutate_tunable_genome`/
+  `crossover_tunable_genome`/`TunableGenomePopulation` mirror Tier 6's
+  L6 `ModelGenome` shape exactly (same mu+lambda evolutionary
+  mechanism), a genuinely different gene space — runtime CONTROL
+  tunables (B6's `TunableRegistry`) here, never learned model
+  hyperparameters, distinct from both L6 and B6.2's own single-tunable
+  bang-bang control. `evaluate_tunable_genome_fitness` is the item's
+  own "fitness = throughput under the semantic-safety constraint,"
+  enforced in code: reuses B13.2's semantic-safety gate directly — a
+  genome touching a `SENSITIVE` tunable with no (or a failing)
+  `equivalence_check_fn` is disqualified (`DISQUALIFIED_FITNESS`)
+  regardless of how good its raw measured throughput looked, verified
+  directly. Load-bearing check: a population's mean distance to a real
+  synthetic optimum shrinks substantially over 15 generations, and a
+  disqualified genome is never kept as a population's sole survivor
+  over a qualifying alternative. **Closes B13 in full.**
 
 **Not wired into any real control point** — no import from
 `optimization_hypothesis.py` exists in `simulation/engine.py`/
@@ -1117,7 +1153,7 @@ retune of a constant like `llm_max_concurrent` — the exact constant
 whose own long documented CLAUDE.md history (4→2→1→2→1→2) this whole
 item exists to eventually automate.
 
-## B14 — Persistence & background work [PARTIAL]
+## B14 — Persistence & background work [PARTIAL — B14.1-B14.3 shipped v1.34.181, not wired into any real control point]
 
 - [x] **B14.1 — Scheduled, budgeted, idle-preferring, adaptive-
   frequency snapshotting — SHIPPED, v1.34.181.** New `hearthmind/
@@ -1168,7 +1204,7 @@ format, which doesn't exist yet — B14.2 only decides WHICH kind is
 due) and threading a live `HostProbe` sample into `batch_size_for_
 storage` at the real write call site.
 
-## B15 — Semantic safety: the determinism guarantee [Hard Rule 1] [PARTIAL]
+## B15 — Semantic safety: the determinism guarantee [Hard Rule 1] [PARTIAL — B15.1-B15.5 shipped v1.34.102/v1.34.182, not wired into any real control point]
 
 *This deserves its own section because Hard Rule 1 and adaptive LLM
 scheduling are in genuine tension, and the resolution must be explicit.*
