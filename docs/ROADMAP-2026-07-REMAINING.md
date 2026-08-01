@@ -578,8 +578,26 @@ starts on an explicit instruction naming an item.
       doesn't). All four sub-items shipped this pass (unlike B9.3/
       B10.2, no sub-item needed deferring to a live-judgment audit).
       `scripts/verify_hierarchical_memory.py` (20 checks) all pass.
+      **B12 shipped in full, v1.34.179** (explicit user instruction:
+      "Start b12") — new `hearthmind/simulation/history_compression.py`:
+      `CompressionStage`/`CompressionLadder` (B12.1, the doc's own
+      named five-stage ladder raw->episode->summary->history->cultural_
+      memory, each stage bounded by its own age-or-volume `Stage
+      Threshold`, verified cascading through all five stages in one
+      chain); the storage half (B12.2, a stage's raw bucket is
+      genuinely cleared once condensed via the caller's own
+      `condense_fn` — this module never invents summarization logic,
+      chronicle/documentary/culture-digest/etc. stay the real semantic
+      half — plus `prune_to_capacity` as a real, tested hard ceiling on
+      total archived history, deleting the oldest entries first);
+      reconstruct-on-demand (B12.3, `CompressionLadder.handle()`
+      returns a real B11 `TransparentHandle` bound to the ladder's own
+      archive — reused directly, not a second retrieval API — a
+      genuinely pruned key honestly returns nothing rather than
+      fabricating content). All three sub-items shipped this pass.
+      `scripts/verify_history_compression.py` (29 checks) all pass.
       A1.3, A2-A13, B0.3 (a scoping note, not an action item), B2.4,
-      B3.3, B4.2, B5.3, B9.3, B10.2, and B12-B15 beyond B15.1 remain
+      B3.3, B4.2, B5.3, B9.3, B10.2, and B13-B15 beyond B15.1 remain
       unstarted; see
       the doc for the full 30+-item checklist and its own two-track
       SEQUENCE.

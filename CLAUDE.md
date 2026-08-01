@@ -534,6 +534,90 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.179)
+
+Explicit user instruction: "Start b12" (docs/HEARTHBENCH-RUNTIME-
+2026-07-23.md, Tier 5, Hard Rule 13). New `hearthmind/simulation/
+history_compression.py`, same "never big-bang" discipline as every
+prior Tier 5 Runtime module — not wired into `simulation/engine.py`/
+`server.py`. Deliberately reuses B11's tiering primitives rather than
+building a parallel archive mechanism, per the project's own standing
+"extend before inventing" discipline: B12.3's reconstruct-on-demand
+IS B11's `TransparentHandle`, reused directly, not a second retrieval
+API.
+
+B12.1 `CompressionStage` + `CompressionLadder`: the doc's own named
+five-stage ladder (raw → episode → summary → history → cultural_
+memory). Each stage holds a bounded in-flight bucket; `maybe_compress
+(stage, tick, threshold, condense_fn)` checks ONE stage against its
+own `StageThreshold` (max_count OR max_age_ticks, whichever crosses
+first — verified both trigger independently, including that an age-
+triggered compression condenses ALL entries in the bucket together,
+not just the stale one) and, once crossed, condenses the whole bucket
+via the caller's own summarizer and promotes the result one stage up
+— verified end to end through all five stages in one cascade, with
+the top stage (cultural_memory) correctly archiving on its own final
+compression without attempting to promote further.
+
+B12.2's storage half: this module never invents its own summarization
+logic — `condense_fn` is always caller-supplied, so chronicle/
+documentary/culture-digest/folklore/era branches stay the real
+semantic half exactly as this item asks. What ships here is the
+missing storage half: a stage's raw bucket is GENUINELY cleared once
+condensed (verified directly, not cosmetic) and `prune_to_capacity
+(max_entries)` enforces a real, tested hard ceiling on TOTAL archived
+history — once exceeded, the oldest entries are deleted first (real
+deletion, distinct from B11's own tier demotion), verified: exactly
+the overflow count removed, oldest keys gone from both the archive
+store and the tier manager, newest keys survive untouched. "Never
+allow unbounded growth" is a real, tested invariant here, not a
+stated intention.
+
+B12.3 `CompressionLadder.handle()`: returns a real B11
+`TransparentHandle` bound to the ladder's own archive — a fault-in
+read returns the real archived content and promotes the entry back to
+hot, B11's existing contract exercised unmodified. A key `prune_to_
+capacity` has actually deleted correctly returns nothing rather than
+silently fabricating content — compression is real information loss
+only past the retention ceiling, verified both ways (a live key
+reconstructs correctly; a pruned key honestly returns `None`).
+
+All three B12 sub-items shipped this pass.
+
+**Not wired into any real control point** — no import from `history_
+compression.py` exists in `simulation/engine.py`/`server.py`; no real
+event/chronicle/culture-digest pipeline feeds a live `CompressionLadder`
+yet, and `condense_fn` has only ever been exercised with a synthetic
+join function against synthetic data. Real future work: picking a
+first concrete consumer (the doc's own "the DB is already ~60 MB"
+framing points at `World.emergence_log`/the `events` table as the
+natural first candidate — both already have a flat row-count cap per
+this file's own memory-leak audit history, but neither goes through a
+real ladder with reconstructable archived detail today) and wiring
+`condense_fn` at each stage to a real existing narrative job
+(chronicle for raw->episode, documentary/culture_digest for episode->
+summary, etc.).
+
+Verified: `scripts/verify_history_compression.py` (29 checks — new
+material always lands at RAW only; no-op below both thresholds;
+volume-triggered compression genuinely discards and promotes with the
+real condensed content, not a placeholder; age-triggered compression
+fires only once the OLDEST entry crosses its threshold and condenses
+every entry in the bucket together; a full five-stage cascade with the
+top-stage no-further-promotion case; `prune_to_capacity`'s oldest-
+first deletion incl. the no-op-under-capacity case and confirming
+pruned keys are gone from both the store and the tier manager; the
+handle's real fault-in/promotion behavior; the handle honestly
+returning nothing for a genuinely pruned key) — all pass, first run,
+no bug found. `pyflakes` clean on both the new module and its verify
+script. `scripts/verify_runtime_invariant.py`/`verify_task_graph.py`/
+`verify_scheduler.py`/`verify_dormancy.py`/`verify_tuning.py`/
+`verify_hardware_profile.py`/`verify_forecasting.py`/
+`verify_timescales.py`/`verify_ml_substrate.py`/`verify_ml_
+evolution.py`/`verify_locality.py`/`verify_hierarchical_memory.py`
+re-run clean (unaffected). No native module, persisted `World` state,
+or real engine code path touched — no soak re-run needed.
+
 ## Current state (v1.34.178)
 
 Explicit user instruction: "Start B11" (docs/HEARTHBENCH-RUNTIME-

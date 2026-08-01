@@ -1003,16 +1003,52 @@ response` from an actual scheduling call site.
 
 ## B12 — History compression [Hard Rule 13] [PARTIAL]
 
-- [ ] **B12.1 — The ladder as an automatic pipeline:** raw events →
-  episodes → summaries → history → cultural memory, each stage
-  triggered by age/volume thresholds, each bounded.
-- [ ] **B12.2 — Reuse the existing narrative pipeline** (chronicle →
-  documentary → culture-digest, folklore, era branches) as the semantic
-  half; add the *storage* half — raw events must actually be discarded
-  or archived after summarization, with a hard ceiling on total history
-  size. **Never allow unbounded growth** (the DB is already ~60 MB).
-- [ ] **B12.3 — Reconstruct-on-demand:** archived detail retrievable for
-  the UI/debugging, at a latency cost, so compression is not loss.
+- [x] **B12.1 — The ladder as an automatic pipeline — SHIPPED,
+  v1.34.179.** New `hearthmind/simulation/history_compression.py`'s
+  `CompressionStage` (the doc's own named five stages, raw → episode →
+  summary → history → cultural_memory) + `CompressionLadder`. Each
+  stage holds a bounded in-flight bucket; `maybe_compress(stage, tick,
+  threshold, condense_fn)` checks ONE stage against its own
+  `StageThreshold` (max_count OR max_age_ticks, whichever crosses
+  first — verified both trigger independently) and, once crossed,
+  condenses the whole bucket and promotes the result one stage up —
+  verified end to end through all five stages in one cascade (raw ->
+  episode -> summary -> history -> cultural_memory -> archived, no
+  further promotion past the top).
+- [x] **B12.2 — Storage half — SHIPPED, v1.34.179.** This module never
+  invents its own summarization logic — `condense_fn` is supplied by
+  the caller, so chronicle/documentary/culture-digest/folklore/era
+  branches stay the real semantic half exactly as this item asks; what
+  ships here is the missing storage half: a stage's raw bucket is
+  GENUINELY cleared once condensed (verified directly — the discard is
+  real, not cosmetic) and `prune_to_capacity(max_entries)` enforces a
+  real hard ceiling on TOTAL archived history, deleting the oldest
+  entries first once exceeded (verified: exactly the overflow count
+  removed, oldest keys gone from both the archive store and the tier
+  manager, newest keys survive) — "never allow unbounded growth" is a
+  real, tested invariant here, not a stated intention.
+- [x] **B12.3 — Reconstruct-on-demand — SHIPPED, v1.34.179.** Reuses
+  B11's `TransparentHandle` directly rather than a second retrieval
+  API — `CompressionLadder.handle()` returns a real handle bound to
+  the ladder's own archive; a fault-in read returns the real archived
+  content and promotes the entry back to hot (B11's existing contract,
+  exercised unmodified). A key `prune_to_capacity` has actually deleted
+  correctly returns nothing rather than silently fabricating content —
+  compression is real information loss only past the retention
+  ceiling, never before it.
+
+**Not wired into any real control point** — no import from `history_
+compression.py` exists in `simulation/engine.py`/`server.py`; no real
+event/chronicle/culture-digest pipeline feeds a live `CompressionLadder`
+yet, and `condense_fn` has only ever been exercised with a synthetic
+join function. Real future work: picking a first concrete consumer
+(the doc's own "the DB is already ~60 MB" framing points at `World.
+emergence_log`/`events` table retention as the natural first candidate
+— both already have a flat row-count cap, per CLAUDE.md's memory-leak
+audit history, but neither goes through a real ladder with
+reconstructable archived detail today) and wiring `condense_fn` at
+each stage to a real existing narrative job (chronicle for raw->
+episode, documentary/culture_digest for episode->summary, etc.).
 
 ## B13 — Optimization hypotheses [Hard Rule 14] [MISSING]
 
