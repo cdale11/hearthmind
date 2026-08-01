@@ -64,10 +64,15 @@ consumes the *same* agent/world vector, so adding a model is adding a
 head, not a pipeline.
 
 Primitives are deliberately small: logistic regression, a 2-3 layer MLP,
-and a calibrator. **No framework, no numpy.** Training runs offline
-(optional dev extra); inference is a handful of dot products in
-`cpp/src/` with the pure-Python fallback every native module already
-has. Weights ship as a versioned blob.
+and a calibrator. **No deep-learning framework (no torch).** numpy is
+permitted for offline training (v1.34.171 — explicit user directive
+relaxed the earlier stdlib-only constraint; confirmed installable in
+this environment via `pip install numpy`, gated behind the new `ml`
+optional extra in `pyproject.toml`). Training runs offline (`ml`
+extra); inference is a handful of dot products in `cpp/src/` with a
+pure-Python, stdlib-only fallback every native module already has —
+numpy is never a runtime/inference dependency, only a training-time
+convenience. Weights ship as a versioned blob.
 
 **Weights are world state.** They live in the snapshot, they are
 per-world, and they are what makes two worlds with different histories
@@ -230,7 +235,7 @@ shippable and revertible.
 
 | # | Stage | Risk | Gate |
 |---|---|---|---|
-| 1 | **L0** substrate | none (inert) | equivalence test, native vs. fallback |
+| 1 | **L0** substrate — **SHIPPED v1.34.171** | none (inert) | `scripts/verify_ml_substrate.py`, 17 checks incl. numpy-vs-pure-Python forward-pass equivalence |
 | 2 | **L3.1 + L3.2** runtime | none (B0 layer) | replay-hash unchanged |
 | 3 | **L1.1** embedding | low (offline artifact) | held-out similarity eval |
 | 4 | **L2.3** retrieval | medium | A/B vs. current retrieval, config flag |
@@ -272,8 +277,11 @@ first real behaviour change is step 4.
    training uses LLM-authored decisions (teacher) only; phase 2 admits
    the student's own decisions *only* weighted by realized world
    outcomes. This is the guard against self-reinforcing collapse.
-7. **No new runtime dependency.** Training may use an optional dev
-   extra; inference is stdlib + the existing `cpp/src/` path.
+7. **External libraries permitted for offline training only** (revised
+   v1.34.171). numpy is allowed behind the new `ml` optional extra;
+   the shipped runtime inference path is always stdlib + the existing
+   `cpp/src/` path, so the `ml` extra is never required to run the
+   simulation, only to retrain.
 8. **Anti-homogenization is a hard requirement, not a nicety** — every
    per-agent model is personality-conditioned and samples with an
    entropy floor.

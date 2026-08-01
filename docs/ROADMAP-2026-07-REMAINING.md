@@ -505,9 +505,16 @@ a hand-authored rule system; and labeled data *does* already
 accumulate, via `llm/recorder.py`'s four-layer schema and the `metrics`
 table).
 
-**Not started — this is a filed plan, not shipped work.** Same standing
-convention as every other vision doc here: work from it on future
-explicit direction naming a stage.
+**L0 substrate SHIPPED, v1.34.171** — everything above it is still
+filed, not built. External libraries are now permitted for **offline
+training only** (v1.34.171, explicit user directive relaxed the
+audit/architecture docs' earlier stdlib-only constraint; `pip install
+numpy` confirmed to work cleanly in this environment) — gated behind a
+new `ml` optional extra (`pyproject.toml`); the live server's required
+dependencies are untouched, and runtime inference stays stdlib-only
+regardless of whether the `ml` extra is installed. Same standing
+convention as every other vision doc here otherwise: work on the rest
+of the layers only on future explicit direction naming a stage.
 
 **The M0-M9 staging below was superseded by a final architecture pass
 (v1.34.170): `docs/ML-ARCHITECTURE-2026-08-01.md`.** That pass
@@ -518,9 +525,42 @@ what to build. Net: 9 loose stages → **4 layers / 8 justified models**
 with three shared components.
 
 **L0 — substrate** (no behaviour, reused by everything)
-- [ ] **L0** Feature encoder + model primitives (linear/logistic, small
-      MLP, calibration) + versioned weights blob + C++ forward pass with
-      pure-Python fallback. Inert until consumed.
+- [x] **L0** SHIPPED, v1.34.171. `hearthmind/ml/`: `encoder.py`
+      (`FeatureSchema`/`FeatureEncoder` — deterministic numeric +
+      one-hot categorical vectorization, missing/bad values degrade to
+      0.0 rather than raising), `primitives.py` (`LinearLayer`, `MLP`
+      1-3 layer with linear/sigmoid/softmax output heads,
+      `PlattCalibrator` — pure-Python inference always, versioned JSON
+      weight blob save/load), `training.py` (pure-Python full-backprop
+      SGD trainer, the reference implementation; an optional
+      numpy-accelerated batch forward pass for offline training speed,
+      `HAS_NUMPY`-gated, raises cleanly rather than silently
+      downgrading when numpy is absent). Deliberately still a pure C++
+      forward pass, not yet built — this ships the Python reference and
+      the training harness only; a `cpp/src/` port is real future work
+      once a real consumer (L1.1/L2.x) exists to justify it, same
+      "don't build inference speed before there's a model to serve"
+      discipline every other native-port decision in this project
+      follows. **Not wired into any live gameplay code** — same
+      "never big-bang" discipline as every Tier 5 Runtime module; no
+      import from `hearthmind/ml/` exists anywhere in
+      `simulation/engine.py`. Verified: `scripts/verify_ml_substrate.py`
+      (17 checks — encoder correctness incl. missing/bad-value
+      degradation, hand-computed linear/MLP forward passes, softmax
+      sums to 1, weight-blob round-trip incl. rejecting an unsupported
+      schema_version, calibrator fit separates two score bands, the SGD
+      trainer cuts loss >90% on a learnable toy regression, and the
+      load-bearing check for this pass — the numpy-accelerated batch
+      forward pass is equivalent to the pure-Python forward pass within
+      1e-9 for both a sigmoid and a softmax head) — all pass with numpy
+      installed; the numpy checks degrade to a clean `[SKIP]` rather
+      than a failure when the `ml` extra isn't installed, and a
+      dedicated check confirms `numpy_batch_forward` raises
+      `RuntimeError` (not a silent fallback) when called without numpy.
+      `pyflakes` clean. `scripts/verify_runtime_invariant.py`/
+      `verify_task_graph.py`/`verify_scheduler.py`/`verify_dormancy.py`/
+      `verify_tuning.py` re-run clean (unaffected — `hearthmind/ml/` is
+      outside every directory that invariant scans).
 
 **L1 — shared representation**
 - [ ] **L1.1 Semantic embedding** ⭐ of the sim's own vocabulary. 6+

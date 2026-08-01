@@ -534,6 +534,71 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.171)
+
+Explicit user instruction: "Please allow the use of external
+libraries, don't make anything unimplementable just because external
+libraries can't be installed. Also continue with tier 5." Relaxes the
+stdlib-only/no-new-runtime-dependency constraint both
+`docs/ML-AUDIT-2026-08-01.md` and `docs/ML-ARCHITECTURE-2026-08-01.md`
+had self-imposed (the constraint was never a real environment limit —
+`pip install numpy` succeeds cleanly here; confirmed before changing
+anything). Both docs' guardrail sections rewritten: external libraries
+(numpy) are now permitted for **offline training only**; the shipped
+**runtime inference path stays stdlib-only** regardless, same
+contract every native `cpp/src/` module already honours (missing/
+absent dependency degrades to the existing fallback, never a crash).
+New `pyproject.toml` optional extra, `ml = ["numpy>=1.26"]` — kept
+separate from `dependencies`/`api`/`bench` so the live server never
+requires it, same isolation discipline as Tier 5's own `bench` extra.
+
+Ships Tier 6's **L0 substrate** (docs/ML-ARCHITECTURE-2026-08-01.md),
+the first real Tier 6 code — "continue with tier 5" read in the ML/
+Tier-6-implementation context the immediately preceding several turns
+were in, since the "allow external libraries" half of the same
+instruction only makes sense there (the literal remaining Tier 5
+Runtime items, B7+, need no external library). New `hearthmind/ml/`:
+`encoder.py` (`FeatureSchema`/`FeatureEncoder` — deterministic
+numeric + one-hot categorical vectorization, the shared vector shape
+every Layer 1+ model will consume, per the architecture doc's own
+"adding a model is adding a head, not a pipeline" framing);
+`primitives.py` (`LinearLayer`, `MLP` — 1-3 layer, ReLU hidden,
+linear/sigmoid/softmax output heads, `PlattCalibrator` — L4.1's own
+"deliberately not a network" calibration primitive — all pure-Python
+inference, a versioned JSON weight-blob `save`/`load`); `training.py`
+(a pure-Python full-backprop SGD trainer — the reference
+implementation — plus an optional numpy-accelerated batch forward
+pass, `HAS_NUMPY`-gated, that raises `RuntimeError` rather than
+silently degrading when numpy is absent). A C++ forward pass is
+deliberately NOT built yet — this ships the Python reference and
+training harness only; porting to `cpp/src/` is real future work once
+an actual consumer (L1.1/L2.x) exists to justify the port, same
+"don't build inference speed before there's a model to serve"
+discipline every other native-port decision in this project follows.
+**Not wired into any live gameplay code** — same "never big-bang"
+discipline as every Tier 5 Runtime module; no import from
+`hearthmind/ml/` exists anywhere in `simulation/engine.py`.
+
+Verified: `scripts/verify_ml_substrate.py` (17 checks — encoder
+correctness incl. missing/bad-value degrading to 0.0 rather than
+raising, hand-computed linear/MLP forward passes, softmax sums to 1,
+weight-blob round-trip incl. rejecting an unsupported
+`schema_version`, a Platt calibrator fit genuinely separating two
+score bands, the SGD trainer cutting loss >90% on a learnable toy
+regression, and the load-bearing check for this pass — the
+numpy-accelerated batch forward pass is equivalent to the pure-Python
+forward pass within 1e-9 for both a sigmoid and a softmax output head)
+— all pass with numpy installed; the numpy-dependent checks degrade to
+a clean `[SKIP]`, not a failure, when the `ml` extra isn't installed,
+and a dedicated check confirms `numpy_batch_forward` raises cleanly
+(not a silent fallback) when called without numpy. `pyflakes` clean.
+`scripts/verify_runtime_invariant.py`/`verify_task_graph.py`/
+`verify_scheduler.py`/`verify_dormancy.py`/`verify_tuning.py` re-run
+clean (unaffected — `hearthmind/ml/` sits outside every directory
+`verify_runtime_invariant.py` scans). No native module, persisted
+`World` state, or real engine code path touched — no soak re-run
+needed.
+
 ## Current state (v1.34.170)
 
 Explicit user instruction: a final architecture pass over v1.34.169's

@@ -1,6 +1,6 @@
 [project]
 name = "hearthmind"
-version = "1.34.170"
+version = "1.34.171"
 description = "A persistent, always-running artificial world — a town in a box."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -15,6 +15,11 @@ api = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
 # (`pip install -e .[bench]`). Empty for now — the A1 package skeleton
 # has no third-party deps yet; populated as A2/A4/A9/A12 land.
 bench = []
+# Tier 6 (docs/ML-ARCHITECTURE-2026-08-01.md, L0 substrate): offline
+# training only, never a runtime/inference dependency — inference
+# always runs the stdlib-only pure-Python fallback or the C++ path.
+# `pip install -e .[ml]` to train; the live server never needs this.
+ml = ["numpy>=1.26"]
 
 [project.scripts]
 hearthmind-server = "hearthmind.server:main"
