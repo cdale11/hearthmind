@@ -407,9 +407,20 @@ starts on an explicit instruction naming an item.
       is completely untouched; this ships the graph/registry/ordering
       machinery only, per B1.4's own "never big-bang." `scripts/verify_
       task_graph.py` (5 checks, all passing) is the verification.
-      A1.3, A2-A13, B0.3 (a scoping note, not an action item), and B2-
-      B15 beyond B15.1 remain unstarted; see the doc for the full
-      30+-item checklist and its own two-track SEQUENCE.
+      **B2 (mostly) shipped, v1.34.164** (explicit user instruction:
+      "continue tier 5 with B2") — `hearthmind/simulation/scheduler.py`'s
+      `Scheduler`: real per-subsystem time budgets (B2.1, static —
+      "adaptive" needs B6, which doesn't exist), bounded-deferral
+      priority classes with no-starvation promotion (B2.2), defer-
+      never-skip overrun tracking with persistent debt (B2.3), and a
+      work-conserving spare-capacity pass for background/idle-only
+      tasks (B2.5) — `scripts/verify_scheduler.py` (5 checks) verifies
+      all four. B2.4 explicitly skipped (needs B10/B11 first, per its
+      own text). Not wired into the live tick loop — same discipline
+      as B1, only ever run against synthetic tasks so far.
+      A1.3, A2-A13, B0.3 (a scoping note, not an action item), B2.4,
+      and B3-B15 beyond B15.1 remain unstarted; see the doc for the
+      full 30+-item checklist and its own two-track SEQUENCE.
 
 ### C++ native-porting backlog (R6/R7)
 

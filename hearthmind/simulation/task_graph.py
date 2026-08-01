@@ -151,6 +151,12 @@ class TaskRegistry:
     def __len__(self) -> int:
         return len(self._tasks)
 
+    def get(self, task_id: str) -> Task:
+        """Public read accessor — B2's scheduler (and anything else that
+        walks `topological_order()`'s output) needs the real `Task` for
+        each id without reaching into `_tasks` directly."""
+        return self._tasks[task_id]
+
     def _edges(self) -> dict[str, set[str]]:
         """task_id -> set of task_ids that must run before it (an edge
         A->B exists whenever A conflicts with B and A sorts before B by

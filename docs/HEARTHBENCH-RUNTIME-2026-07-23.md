@@ -493,28 +493,53 @@ pack.
   — no engine code path was touched); a real per-subsystem migration
   pass must re-run it for real, per B1.4's own instruction.
 
-## B2 — Budgets & scheduling [Hard Rules 2, 9] [MISSING]
+## B2 — Budgets & scheduling [Hard Rules 2, 9] [PARTIAL — B2.1/B2.2/B2.3/B2.5 shipped v1.34.164, not yet wired into the live tick loop]
 
-- [ ] **B2.1 — Explicit per-subsystem execution budgets** (ecology,
-  humans, culture, innovation, recorder, LLM, pathfinding, persistence,
-  UI): a time slice per tick/frame, adaptive (B6).
-- [ ] **B2.2 — Priority classes:** `critical` (must run this tick),
-  `standard`, `deferrable`, `background`, `idle-only`. Deferral is
-  bounded — a deferrable task carries a deadline after which it is
-  promoted, so nothing starves (starvation would silently change
-  outcomes and violate Hard Rule 1).
-- [ ] **B2.3 — Overrun policy.** When a subsystem exceeds its budget,
-  the runtime may *defer remaining work to the next tick* but never
-  skip it. Track debt per subsystem; surface it (B15).
-- [ ] **B2.4 — Attention-follows-change [Rule 9].** A per-region
-  activity score (derived from event rate / field deltas / agent
-  presence) scales the compute allocated to region-local tasks. Quiet
-  regions get coarse, infrequent updates; busy regions get fine ones —
-  *without* changing the rules applied, only the allocation of effort.
-  Requires B10's timescales and B11's locality to be honest.
-- [ ] **B2.5 — Work-conserving.** Spare capacity flows to the next
-  eligible task rather than idling; leftover time runs background/idle
-  work (persistence, compression, maintenance).
+- [x] **B2.1 — Explicit per-subsystem execution budgets — SHIPPED
+  (static form), v1.34.164.** `hearthmind/simulation/scheduler.py`'s
+  `SubsystemBudget` (`seconds_per_tick`, real wall-clock measured via
+  `time.perf_counter()` around each task's `fn()` call). "Adaptive
+  (B6)" from the item's own text is NOT built — B6 (continuous
+  profiling) doesn't exist yet, so this stays an honest static
+  per-subsystem dial, not a faked adaptive one.
+- [x] **B2.2 — Priority classes — SHIPPED, v1.34.164.** Reuses B1's
+  `PriorityClass` enum (CRITICAL/STANDARD/DEFERRABLE/BACKGROUND/
+  IDLE_ONLY). Bounded deferral: `DEFAULT_MAX_DEFERRALS` gives each
+  class a real deferral-count ceiling; a task that hits it is
+  force-run ("promoted") regardless of remaining budget — verified
+  directly (a DEFERRABLE task deferred exactly `bound` times, then
+  force-run and flagged `promoted` on the next tick). CRITICAL always
+  runs, budget or not.
+- [x] **B2.3 — Overrun policy — SHIPPED, v1.34.164.** A task that
+  overruns its subsystem's remaining budget is DEFERRED (`TickReport.
+  deferred`), never skipped — it stays a real candidate next tick.
+  `SubsystemBudget.debt_seconds` accrues real overrun, never silently
+  reset by `reset_tick()` — verified directly (debt strictly increases
+  across two ticks of sustained overrun). No `/diagnostics/runtime`
+  surface exists yet (that's B15) to expose it externally.
+- [ ] **B2.4 — Attention-follows-change [Rule 9] — explicitly NOT
+  attempted.** Its own text requires B10's timescales and B11's
+  locality "to be honest" — neither exists. A per-region activity
+  score built without real timescale/locality machinery behind it
+  would be a guess dressed as a feature; left open rather than faked.
+- [x] **B2.5 — Work-conserving — SHIPPED, v1.34.164.** `Scheduler.
+  run_tick`'s optional `tick_time_budget_seconds` param: once every
+  subsystem-budgeted task has run or deferred, genuinely spare overall
+  tick time runs deferred BACKGROUND/IDLE_ONLY work within the SAME
+  tick (`TickReport.ran_via_spare_capacity`) rather than waiting for a
+  future one — verified directly (a budget-starved BACKGROUND task
+  stays deferred with no spare-time budget given, but runs immediately
+  once one is). Deliberately does NOT reallocate one subsystem's
+  UNUSED per-subsystem budget to another subsystem's over-budget
+  tasks — a subsystem's own dial stays its own; only genuinely
+  UNSPENT overall tick time is worked-conserved.
+
+**Not wired into the live tick loop this pass** — same discipline as
+B1: no import from `scheduler.py` exists in `simulation/engine.py`,
+and the scheduler has only ever been run against synthetic tasks
+(`scripts/verify_scheduler.py`). It's real, tested infrastructure
+ready for a future subsystem migration to actually use, not a
+migration itself.
 
 ## B3 — Event-driven execution [Hard Rule 3] [MISSING]
 

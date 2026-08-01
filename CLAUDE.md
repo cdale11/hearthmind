@@ -534,6 +534,49 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.164)
+
+Explicit user instruction: "continue tier 5 with B2" (docs/
+HEARTHBENCH-RUNTIME-2026-07-23.md). New `hearthmind/simulation/
+scheduler.py`'s `Scheduler`, built on B1's `TaskRegistry`: B2.1's
+per-subsystem `SubsystemBudget` (real wall-clock via `time.perf_
+counter()`, static — "adaptive" needs B6, which doesn't exist, so
+this stays honest rather than faked); B2.2's bounded-deferral priority
+classes (`DEFAULT_MAX_DEFERRALS` per `PriorityClass` — a task hitting
+its bound is force-run and flagged `promoted`, guaranteeing no
+starvation; CRITICAL always runs); B2.3's overrun policy (a task over
+its subsystem's budget is DEFERRED not skipped, `SubsystemBudget.
+debt_seconds` accrues real overrun and never silently resets); B2.5's
+work-conserving pass (`run_tick`'s optional `tick_time_budget_seconds`
+runs deferred BACKGROUND/IDLE_ONLY work within the SAME tick when
+genuinely spare overall time exists, `TickReport.ran_via_spare_
+capacity`, without touching another subsystem's own budget). B2.4
+explicitly skipped — its own text requires B10's timescales and B11's
+locality "to be honest," neither exists yet; faking a per-region
+activity score without them would be a guess dressed as a feature.
+
+`TaskRegistry` gained one small additive accessor, `get(task_id)`
+(read-only, needed by the scheduler to resolve ids from `topological_
+order()` back to real `Task` objects) — B1's own shipped behavior is
+otherwise untouched.
+
+**Not wired into the live tick loop this pass** — same discipline as
+B1: no import from `scheduler.py` exists in `simulation/engine.py`,
+and the scheduler has only ever run against synthetic tasks. Real
+infrastructure a future subsystem migration will use, not the
+migration itself.
+
+Verified: `scripts/verify_scheduler.py` (5 checks — CRITICAL always
+runs even at zero budget, a STANDARD task over budget is deferred not
+skipped, a DEFERRABLE task hitting its deferral bound is force-run and
+flagged promoted, overrun debt persists and strictly increases across
+sustained-overrun ticks, a deferred BACKGROUND task runs within the
+same tick once spare overall time is given) all pass; `scripts/verify_
+task_graph.py` and `scripts/verify_hearthbench_isolation.py` re-run
+clean (unaffected); `pyflakes` clean on both new/touched modules. No
+native module, persisted `World` state, or real engine code path
+touched — no soak re-run needed.
+
 ## Current state (v1.34.163)
 
 Explicit live-report bug fix: "sometimes the map in UI becomes big
