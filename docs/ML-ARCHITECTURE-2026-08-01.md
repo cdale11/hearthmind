@@ -54,7 +54,25 @@ LAYER 3 — RUNTIME (zero emergence risk, B0-owned)
 
 LAYER 4 — CALIBRATION
   L4.1  Belief confidence     isotonic/Platt, not a network
+
+LAYER 5 — LIFELONG LEARNING LOOP (closes the loop over simulated time)
+  L5.1  Continual retrain scheduler   simulated-time cadence, never blocks the tick loop
+  L5.2  Warm-start + replay rehearsal  fine-tune existing weights, never reinit from scratch
+  L5.3  Shadow evaluation + swap gate  candidate must not regress before it goes live
+  L5.4  Versioned checkpoint history   bounded per-world log, rollback on a bad swap
 ```
+
+**Layer 5 exists to fix a real gap in the audit/architecture as
+originally filed (added v1.34.172, explicit user correction): "weights
+are per-world state" only made two worlds diverge AT TRAINING TIME —
+nothing closed the loop so a model kept learning across the years of
+simulated play that follow.** Without L5, L2.2's own two-phase
+curriculum (distill, then reweight by outcome) is a one-shot event,
+not something that keeps happening as a world accumulates more lived
+history — which contradicts the instruction's own framing ("closes the
+loop so worlds continue to diverge over years of simulated time and
+automated learning"). L5 is the mechanism that makes divergence
+compound over a world's lifetime instead of only at generation.
 
 ### L0 — Substrate
 
@@ -228,6 +246,79 @@ remove.
 
 ---
 
+### L5 — The lifelong learning loop *(closes the loop, added v1.34.172)*
+
+Every layer above describes a model. This layer describes how those
+models keep learning **after** they're first trained — the piece that
+was missing. Without it, "weights are per-world state" is true only at
+the moment a model is trained; L5 is what keeps it true continuously,
+for as long as a world keeps running.
+
+**L5.1 — Continual retrain scheduler.** Each learned model (starting
+with L2.2, the flagship) gets a real retrain cadence keyed to
+*simulated* time — a season or year boundary, matching every other
+calendar-gated LLM job in this codebase (`SEASON_YEAR_JOBS_WITH_
+RETRY`), never real wall-clock time. Retraining is asynchronous and
+fire-and-forget, the exact same liveness contract every `_schedule_
+llm_job` call already honours (`docs/CONSTITUTION.md` §3/§7) — a
+retrain in progress must never block or slow the tick loop. Once B1/B2
+(the task graph + scheduler, Tier 5) are actually wired into
+`simulation/engine.py`, this is a natural `DEFERRABLE`- or
+`BACKGROUND`-class task; until then it can reuse the same `_schedule_
+llm_job`-style async-task pattern directly.
+
+**L5.2 — Warm-start + replay rehearsal.** A retrain fine-tunes the
+model's EXISTING weights (`hearthmind/ml/training.py`'s
+`continual_train_mlp`) on new examples the recorder/metrics/emergence
+log have accumulated since the last retrain, mixed with a rehearsal
+sample from a `hearthmind.ml.lifelong.ReplayBuffer` — a bounded
+reservoir sample spanning the model's WHOLE training history, not a
+sliding window. This is the concrete mechanism against catastrophic
+forgetting: without rehearsal, a model that spends a season mostly
+seeing one kind of situation (a famine year, a long peace) measurably
+overwrites what it learned in a different kind of season before it —
+verified directly in `scripts/verify_ml_substrate.py` (a model
+continually retrained on a new objective loses >50% of its old-task
+accuracy without replay, and recovers to within a fraction of that
+loss when replay is enabled). Never reinitializes from scratch — that
+would throw away everything the model already learned about this
+specific world, defeating the entire point of per-world weights.
+
+**L5.3 — Shadow evaluation + swap gate.** A candidate retrain is
+scored against held-out recent examples (and, for anything that
+touches Body-adjacent decisions, ideally the sandboxed counterfactual
+fork `simulation/sandbox.py` already provides) BEFORE its weights ever
+replace the live ones. `hearthmind.ml.lifelong.passes_shadow_gate`
+implements the check: a candidate that doesn't beat (or at least not
+regress past a small explicit tolerance) the current live model's
+metric is rejected — same "a change that regresses is rejected without
+a judgment call" discipline B15's replay-hash gate already established
+for determinism, applied here to model quality instead.
+
+**L5.4 — Versioned checkpoint history.** `CheckpointHistory` keeps a
+bounded, per-world log of past weight blobs with the metric each
+scored at save time — if a regression somehow gets through the shadow
+gate (or the gate itself needs to be loosened later and something
+regresses as a result), `rollback()` recovers the previous good
+checkpoint rather than the world being stuck with a worse model
+indefinitely.
+
+**What this does NOT yet do (explicitly flagged, real future work,
+not attempted this pass):** L5.1-L5.4 are real, verified, standalone
+primitives (`hearthmind/ml/lifelong.py`, `scripts/verify_ml_
+substrate.py`) — they are not yet wired into any real scheduling
+cadence or `simulation/engine.py` call site. That wiring needs (a) a
+real decision for each model of what "new examples since last retrain"
+actually means concretely (a recorder query? a metrics-table window?),
+and (b) the B1/B2 scheduler actually migrated into the live tick loop
+first, per B0.3's own "one subsystem at a time, never big-bang"
+migration discipline. Building L5.1's real trigger is naturally
+sequenced alongside L2.2's own phase-2 (outcome-reweighted) training,
+since that's the first model whose continual-learning story actually
+matters for emergence.
+
+---
+
 ## 2. Implementation order
 
 Ordered by (value × certainty) ÷ risk. Each stage independently
@@ -244,10 +335,15 @@ shippable and revertible.
 | 7 | **L2.2** policy — phase 1 distill | **high** | replay-hash, staged rollout, flag |
 | 8 | **L2.2** policy — phase 2 outcomes | **high** | population-outcome metrics vs. baseline |
 | 9 | **L4.1** calibration | low | calibration curve on held-out beliefs |
-| 10 | **B13.5** evolutionary search | low | B13.2 replay-hash gate (already specced) |
+| 10 | **L5.1-L5.4** lifelong loop primitives — **SHIPPED v1.34.172** | none (inert, unwired) | `scripts/verify_ml_substrate.py` — reservoir-sampling fairness, checkpoint bounds/rollback, shadow-gate direction, and the load-bearing check: a model continually retrained with replay rehearsal keeps old-task performance far closer to baseline than one retrained without it |
+| 11 | **L5.1** wired to a real retrain cadence, starting with L2.2 | **high** | same gates as step 8, plus the shadow gate (L5.3) on every swap |
+| 12 | **B13.5** evolutionary search | low | B13.2 replay-hash gate (already specced) |
 
 Steps 1-3 are pure infrastructure and carry no behavioural risk; the
-first real behaviour change is step 4.
+first real behaviour change is step 4. Step 10 (the lifelong-loop
+*primitives*) is likewise pure infrastructure — step 11, wiring L5.1 to
+an actual retrain cadence, is where the real risk and the real payoff
+both live, and is correctly sequenced after L2.2 exists to retrain.
 
 ---
 
@@ -266,7 +362,11 @@ first real behaviour change is step 4.
    population arithmetic (`docs/CONSTITUTION.md`). Models inform
    *cognition* and *scheduling* only.
 3. **Weights are per-world state**, snapshotted, and diverge between
-   worlds. That is the emergence mechanism, not a side effect.
+   worlds — **continuously, not just at training time** (L5, added
+   v1.34.172). A world's models keep learning from its own accumulated
+   history for as long as it runs; two worlds with different histories
+   should keep drifting apart the longer both play, not just differ
+   once at generation.
 4. **Every model ships with a deterministic fallback.** A missing or
    corrupt weights blob degrades to today's behaviour, never to a crash
    — the same contract all 24 native modules already honour.
@@ -285,6 +385,15 @@ first real behaviour change is step 4.
 8. **Anti-homogenization is a hard requirement, not a nicety** — every
    per-agent model is personality-conditioned and samples with an
    entropy floor.
+9. **Continual retraining warm-starts and rehearses, never resets**
+   (L5, added v1.34.172). A retrain fine-tunes a model's existing
+   weights on new examples mixed with a replay-sampled slice of its
+   whole training history; it never reinitializes from scratch, which
+   would discard everything the model already learned about this
+   specific world. A candidate retrain must clear the shadow-evaluation
+   gate (L5.3) before it replaces the live weights — the retraining
+   loop gets the exact same "no judgment call, no silent regression"
+   discipline guardrail #5 gives every other behaviour-touching change.
 
 ## 4. Explicitly rejected
 

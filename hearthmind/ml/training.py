@@ -116,6 +116,37 @@ def _sgd_step(model: MLP, x: list, y: list, lr: float) -> None:
             grad = next_grad
 
 
+def continual_train_mlp(
+    model: MLP,
+    new_examples: list,
+    replay_buffer=None,
+    replay_fraction: float = 0.5,
+    epochs: int = 20,
+    learning_rate: float = 0.03,
+    seed: int = 0,
+) -> MLP:
+    """L5's warm-start continual-training step: mutates `model`'s
+    EXISTING weights in place (never reinitializes) on a mix of
+    `new_examples` plus a reservoir-sampled slice of `replay_buffer`
+    (a `hearthmind.ml.lifelong.ReplayBuffer`, duck-typed here to avoid
+    importing lifelong.py from the L0 module) -- the rehearsal that
+    keeps a continually-retrained model from catastrophically
+    forgetting older lessons while it adapts to recent ones. Every new
+    example is also added to `replay_buffer` so future retrains can
+    rehearse it too. `replay_buffer=None` degrades to plain
+    `train_mlp_sgd` on just the new examples -- the exact behaviour a
+    caller gets if it hasn't started keeping a buffer yet."""
+    combined = list(new_examples)
+    if replay_buffer is not None:
+        n_replay = int(len(new_examples) * replay_fraction)
+        combined.extend(replay_buffer.sample(n_replay))
+        for ex in new_examples:
+            replay_buffer.add(ex)
+    if not combined:
+        return model
+    return train_mlp_sgd(model, combined, epochs=epochs, learning_rate=learning_rate, seed=seed)
+
+
 def numpy_batch_forward(model: MLP, xs: list) -> list:
     """Numpy-accelerated batch forward pass -- the offline-training-time
     speed path (v1.34.171). Must produce results equivalent to calling

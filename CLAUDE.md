@@ -534,6 +534,70 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.172)
+
+Explicit user correction: "Also your ML arch and audit is missing
+lifelong learning: closes the loop so worlds continue to diverge over
+years of simulated time and automated learning." Real gap, not a
+nitpick — v1.34.170/.171's "weights are per-world state" claim only
+ever made two worlds diverge AT TRAINING TIME; nothing in either ML
+doc described a mechanism that kept a world's models actually learning
+across the years of simulated play that follow a training pass.
+
+Adds a new **Layer 5 — the lifelong learning loop** to
+`docs/ML-ARCHITECTURE-2026-08-01.md` (and a cross-referencing note in
+`docs/ML-AUDIT-2026-08-01.md`'s guardrail #2, which is where the
+"weights diverge" claim originally lived): L5.1 a continual-retrain
+cadence keyed to SIMULATED time (season/year boundaries, same
+convention as `SEASON_YEAR_JOBS_WITH_RETRY`), async and never blocking
+the tick loop; L5.2 warm-start + replay rehearsal — a retrain fine-
+tunes a model's EXISTING weights on new examples mixed with a
+reservoir-sampled slice of its whole training history, never
+reinitializing from scratch; L5.3 a shadow-evaluation swap gate — a
+candidate retrain must not regress the live model's held-out metric
+before replacing it, B15's "no judgment call on a regression" rule
+applied to model quality; L5.4 a bounded, versioned per-world
+checkpoint history with rollback.
+
+Ships L5.1-L5.4 as real, verified, standalone primitives — same
+"never big-bang" discipline as L0: new `hearthmind/ml/lifelong.py`
+(`ReplayBuffer` — Algorithm-R reservoir sampling, `CheckpointHistory`,
+`passes_shadow_gate`) and `hearthmind/ml/training.py`'s new
+`continual_train_mlp` (warm-start training mixing fresh examples with
+replay-buffer rehearsal). **Not wired to any real retrain cadence or
+`simulation/engine.py` call site** — needs a real per-model decision of
+what "new examples since last retrain" means concretely, plus the
+still-unbuilt B1/B2 scheduler actually migrated into the live tick
+loop first; explicitly flagged, naturally sequenced alongside L2.2
+phase 2 once that exists to retrain.
+
+One real bug caught and fixed during verification, not by the user:
+the first version of the catastrophic-forgetting proof (`scripts/
+verify_ml_substrate.py`) trained a mixed old-task+new-task batch at
+`learning_rate=0.05` — the same rate every single-task check in this
+file already uses safely — and reliably diverged to NaN. Traced to
+plain SGD (no momentum/clipping) on two orthogonal regression targets
+in one combined batch being a measurably harder optimization landscape
+than either task alone; `learning_rate=0.01` converges stably and the
+divergence is documented in a comment at the call site rather than
+silently tuned away.
+
+Verified: `scripts/verify_ml_substrate.py` extended 17 -> 27 checks
+(new: reservoir-sampling retention probability matches the exact
+Algorithm-R theoretical value — item 1's survival rate after n
+insertions is capacity/n — within tolerance over 3000 trials;
+checkpoint history bounds/latest/rollback incl. the empty-history
+no-op case; shadow-gate accept/reject/tolerance/equal-metric cases;
+and the load-bearing check — a model continually retrained WITHOUT
+replay loses >50% of its old-task accuracy relative to baseline, one
+retrained WITH replay recovers to within half of that lost ground
+while still genuinely learning the new task, measured against a
+not-learned-at-all reference point) — all pass. `pyflakes` clean.
+`scripts/verify_runtime_invariant.py`/`verify_task_graph.py`/
+`verify_scheduler.py`/`verify_dormancy.py`/`verify_tuning.py` re-run
+clean (unaffected). No native module, persisted `World` state, or real
+engine code path touched — no soak re-run needed.
+
 ## Current state (v1.34.171)
 
 Explicit user instruction: "Please allow the use of external

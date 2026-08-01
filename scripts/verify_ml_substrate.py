@@ -24,6 +24,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from hearthmind.ml.encoder import FeatureEncoder, FeatureSchema
 from hearthmind.ml.primitives import LinearLayer, MLP, PlattCalibrator, sigmoid
 from hearthmind.ml import training as ml_training
+from hearthmind.ml.lifelong import CheckpointHistory, ReplayBuffer, passes_shadow_gate
 
 FAILURES = []
 
@@ -163,6 +164,136 @@ def check_numpy_equivalence():
     check("numpy batch forward: equivalent for softmax head too", max_diff2 < 1e-9, f"max_diff={max_diff2:.2e}")
 
 
+def check_replay_buffer_reservoir_fairness():
+    # Algorithm R guarantee: after n insertions into a capacity-k
+    # buffer, the FIRST item inserted survives with probability
+    # exactly k/n. Estimate this empirically over many independent
+    # trials and check it lands close to the theoretical value --
+    # this is the property lifelong learning's rehearsal depends on
+    # (every era of a world's history stays representable, not just
+    # the most recent one).
+    capacity, n_insertions, trials = 10, 200, 3000
+    expected_p = capacity / n_insertions
+    survived = 0
+    for trial in range(trials):
+        buf = ReplayBuffer(capacity=capacity, seed=trial)
+        for i in range(n_insertions):
+            buf.add(i)
+        if 0 in buf._items:
+            survived += 1
+    observed_p = survived / trials
+    check(
+        "replay buffer: reservoir sampling matches theoretical retention probability",
+        abs(observed_p - expected_p) < 0.03,
+        f"observed={observed_p:.4f} expected={expected_p:.4f}",
+    )
+    buf = ReplayBuffer(capacity=5, seed=1)
+    for i in range(50):
+        buf.add(i)
+    check("replay buffer: stays bounded at capacity", len(buf) == 5, str(len(buf)))
+    check("replay buffer: sample() never exceeds available items", len(buf.sample(100)) == 5)
+
+
+def check_checkpoint_history():
+    hist = CheckpointHistory(capacity=3)
+    for tick in [10, 20, 30, 40]:
+        hist.push(tick=tick, weights={"tick": tick}, metric=1.0 / tick)
+    check("checkpoint history: bounded, oldest evicted", len(hist) == 3 and hist._entries[0].tick == 20)
+    check("checkpoint history: latest() returns most recent", hist.latest().tick == 40)
+    prev = hist.rollback()
+    check("checkpoint history: rollback returns the prior checkpoint", prev is not None and prev.tick == 30)
+    check("checkpoint history: rollback shrinks history", len(hist) == 2)
+
+    empty = CheckpointHistory(capacity=3)
+    check("checkpoint history: rollback on empty history is a safe no-op", empty.rollback() is None)
+
+
+def check_shadow_gate():
+    check("shadow gate: strictly better candidate passes", passes_shadow_gate(0.1, 0.2))
+    check("shadow gate: worse candidate is rejected", not passes_shadow_gate(0.3, 0.2))
+    check("shadow gate: within-tolerance wobble still passes", passes_shadow_gate(0.201, 0.2, tolerance=0.01))
+    check("shadow gate: equal metric passes", passes_shadow_gate(0.2, 0.2))
+
+
+def check_continual_learning_mitigates_forgetting():
+    # Task A: y = x0. Task B: y = x1. A model pretrained on Task A
+    # represents "a world's established mind, years into its life."
+    # Continually retraining on fresh Task B data alone should degrade
+    # Task A performance (catastrophic forgetting); continually
+    # retraining WITH a replay buffer seeded from Task A should keep
+    # Task A performance far more intact. This is the concrete
+    # behavioural proof that L5's rehearsal mechanism does what it
+    # claims, not just that the API runs without crashing.
+    rng = random.Random(21)
+
+    def make_examples(feature_index, n=150):
+        exs = []
+        for _ in range(n):
+            x0 = rng.uniform(-1, 1)
+            x1 = rng.uniform(-1, 1)
+            y = x0 if feature_index == 0 else x1
+            exs.append(ml_training.TrainingExample(x=[x0, x1], y=[y]))
+        return exs
+
+    task_a_train = make_examples(0)
+    task_a_holdout = make_examples(0, n=60)
+    task_b_train = make_examples(1)
+
+    def fresh_pretrained_on_a():
+        m = MLP.random_init([2, 6, 1], output_activation="linear", seed=5)
+        ml_training.train_mlp_sgd(m, task_a_train, epochs=100, learning_rate=0.05, seed=5)
+        return m
+
+    # Note on learning_rate=0.01 below (not the 0.05 used elsewhere in
+    # this file): mixing two orthogonal regression targets in one
+    # combined batch is a harder optimization landscape for plain SGD
+    # (no momentum/clipping) than either task alone -- 0.05 measurably
+    # diverges to NaN here even though it converges cleanly for every
+    # single-task check above. 0.01 is the stable, verified value.
+    baseline_a_loss = ml_training.mean_loss(fresh_pretrained_on_a(), task_a_holdout)
+
+    # Without replay: continual training on Task B alone.
+    model_no_replay = fresh_pretrained_on_a()
+    ml_training.continual_train_mlp(
+        model_no_replay, task_b_train, replay_buffer=None, epochs=60, learning_rate=0.01, seed=6
+    )
+    forgotten_a_loss = ml_training.mean_loss(model_no_replay, task_a_holdout)
+
+    # With replay: seed the buffer with Task A examples first, then
+    # continually train on Task B with rehearsal.
+    model_with_replay = fresh_pretrained_on_a()
+    buf = ReplayBuffer(capacity=150, seed=2)
+    for ex in task_a_train:
+        buf.add(ex)
+    ml_training.continual_train_mlp(
+        model_with_replay, task_b_train, replay_buffer=buf, replay_fraction=1.0,
+        epochs=60, learning_rate=0.01, seed=6,
+    )
+    rehearsed_a_loss = ml_training.mean_loss(model_with_replay, task_a_holdout)
+
+    check(
+        "continual learning: without replay, old-task performance measurably degrades",
+        forgotten_a_loss > baseline_a_loss * 1.5,
+        f"baseline={baseline_a_loss:.4f} forgotten={forgotten_a_loss:.4f}",
+    )
+    check(
+        "continual learning: with replay, old-task performance stays much closer to baseline",
+        rehearsed_a_loss < forgotten_a_loss * 0.5,
+        f"forgotten={forgotten_a_loss:.4f} rehearsed={rehearsed_a_loss:.4f}",
+    )
+
+    # An untrained/constant-output model would score close to Var(y)
+    # for y ~ Uniform(-1, 1), i.e. ~0.33 -- well below that means the
+    # model genuinely learned Task B, not just avoided forgetting.
+    new_task_b_holdout = make_examples(1, n=60)
+    b_loss = ml_training.mean_loss(model_with_replay, new_task_b_holdout)
+    check(
+        "continual learning: model with replay still genuinely learns the new task",
+        b_loss < 0.25,
+        f"b_loss={b_loss:.4f}",
+    )
+
+
 def check_numpy_raises_cleanly_when_absent():
     if ml_training.HAS_NUMPY:
         print("[SKIP] numpy-absent RuntimeError check -- numpy IS installed in this environment")
@@ -184,6 +315,10 @@ def main():
     check_weight_blob_round_trip()
     check_calibrator()
     check_sgd_trainer_reduces_loss()
+    check_replay_buffer_reservoir_fairness()
+    check_checkpoint_history()
+    check_shadow_gate()
+    check_continual_learning_mitigates_forgetting()
     check_numpy_equivalence()
     check_numpy_raises_cleanly_when_absent()
 

@@ -505,16 +505,22 @@ a hand-authored rule system; and labeled data *does* already
 accumulate, via `llm/recorder.py`'s four-layer schema and the `metrics`
 table).
 
-**L0 substrate SHIPPED, v1.34.171** — everything above it is still
-filed, not built. External libraries are now permitted for **offline
-training only** (v1.34.171, explicit user directive relaxed the
-audit/architecture docs' earlier stdlib-only constraint; `pip install
-numpy` confirmed to work cleanly in this environment) — gated behind a
-new `ml` optional extra (`pyproject.toml`); the live server's required
-dependencies are untouched, and runtime inference stays stdlib-only
-regardless of whether the `ml` extra is installed. Same standing
-convention as every other vision doc here otherwise: work on the rest
-of the layers only on future explicit direction naming a stage.
+**L0 substrate SHIPPED, v1.34.171; L5 (lifelong-loop) primitives
+SHIPPED, v1.34.172** — everything else is still filed, not built.
+External libraries are now permitted for **offline training only**
+(v1.34.171, explicit user directive relaxed the audit/architecture
+docs' earlier stdlib-only constraint; `pip install numpy` confirmed to
+work cleanly in this environment) — gated behind a new `ml` optional
+extra (`pyproject.toml`); the live server's required dependencies are
+untouched, and runtime inference stays stdlib-only regardless of
+whether the `ml` extra is installed. **v1.34.172 also added Layer 5**
+(the continual/lifelong learning loop — the audit/architecture's
+original filing was missing it, explicit user correction: "closes the
+loop so worlds continue to diverge over years of simulated time and
+automated learning") — see the L5 entry below for what shipped. Same
+standing convention as every other vision doc here otherwise: work on
+the rest of the layers only on future explicit direction naming a
+stage.
 
 **The M0-M9 staging below was superseded by a final architecture pass
 (v1.34.170): `docs/ML-ARCHITECTURE-2026-08-01.md`.** That pass
@@ -603,6 +609,37 @@ with three shared components.
 **L4 — calibration**
 - [ ] **L4.1 Belief confidence** — isotonic/Platt calibration.
       **Deliberately not a network** (demoted from the audit's M7).
+
+**L5 — the lifelong learning loop** (added v1.34.172, explicit user
+correction: the original filing was missing this — "weights are
+per-world state" only diverged worlds at TRAINING time, nothing kept a
+world's models actually learning over years of simulated play)
+- [x] **L5.1-L5.4 primitives SHIPPED, v1.34.172.**
+      `hearthmind/ml/lifelong.py`: `ReplayBuffer` (Algorithm-R reservoir
+      sampling — a bounded sample spanning a model's WHOLE training
+      history, not a sliding window, so rehearsal covers every era of a
+      world's life, not just its most recent one), `CheckpointHistory`
+      (bounded, oldest-evicted, per-world weight-blob versions with
+      `rollback()`), `passes_shadow_gate` (a candidate retrain must not
+      regress the live model's held-out metric before it can swap in —
+      B15's replay-hash discipline, applied to model quality).
+      `hearthmind/ml/training.py` gained `continual_train_mlp`:
+      warm-starts (never reinitializes) a model's EXISTING weights on
+      new examples mixed with a replay-buffer rehearsal sample.
+      **Not wired to any real retrain cadence yet** — that needs (a) a
+      real per-model decision of what "new examples since last retrain"
+      means concretely, and (b) the B1/B2 scheduler actually migrated
+      into the live tick loop first (still unbuilt). Real future work,
+      explicitly flagged, naturally sequenced alongside L2.2 phase 2.
+      Verified: `scripts/verify_ml_substrate.py` extended 17 → 27
+      checks (new: reservoir-sampling retention probability matches
+      theory within tolerance over 3000 trials; checkpoint history
+      bounds/rollback; shadow-gate accept/reject/tolerance directions;
+      and the load-bearing check — a model continually retrained
+      WITHOUT replay loses >50% of its old-task accuracy, one retrained
+      WITH replay recovers to within a fraction of that loss while
+      still genuinely learning the new task) — all pass. `pyflakes`
+      clean.
 
 **Later, explicitly gated**
 - [ ] **B13.5 evolutionary tunable search** over B6's registry, gated by
