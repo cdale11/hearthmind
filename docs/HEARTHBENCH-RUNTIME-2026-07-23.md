@@ -891,16 +891,53 @@ against a real `TimescaleLadder` anywhere. Real future work, naturally
 paired with B9.3's own still-open audit and the rest of the unwired
 Runtime modules (B2 through B8) once a real migration pass begins.
 
-## B10 — Locality [Hard Rule 11] [MISSING]
+## B10 — Locality [Hard Rule 11] [PARTIAL — B10.1/B10.3 shipped v1.34.177, B10.2 (the real audit/conversion) not attempted; its discovery tool shipped]
 
-- [ ] **B10.1 — Spatial index / region partition** (grid or quadtree)
-  with per-region task queues; tasks declare `locality`.
-- [ ] **B10.2 — Ban global scans in hot paths.** Audit and convert
-  full-population/full-map iterations to local propagation or indexed
-  queries; add a CI check flagging new global scans in per-tick code.
-- [ ] **B10.3 — Region-parallel execution** where write-sets are
-  disjoint by region — the main safe parallelism source, and the natural
-  partner to B2.4's attention allocation.
+- [x] **B10.1 — Spatial index / region partition — SHIPPED, v1.34.177.**
+  New `hearthmind/simulation/locality.py`'s `RegionGrid`: a uniform-
+  grid spatial partition (grid, not quadtree — the item's own text
+  offers either, grid is the simpler, more directly testable choice,
+  same reasoning B6.2 used picking bang-bang over PID). `region_key`
+  is the real integration point with B1: tagging a `Task`'s declared
+  `reads`/`writes` with its region (`f"{base_key}@{region_id}"`) means
+  the dependency graph `TaskRegistry` (B1.2) ALREADY builds from
+  read/write overlap naturally treats two different regions as
+  non-conflicting — verified directly against the real `TaskRegistry`,
+  not a parallel mechanism. `Locality.REGION` (already on `Task` since
+  B1.1) now has real semantics rather than being an inert enum value.
+- [ ] **B10.2 — Ban global scans in hot paths** — the real audit/
+  conversion explicitly NOT attempted this pass, same "needs
+  individual live judgment, not a mechanism" class as B3.3/B9.3's own
+  deferrals (is a given flagged loop actually hot? does an index
+  already exist to query instead? is O(population) fine because it's
+  monthly?). **The discovery tool such an audit would use SHIPPED,
+  v1.34.177**: `scripts/scan_global_scans.py`, a static AST scanner
+  over `world/`/`agents/`/`settlement/`/`economy/` flagging two
+  candidate patterns (a loop over a known full-collection attribute —
+  `.agents`/`.buildings`/`.tiles`/etc. — and a nested `range()`-over-
+  `range()` double loop). Always informational, always exits 0 — run
+  against the real tree this pass and found 89 candidate sites,
+  matching the item's own "expect large, immediate CPU wins here."
+  Converting any of them remains real, unscoped future work.
+- [x] **B10.3 — Region-parallel execution — SHIPPED, v1.34.177.**
+  `plan_region_parallel_batches`/`find_cross_region_write_conflicts`:
+  groups region-tagged tasks by region and VERIFIES (not assumes) the
+  partition is genuinely write-disjoint across regions before treating
+  it as parallel-safe — catches a task incorrectly declared `Locality.
+  REGION` that actually writes an untagged/global key, verified
+  directly with a deliberately-broken synthetic task. Returns the
+  grouping/safety-check result only — no real threading or execution
+  happens here (B0's prime invariant bans real threading in `world/`/
+  `agents/`/`settlement/`/`economy/`; this module lives in
+  `simulation/` but still stays a planning primitive, not an executor,
+  same "never big-bang" discipline as every sibling module).
+
+**Not wired into any real control point** — no import from
+`locality.py` exists in `simulation/engine.py`, and no real `Task`
+anywhere declares `Locality.REGION` yet (only B1.4's `Task.legacy`
+wildcard-write tasks exist in practice today). Real future work,
+naturally paired with B2.4's attention allocation (the doc's own named
+partner for B10.3) and B10.2's still-open real audit.
 
 ## B11 — Hierarchical memory [Hard Rule 12] [MISSING]
 

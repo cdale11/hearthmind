@@ -534,6 +534,64 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.177)
+
+Explicit user instruction: "Start B10" (docs/HEARTHBENCH-RUNTIME-
+2026-07-23.md, Tier 5). New `hearthmind/simulation/locality.py`:
+B10.1's `RegionGrid` (a uniform-grid spatial partition — grid chosen
+over quadtree as the simpler, more directly testable option, same
+reasoning B6.2 used for bang-bang over PID) and `region_key`, the real
+integration point with B1: tagging a `Task`'s declared `reads`/
+`writes` with its region (`f"{base_key}@{region_id}"`) means the
+dependency graph `TaskRegistry` (B1.2) ALREADY builds from read/write
+overlap treats two different regions as non-conflicting with zero
+changes to that logic — verified directly against the real
+`TaskRegistry`, not a parallel conflict-detection mechanism.
+`Locality.REGION` (already on `Task` since B1.1) now has real
+semantics rather than being an inert enum value nothing consumed.
+
+B10.3's `plan_region_parallel_batches`/`find_cross_region_write_
+conflicts`: groups region-tagged tasks by region and VERIFIES (never
+assumes) the partition is genuinely write-disjoint across regions
+before it could be treated as parallel-safe — verified directly with a
+deliberately-broken synthetic task (declared `Locality.REGION` but
+actually writing an untagged/global key) correctly caught as a
+conflict. No real threading/execution happens here — B0's prime
+invariant bans real threading in `world/`/`agents/`/`settlement/`/
+`economy/`, and even though `locality.py` lives in `simulation/`
+(exempt from that specific ban), this stays a planning primitive that
+returns a grouping + safety verdict, same "never big-bang" discipline
+as every sibling Runtime module.
+
+B10.2 (the real audit converting flagged global-population/global-map
+scans to indexed/local queries) explicitly NOT attempted — same
+"needs individual live judgment, not a mechanism" class as B3.3/B9.3's
+own deferrals. Its discovery tool shipped instead: `scripts/scan_
+global_scans.py`, a static AST scanner (mirrors `verify_runtime_
+invariant.py`'s style) over `world/`/`agents/`/`settlement/`/
+`economy/` flagging two candidate patterns — a loop over a known
+full-collection attribute (`.agents`/`.buildings`/`.tiles`/etc.) and a
+nested `range()`-over-`range()` double loop. Always informational,
+always exits 0. Run against the real tree this pass: **89 candidate
+sites found**, matching B10.2's own "expect large, immediate CPU wins
+here" — a real, sizeable future-audit backlog, now enumerated rather
+than requiring a manual `grep` sweep to rediscover.
+
+Verified: `scripts/verify_locality.py` (18 checks — region-coordinate/
+id math incl. a partial trailing region correctly counted via ceil not
+floor, 4-connected bounded neighbor sets, the real `TaskRegistry`
+integration proving `region_key` makes different regions non-
+conflicting while the SAME region still conflicts normally, the
+region-parallel planner producing zero false conflicts for genuinely
+disjoint tasks, and the load-bearing check — a mistagged task's fake
+"different region" is still caught sharing a real global write key)
+— all pass. `pyflakes` clean. `scripts/verify_runtime_invariant.py`/
+`verify_task_graph.py`/`verify_scheduler.py`/`verify_dormancy.py`/
+`verify_tuning.py`/`verify_hardware_profile.py`/`verify_forecasting.py`/
+`verify_timescales.py`/`verify_ml_substrate.py`/`verify_ml_evolution.py`
+re-run clean (unaffected). No native module, persisted `World` state,
+or real engine code path touched — no soak re-run needed.
+
 ## Current state (v1.34.176)
 
 Explicit user instruction: "Every AI/ML subsystem should itself

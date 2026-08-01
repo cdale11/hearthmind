@@ -544,8 +544,25 @@ starts on an explicit instruction naming an item.
       checks) all pass. B9.3 (the real audit of ~200 per-tick call
       sites for timescale mismatch) explicitly not attempted — same
       "needs individual live judgment" class as B3.3's own deferral.
+      **B10.1/B10.3 shipped, v1.34.177** (explicit user instruction:
+      "Start B10") — new `hearthmind/simulation/locality.py`:
+      `RegionGrid` (B10.1, a uniform-grid spatial partition) +
+      `region_key` (the real B1 integration — tagging a task's reads/
+      writes with its region makes `TaskRegistry`'s EXISTING conflict
+      detection treat different regions as non-conflicting, verified
+      directly against the real registry, no parallel mechanism
+      built); `plan_region_parallel_batches`/`find_cross_region_write_
+      conflicts` (B10.3, groups region-tagged tasks and VERIFIES the
+      partition is genuinely write-disjoint, catching a mistagged task
+      rather than trusting it). `scripts/verify_locality.py` (18
+      checks) all pass. B10.2 (the real audit converting flagged
+      global scans) explicitly not attempted, same "needs individual
+      live judgment" class as B3.3/B9.3 — its discovery tool shipped
+      instead: `scripts/scan_global_scans.py` (a static AST scanner,
+      always informational/exit-0), run against the real tree and
+      found 89 candidate sites.
       A1.3, A2-A13, B0.3 (a scoping note, not an action item), B2.4,
-      B3.3, B4.2, B5.3, B9.3, and B10-B15 beyond B15.1 remain
+      B3.3, B4.2, B5.3, B9.3, B10.2, and B11-B15 beyond B15.1 remain
       unstarted; see
       the doc for the full 30+-item checklist and its own two-track
       SEQUENCE.
