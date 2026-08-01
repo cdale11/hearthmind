@@ -917,7 +917,7 @@ against a real `TimescaleLadder` anywhere. Real future work, naturally
 paired with B9.3's own still-open audit and the rest of the unwired
 Runtime modules (B2 through B8) once a real migration pass begins.
 
-## B10 — Locality [Hard Rule 11] [PARTIAL — B10.1/B10.3 shipped v1.34.177, B10.2 (the real audit/conversion) not attempted; its discovery tool shipped]
+## B10 — Locality [Hard Rule 11] [PARTIAL — B10.1/B10.3 shipped v1.34.177, B10.2's discovery tool shipped v1.34.177 + one real pilot conversion shipped v1.34.184, 88 of 89 flagged sites still open]
 
 - [x] **B10.1 — Spatial index / region partition — SHIPPED, v1.34.177.**
   New `hearthmind/simulation/locality.py`'s `RegionGrid`: a uniform-
@@ -945,6 +945,38 @@ Runtime modules (B2 through B8) once a real migration pass begins.
   against the real tree this pass and found 89 candidate sites,
   matching the item's own "expect large, immediate CPU wins here."
   Converting any of them remains real, unscoped future work.
+  **One real pilot conversion SHIPPED, v1.34.184** (explicit user
+  choice via `AskUserQuestion`, "one small pilot conversion" — pick
+  ONE concrete, low-risk real site and migrate it for real, verified
+  before/after, rather than a wider audit this pass): `Population.get
+  (agent_id)` — an O(N) linear scan of `self.agents` called from ~30
+  sites across `population.py`/`engine.py`, including once per
+  relationship inside the hot per-tick `migration_push_target`
+  bonded-partner check — is now O(1) via a new `Population._agent_by_
+  id: dict[int, Agent]` index, kept in lockstep with `self.agents` at
+  its existing join point (`_adopt`, already the one place an agent
+  enters the population) and its two removal sites (death, district
+  collectivization). `core_migration_candidates` (the one call site
+  that used to scan `self.agents` directly rather than call `get()`)
+  now iterates `sorted(self.core_agent_ids)` through the new O(1)
+  `get()` instead — relies on the derived invariant that `self.agents`
+  is always id-ascending (new agents only ever append with a strictly
+  larger id; every removal is an order-preserving filter), so
+  `sorted(core_agent_ids)` reproduces the exact same relative order
+  the old scan produced, load-bearing since the caller does a
+  first-max-wins tiebreak on ties. Verified two ways: (1) a real
+  before/after `World.to_dict()` SHA-256 hash comparison via `git
+  stash` across a real 4000-tick headless run (seed 777, population
+  40, LLM disabled) — byte-identical; (2) new `scripts/verify_core_
+  migration_candidates_pilot.py` (7 direct checks) proving the new
+  `core_migration_candidates` matches a reimplementation of the OLD
+  algorithm across scenarios the engine soak didn't reach on its own
+  (no real fission occurred in that run) — a real bonded-partner
+  candidate, a non-core/no-signal/mid-journey exclusion, a stale id
+  still present in `core_agent_ids` (the monthly prune hasn't run
+  yet), multi-candidate ordering, and both early-return cases. The
+  other 88 flagged sites remain unconverted — this was deliberately
+  scoped as one proof-of-pattern pilot, not a wider sweep.
 - [x] **B10.3 — Region-parallel execution — SHIPPED, v1.34.177.**
   `plan_region_parallel_batches`/`find_cross_region_write_conflicts`:
   groups region-tagged tasks by region and VERIFIES (not assumes) the

@@ -691,18 +691,43 @@ starts on an explicit instruction naming an item.
       themselves shipped) as a REAL case-by-case audit/migration of
       actual `world/`/`agents/`/`settlement/`/`engine.py` gameplay
       code (~200 real call sites for B3.3/B9.3 alone), each site
-      needing individual live judgment plus a real `scripts/verify_
-      replay_hash.py` equivalence check to convert safely — not a
-      mechanism a new file can ship. This is a qualitatively different
-      kind of work from every other B-item (which shipped as new,
-      isolated modules touching zero existing engine code) and
-      carries real risk of changing live simulation behavior if rushed
-      through in one pass, directly against this project's own
-      standing "never big-bang, one subsystem at a time" discipline.
-      Explicit user direction on how to scope this real migration
-      (which subsystem first, how many sites per pass, live-hardware
-      verification cadence) is needed before starting it — asked via
-      `AskUserQuestion` rather than guessed at.
+      needing individual live judgment plus a real equivalence check
+      to convert safely — not a mechanism a new file can ship. This is
+      a qualitatively different kind of work from every other B-item
+      (which shipped as new, isolated modules touching zero existing
+      engine code) and carries real risk of changing live simulation
+      behavior if rushed through in one pass, directly against this
+      project's own standing "never big-bang, one subsystem at a time"
+      discipline. Asked via `AskUserQuestion` how to scope this real
+      migration; the question was interrupted once, re-asked, and
+      answered: **"one small pilot conversion"** — pick ONE concrete,
+      low-risk real site and migrate it for real, verified before/
+      after, proving the pattern safely rather than guessing at a
+      wider scope, leaving the rest a real follow-up.
+
+      **B10.2 pilot conversion — SHIPPED, v1.34.184.** `Population.get
+      (agent_id)`, an O(N) scan of `self.agents` called from ~30 sites
+      (incl. once per relationship inside the hot per-tick `migration_
+      push_target` bonded-partner check), is now O(1) via a new
+      `Population._agent_by_id` index kept in lockstep at the existing
+      `_adopt` join point and the two death/district removal sites.
+      `core_migration_candidates` (the one call site that scanned
+      `self.agents` directly) now iterates `sorted(core_agent_ids)`
+      through the new `get()` instead, relying on the derived
+      "`self.agents` is always id-ascending" invariant to reproduce
+      the exact prior relative order (load-bearing for a first-max-
+      wins tiebreak downstream). Verified via a real before/after
+      `World.to_dict()` SHA-256 hash comparison (`git stash`, a real
+      4000-tick headless run, byte-identical) plus a dedicated
+      `scripts/verify_core_migration_candidates_pilot.py` (7 checks)
+      proving the converted function matches a reimplementation of the
+      old algorithm across scenarios the engine soak alone didn't
+      reach (no fission occurred in that run) — a real candidate, three
+      exclusion cases, a stale `core_agent_ids` entry, multi-candidate
+      ordering, both early returns. The other 88 `scan_global_scans.py`
+      -flagged sites, plus B0.3/B3.3/B4.2/B9.3 in full, remain open —
+      this was deliberately scoped as one proof-of-pattern pilot, per
+      the user's own chosen option, not a wider sweep.
 
 ### Tier 6 — Learned models (AI/ML where an LLM isn't required)
 

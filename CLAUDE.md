@@ -534,6 +534,71 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.184)
+
+Explicit user instruction, resolved via a re-asked `AskUserQuestion`
+(the first ask was interrupted): how to scope the five real Part B
+items needing live gameplay-code migration (B0.3/B3.3/B4.2/B9.3/
+B10.2) — answered **"one small pilot conversion"**: pick ONE concrete,
+low-risk real site and migrate it for real, verified before/after,
+proving the pattern safely rather than guessing at a wider scope.
+
+Picked `Population.get(agent_id)` for B10.2 — an O(N) linear scan of
+`self.agents` called from ~30 sites across `population.py`/
+`engine.py`, including once per relationship inside the hot per-tick
+`migration_push_target` bonded-partner check (`scripts/scan_global_
+scans.py`'s own 89-site discovery list, v1.34.177). Now O(1) via a
+new `Population._agent_by_id: dict[int, Agent]` index — same "derived,
+per-process, never serialized" discipline the native `AgentStore`
+already established — maintained at the one real join point (`_adopt`,
+already the sole place an agent enters the population) and the two
+real removal sites (death, district collectivization), each gaining a
+matching `.pop(id, None)`. `core_migration_candidates` (the one call
+site that scanned `self.agents` directly rather than call `get()`)
+now iterates `sorted(self.core_agent_ids)` through the converted
+`get()` instead — relies on the derived invariant that `self.agents`
+is always id-ascending (new agents only ever append with a strictly
+larger id than every existing one; every removal is an order-
+preserving filter), so `sorted(core_agent_ids)` reproduces the exact
+same relative order the old membership-filtered scan produced —
+load-bearing since the caller does a first-max-wins tiebreak on ties.
+
+Verified two ways, per the chosen option's own "verified before/
+after" requirement. (1) A real before/after `World.to_dict()` SHA-256
+hash comparison, mirroring `scripts/verify_replay_hash.py`'s own
+hashing scheme: `git stash` the change, run a real 4000-tick headless
+simulation (seed 777, population 40, LLM disabled) against the
+ORIGINAL code, record the hash; `git stash pop`, re-run the identical
+script against the MODIFIED code — byte-identical. (2) New `scripts/
+verify_core_migration_candidates_pilot.py` (7 checks, standalone, no
+unittest) proving the converted `core_migration_candidates` matches a
+direct reimplementation of the OLD algorithm across scenarios the
+engine soak alone didn't reach (no real fission happened in that
+particular run, so `core_migration_candidates` never got past its own
+`len(named) < 2` early return there): a real bonded-partner candidate,
+a non-core/no-push-signal/already-traveling exclusion, a stale id
+still present in `core_agent_ids` (the monthly prune hasn't run yet —
+both old and new code just skip it, no crash), multi-candidate
+relative ordering, and both early-return cases (single settlement,
+empty core cast).
+
+The other 88 `scan_global_scans.py`-flagged sites, plus B0.3/B3.3/
+B4.2/B9.3 in full, remain explicitly open — this was deliberately
+scoped as one proof-of-pattern pilot per the user's own chosen option,
+not a wider sweep. A future pass converting further sites should
+follow the same two-part verification shape (a real hash-comparison
+soak plus a targeted equivalence script for any logic whose ordering/
+selection the soak doesn't happen to exercise).
+
+Verified: `scripts/verify_core_migration_candidates_pilot.py` (7
+checks) all pass, first run, no bug found. `pyflakes` clean on both
+`hearthmind/agents/population.py` and the new script. Every prior
+Tier 5 `scripts/verify_*.py` (runtime_invariant/task_graph/scheduler/
+dormancy/tuning/hardware_profile/forecasting/timescales/ml_substrate/
+ml_evolution/locality/hierarchical_memory/history_compression/
+optimization_hypothesis/persistence_scheduling/escalation/tunable_
+evolution/attention/runtime_diagnostics) re-run clean (unaffected).
+
 ## Current state (v1.34.183)
 
 Explicit user instruction: "Continue with part B and close it, wherever

@@ -1893,13 +1893,26 @@ class Population:
         if self._store is not None:
             for agent in self.agents:
                 agent._attach(self._store)
+        # B10.2 pilot (Tier 5 Runtime, Part B): an O(1) id->Agent index
+        # backing `get()` below, kept in lockstep with `self.agents` at
+        # the exact same join/leave points that already existed for the
+        # native store above (`_adopt` for joins; the death/district-
+        # collectivization removal sites below for leaves) — not a new
+        # mutation discipline, an extension of the one already in
+        # place. `get()` is called from ~30 sites across this file and
+        # engine.py (including once per relationship inside the hot
+        # `migration_push_target` bonded-partner check) and used to
+        # linear-scan `self.agents` on every call.
+        self._agent_by_id: dict[int, Agent] = {a.id: a for a in self.agents}
 
     def _adopt(self, agent: Agent) -> None:
         """Register an agent created *after* construction (a newborn or a
         migrant) with the store, so its scalars live in the same backing
-        as everyone else's. No-op in the pure-Python fallback."""
+        as everyone else's (no-op in the pure-Python fallback), and with
+        the id index (always real, both backends)."""
         if self._store is not None:
             agent._attach(self._store)
+        self._agent_by_id[agent.id] = agent
 
     # --- construction ------------------------------------------------------
 
@@ -4510,14 +4523,30 @@ class Population:
         already underway. `SimulationEngine._maybe_schedule_migration_
         decision` schedules at most one LLM decision per tick from
         this list (same volume discipline as every other per-agent
-        core-cast job)."""
+        core-cast job).
+
+        Tier 5 B10.2 pilot conversion: `core_agent_ids` is typically a
+        small, stable-size cast (`Config.llm_core_cast_size`) against a
+        much larger living population, so this used to scan every
+        living agent just to find that small subset. Now iterates
+        `core_agent_ids` directly via the (now O(1)) `get()` index
+        instead — `sorted(...)` (by id) reproduces the exact same
+        relative order the old `self.agents`-order scan produced,
+        since `self.agents` is itself always id-ascending (new agents
+        are only ever appended with a strictly larger id than every
+        existing one; every removal site is an order-preserving
+        filter) — a stale/removed id (a core-cast member who died since
+        the last monthly `core_agent_ids` prune) simply isn't in the
+        index and is skipped, the same "just not found" outcome the
+        old membership-first scan already had for it."""
         named = [s for s in settlements if s.name]
         if len(named) < 2:
             return []
         by_id = {s.id: s for s in named}
         candidates: list[tuple["Agent", Settlement, str]] = []
-        for agent in self.agents:
-            if agent.id not in self.core_agent_ids:
+        for agent_id in sorted(self.core_agent_ids):
+            agent = self.get(agent_id)
+            if agent is None:
                 continue
             home = by_id.get(agent.settlement_id)
             if home is None or agent.travel_target is not None:
@@ -7065,6 +7094,8 @@ class Population:
             # exactly the removed set (computed above from self.agents).
             for dead_id in dying_ids:
                 self._store.remove(dead_id)
+        for dead_id in dying_ids:
+            self._agent_by_id.pop(dead_id, None)
         if dying_ids:
             # Strip every survivor's relationships/trust entries for the
             # dying — a dead agent is never colocated again, so these
@@ -7466,10 +7497,12 @@ class Population:
                 return
 
     def get(self, agent_id: int) -> Agent | None:
-        for agent in self.agents:
-            if agent.id == agent_id:
-                return agent
-        return None
+        """O(1) via the id index (Tier 5 B10.2 pilot conversion) —
+        previously a linear scan of `self.agents`, called from ~30
+        sites across this file and `engine.py`. `None` for an id that
+        never existed or has since died/been removed, the exact same
+        outcome the old scan already produced for it."""
+        return self._agent_by_id.get(agent_id)
 
     def due_for_triggered_cognition(self, tick: int, cooldown_ticks: int) -> list[Agent]:
         """Agents in `last_triggered_agent_ids` (set fresh this tick by
@@ -8407,6 +8440,8 @@ class Population:
             if self._store is not None:
                 for cid in candidate_ids:
                     self._store.remove(cid)
+            for cid in candidate_ids:
+                self._agent_by_id.pop(cid, None)
             # Same "dead weight" per-field cleanup _apply_deaths uses
             # (v0.42.0/Tier 0.1) — a collectivized person can never be
             # colocated again either.
