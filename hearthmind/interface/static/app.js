@@ -2216,15 +2216,37 @@ function drawStaticTerrain() {
 const MAP_DISPLAY_MIN_SCALE = 0.3;
 const MAP_DISPLAY_MAX_SCALE = 1.5;
 
+// #map-panel and #sidebar are `main`'s two flex-wrap children (see
+// style.css) — #sidebar drops below #map-panel once the row runs out
+// of room. `availW` must NOT be derived from #map-panel's own live
+// `getBoundingClientRect().left`: that position is itself a RESULT of
+// today's wrap state, which is itself a result of the map's current
+// CSS width — a self-reinforcing loop (bug found via a live report:
+// "the map sometimes becomes big occupying the whole screen, clicking
+// somewhere restores it"). Once #sidebar wraps below for any reason,
+// #map-panel.rect.left collapses toward the page edge, `availW`
+// balloons toward the full window width, the map grows to fill it,
+// and #sidebar stays wrapped — until an unrelated reflow (e.g. a click
+// opening/closing an inspector panel) happens to break the loop.
+// Fixed: measure `main`'s own box (stable — a block container's width
+// doesn't depend on how its own flex children happen to wrap) and
+// reserve a fixed budget for the sidebar (its own CSS min-width, see
+// `#sidebar { min-width: 280px }`, plus `main`'s own gap) instead of
+// reading a position coupled to the very decision being computed.
+const SIDEBAR_RESERVED_WIDTH = 280 + 16; // #sidebar min-width + main's flex gap
+
 function resizeCanvasDisplay() {
   if (!staticCanvas) return;
   const panel = document.getElementById("map-panel");
-  if (!panel) return;
+  const mainEl = panel ? panel.closest("main") : null;
+  if (!panel || !mainEl) return;
   const bufferW = staticCanvas.width, bufferH = staticCanvas.height;
   if (!bufferW || !bufferH) return;
-  const rect = panel.getBoundingClientRect();
-  const availW = Math.max(240, window.innerWidth - rect.left - 24);
-  const availH = Math.max(240, window.innerHeight - rect.top - 24);
+  const mainRect = mainEl.getBoundingClientRect();
+  const mainStyle = getComputedStyle(mainEl);
+  const mainPaddingX = (parseFloat(mainStyle.paddingLeft) || 0) + (parseFloat(mainStyle.paddingRight) || 0);
+  const availW = Math.max(240, mainRect.width - mainPaddingX - SIDEBAR_RESERVED_WIDTH);
+  const availH = Math.max(240, window.innerHeight - panel.getBoundingClientRect().top - 24);
   let scale = Math.min(availW / bufferW, availH / bufferH);
   scale = Math.max(MAP_DISPLAY_MIN_SCALE, Math.min(MAP_DISPLAY_MAX_SCALE, scale));
   const displayW = Math.round(bufferW * scale);

@@ -534,6 +534,37 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.163)
+
+Explicit live-report bug fix: "sometimes the map in UI becomes big
+occupying the whole screen and then clicking somewhere restores it to
+its original display state." Root cause found in `resizeCanvasDisplay`
+(`app.js`, the v1.34.33 responsive-canvas redesign): it derived the
+map's available CSS width from `#map-panel`'s own live `getBoundingClientRect().left`
+— but `#map-panel` and `#sidebar` are `main`'s flex-wrap siblings, so
+the panel's position is itself a RESULT of whether the sidebar has
+wrapped below it this frame, which is itself a result of the map's
+current width. A genuine feedback loop: once `#sidebar` wraps below
+for any reason (a borderline window width), `panel.rect.left` collapses
+toward the page edge, `availW` balloons toward the full window width,
+the map grows to fill the screen, and the sidebar stays wrapped —
+self-reinforcing until an UNRELATED reflow (a click opening/closing an
+inspector panel, matching the live report exactly) happens to break
+the loop and it snaps back to the normal side-by-side layout. Fixed by
+measuring `main`'s own box instead (stable — a block container's width
+doesn't depend on how its own flex children wrap) and reserving a
+fixed budget for the sidebar (`#sidebar`'s own CSS `min-width: 280px`
+plus `main`'s flex gap) rather than reading a position coupled to the
+very layout decision being computed.
+
+Verified live via Playwright: swept the viewport width from 1400px
+down to 600px and back (crossing the wrap threshold repeatedly) —
+canvas CSS width now tracks window width smoothly with no runaway
+growth at any point, including while wrapped. At a borderline width
+(700px), six repeated clicks produced byte-identical canvas sizes
+(372px every time) — confirming the instability is gone, not just
+less frequent. `node --check` clean.
+
 ## Current state (v1.34.162)
 
 Explicit user instruction: "start B1" (docs/HEARTHBENCH-RUNTIME-
