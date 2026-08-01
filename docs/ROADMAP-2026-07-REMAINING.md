@@ -1034,6 +1034,149 @@ Recorded so they aren't rediscovered as "gaps" later:
 
 ---
 
+### Tier 7 — The Cognitive Architecture (HCA)
+
+Filed v1.34.185 on explicit user direction reframing the project's own
+primary goal: *"explore whether human-like cognition can emerge from
+interacting computational systems. NPCs are a consequence of that goal,
+not the goal itself… functionally mimic how the brain is organized:
+many specialized systems operating mostly subconsciously… with only a
+small amount of information reaching conscious reasoning… Treat the LLM
+as one cognitive subsystem rather than the entire mind."*
+
+**Full design: `COGNITIVE-ARCHITECTURE-2026-08-02.md`.** That document
+is authoritative for how minds are organised at every scale; this
+section is the roadmap pointer only. It does **not** change the
+four-pillar Body/Mind split, the deterministic substrate, Phase G's
+ambiguity discipline, or `CONSTITUTION.md`'s priority ordering.
+
+**Motivated by measured pathology, not theory alone.** A real
+64,453-tick soak on real hardware showed four specific failures, each
+of which one adopted principle directly targets:
+
+- **~93% of LLM calls went to ambient narration** (`voice_dialogue`
+  1,077 / `cognition` 563 / `musing` 441) while settlement- and
+  pillar-level cognition received ~37 calls *total*. Arbitration today
+  is an unarbitrated race between independent cadence gates.
+- **`reflection_notebook_total: 0`.** The metacognitive layer was
+  "Eligible / Deferred" and never ran once in 64k ticks. Pillar cycle
+  counters: village 0, humans 0, innovation 0, nature 2, reflection 2.
+- **93% of the emergence log is `unexplained_shift`**, and the recent
+  entries are all "X decided to socialize: content, seeking company" —
+  the most predictable event the simulation can produce. The Humans
+  pillar's bounded memory is ~35/40 slots of hungry people foraging.
+- **590 identical hardships, 7 deliberations, 0 rules.** No mechanism
+  turns repeated failure-to-resolve into either a resolution or a
+  learned "stop asking."
+
+**Principles adopted** (sources and what was *left* in the design doc's
+§2): the **Standard Model of Mind** (Laird/Lebiere/Rosenbloom 2017) as
+the structural anchor; **Global Workspace Theory** for competition and
+broadcast; **predictive processing** for precision-weighted surprise as
+the salience signal; **Soar's typed impasses + chunking** as the
+deliberation trigger and the learning mechanism; **ACT-R activation**
+for declarative memory; **Attention Schema Theory** for metacognition;
+**Clarion / dual-process** as the legible framing. Explicitly rejected:
+spiking-neural substrate, full Bayesian active inference, monolithic
+"agent brain" prompts, and any claim that this architecture produces
+sentience (it is a bet on *functional* organisation; the harder
+question is not settled by it, §2.2).
+
+**Six scale-generic layers** — the same six for an agent, a settlement,
+Nature, Innovation, Reflection, and nested (one mind's broadcast is a
+larger mind's sensory input): L0 substrate → L1 specialists
+(`predict`/`observe`/`error`/`bid`; **never call the LLM directly**) →
+L2 activation-ranked working memory → L3 global workspace (one
+arbitrated winner per cycle, **broadcast to all**, resolved by chunk /
+learned model / LLM) → L4 impasse-gated deliberation + chunking → L5
+metacognition + attention schema.
+
+**Tiers 5 and 6 are re-scoped, not discarded** — as HCA's substrate.
+This is also the honest explanation for why both have felt inert: every
+Tier 5 item ends with *"not wired into any real control point."* Tier 5
+built a runtime with no client and Tier 6 built resolvers with nothing
+to resolve; Tier 7 is the consumer. The mapping is close to one-to-one
+(design doc §4): B1→specialist interface, B2→workspace arbitration +
+starvation floors, B2.4→attention, B5.4→the "why reasoning fired" UI,
+B8→forward models, B9→cycle rates, B10→where surprise is, B11/B12→
+memory tiering and consolidation, B13→metacognitive retuning, L2.1→
+salience, L2.2→cheap resolver, L1.1→semantic-pointer space. Remaining
+Tier 5 items (B0.3, B3.3, B4.2, B9.3, B10.2's other 88 sites) keep
+their existing scope and priority.
+
+**Every item carries a falsifiable success test** — the structural
+guard against renaming existing systems in new vocabulary. An item that
+cannot state one does not ship.
+
+- [ ] **P1** — generalise `PERSONAL_BELIEF_NUM_PREDICT_MULT` to every
+  large-schema reasoning job. *Ordinary bug, not architecture:* the
+  soak's one `ontology_proposal` call returned `raw_model_output: ""`
+  — the v1.6.0 fix was never extended to `ontology_proposal`/`beliefs`/
+  `institution_belief`/`narrative_direction`. *Test:* fallback rate
+  falls from 100%.
+- [ ] **P2** — re-frame the `laws` prompt (biased toward "not yet"; 0
+  rules in 64k ticks against 590 occurrences). *Test:* a law forms.
+- [ ] **A1** — `predict()`/`error()` on specialists; precision-weighted
+  surprise. *Test:* on the soak's own event stream, "content agent
+  socialises" scores < 0.1 and family-extinction-during-prosperity
+  scores > 2.0.
+- [ ] **A2** — gate `world/emergence.py` on surprise, not occurrence.
+  *Test:* `unexplained_shift` share drops from 93% to < 40%.
+- [ ] **A3** — surprise map overlay (a new Living Map layer meeting
+  that doc's own "answers one nameable question" bar).
+- [ ] **B1** — coalition bidding; one arbitrated winner per cycle;
+  every LLM call site converted to a bid. *Test:* pillar-level call
+  share rises from 1.4% to > 15% **without raising total calls**.
+- [ ] **B2** — starvation floors. *Test:* `reflection_notebook_total >
+  0` in a 64k-tick soak.
+- [ ] **B3** — broadcast bus replacing B4's ten hand-wired arrows.
+  *Test:* a Nature belief measurably moves an Innovation decision with
+  no Nature→Innovation-specific code.
+- [ ] **C1** — the four typed impasses as the deliberation trigger.
+  *Test:* every LLM call in a soak carries a named impasse.
+- [ ] **C2** — chunking. *Test:* the 591st family extinction consumes
+  no LLM call.
+- [ ] **C3** — cheap-resolver dispatch (chunk → model → LLM). *Test:*
+  > 30% of workspace winners resolve without an LLM call.
+- [ ] **D1** — ACT-R activation replacing four hand-tuned mechanisms
+  (`MEMORY_RETRIEVAL_*` weights, `memory_salience`, `memory_access`,
+  bag-of-words relevance). *Test:* retrieval quality holds on the
+  recorder archive while four constants are deleted.
+- [ ] **D2** — declarative/procedural separation made architectural.
+- [ ] **E1** — the "why reasoning was or was not invoked" panel.
+  *Test:* every cycle in a live run has a legible one-line reason.
+- [ ] **E2** — workspace contents + **losing coalitions** panel.
+- [ ] **E3** — memory-activation and competing-goals panels.
+- [ ] **E4** — the learning chart: deliberative calls per 1,000 ticks
+  trended against emergence rate (§8's falsification test, live).
+- [ ] **F1** *(gated behind Tier 6 L1.1)* — semantic pointers:
+  concept vectors, bundling/binding, LLM names the best algebraic
+  candidate. *Test:* a concept combination is generated and judged
+  with strictly fewer LLM calls than today's pipeline.
+
+**UI: a third surface.** The standing two-surface rule is amended —
+**The World** (map/normal UI, *what is happening*), **The Mind**
+(Cognitive Observatory, *how is it being thought about*), **The
+Machine** (`⚙ dev`/`/diagnostics`, *is the runtime healthy*). This is a
+promotion, not a leak: material that was dev-console-only because
+nothing consumed it becomes first-class because watching it is the
+stated point of the project. Phase G is unaffected and explicitly
+re-scoped — the Town Consciousness's own workspace stays
+dev-console-only exactly as today.
+
+**Headline falsification test (design doc §8).** HCA claims
+deliberative cost per unit of emergence falls as a world matures. Plot
+LLM calls per 1,000 ticks against emergence rate across a long soak. If
+calls fall and emergence holds, the architecture works. **If calls fall
+and emergence falls proportionally, impasse-gating is just starvation
+with extra steps and this direction should be abandoned.**
+
+Same standing convention as every vision document here: **nothing is
+implemented; work from it only on explicit future direction naming a
+specific item.**
+
+---
+
 ## Priority ordering (this document's own read, not gospel)
 
 Ranked by two things: (1) how many *other* open items each one unblocks

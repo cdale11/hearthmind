@@ -129,6 +129,79 @@ scoped ("once per town per month/season") decision points stay
 round-robin bounded and need no per-agent gating; give those to the LLM
 freely.
 
+## The Cognitive Architecture — HCA (explicit user directive, 2026-08-02)
+
+**Primary goal, restated by the user and standing above everything
+below:** Hearthmind exists to *explore whether human-like cognition can
+emerge from interacting computational systems*. **NPCs are a
+consequence of that goal, not the goal itself.** The design target is
+to functionally mimic how a brain is *organised* — many specialised
+systems running mostly subconsciously, interacting continuously, with
+only a small amount of information reaching conscious reasoning — not
+to simulate biology or neurons. **The LLM is one cognitive subsystem,
+not the mind.** Intelligence (and possible sentience) should emerge
+from the interaction of deterministic simulation, ML, memory, culture,
+nature, innovation, reflection and conscious reasoning — never from any
+single component. This applies at every scale, not just individual
+humans.
+
+**Full design: `docs/COGNITIVE-ARCHITECTURE-2026-08-02.md`** —
+authoritative for how minds are organised; **`CONSTITUTION.md` still
+wins on priority ordering.** Roadmap: Tier 7. Nothing implemented yet
+(docs-only filing); work from it only on explicit direction naming a
+specific item.
+
+**What HCA does NOT change:** the four-pillar Body/Mind split, the
+deterministic substrate and R7, Phase G's ambiguity discipline, the
+per-agent LLM call-budget gating, or the Constitution. HCA describes
+what is *inside* a Mind; the pillars are the *scales* at which minds
+exist. Both are needed.
+
+**Six scale-generic layers** (same six for an agent, a settlement,
+Nature, Innovation, Reflection — and nested, so one mind's broadcast is
+a larger mind's sensory input):
+
+- **L0 Substrate** — deterministic Body. Untouched by HCA, so
+  `verify_replay_hash.py` stays a valid equivalence check throughout.
+- **L1 Specialists** — many, parallel, cheap, always-on. Uniform
+  interface `predict()`/`observe()`/`error()`/`bid()`. **A specialist
+  never calls the LLM — it bids.** Most bid essentially never.
+- **L2 Working memory** — small, bounded, **activation-ranked** (ACT-R
+  base-level + spreading activation), entered only by prediction errors
+  clearing a precision-weighted threshold.
+- **L3 Global workspace** — one serial arbitrated winner per cycle,
+  **broadcast to every subsystem** (not point-to-point), resolved by
+  whichever suffices: **cached chunk → learned model → LLM**. Plus a
+  starvation floor so no subsystem can be starved indefinitely.
+- **L4 Deliberation** — fires only on a **named impasse** (Soar's four:
+  *tie*, *no-change*, *conflict*, *novelty*), then **chunks** the
+  resolution into a cheap reusable artifact.
+- **L5 Metacognition** — watches L3's own history; retunes precision;
+  maintains a broadcastable **attention schema**.
+
+**Principles taken** (with what was left, in the doc's §2): Standard
+Model of Mind (structural anchor), Global Workspace Theory
+(competition + broadcast), predictive processing (precision-weighted
+surprise as salience), Soar (impasses + chunking), ACT-R (activation),
+Attention Schema Theory, Clarion/dual-process. **Explicitly rejected:**
+spiking-neural substrate, full Bayesian active inference, monolithic
+"agent brain" prompts, and **any claim that this produces sentience** —
+HCA is a bet on *functional* organisation; the harder question is not
+settled by it, and the code must stay honest about that difference.
+
+**Standing rule this creates:** *predictable is not notable.* A new
+detector/observation/mirror must gate on **surprise** (precision-
+weighted prediction error), never on mere occurrence. The measured
+failure this exists to prevent: 93% of a 64k-tick soak's emergence log
+was `unexplained_shift`, almost all of it "content agent decided to
+socialize."
+
+**Headline falsification test:** deliberative cost per unit of
+emergence must FALL as a world matures (chunking compiles resolutions
+into cheap artifacts). If LLM calls fall but emergence falls
+proportionally, impasse-gating is just starvation with extra steps and
+this direction should be abandoned.
+
 ## Design priorities (Hearthmind is an autonomous, persistent artificial society)
 
 Priority order: 1. emergence, 2. believable causality, 3. persistent
@@ -365,7 +438,40 @@ the **normal UI** optimizes for understanding the world (curated
 history, relationship graph, mind-first NPC inspector, surfaced
 conversations, town-brain monologue); the **developer observatory**
 (`⚙ dev`, `/diagnostics`) owns prompt inspection, timing, and internals
-— deepen it rather than leaking detail into the normal UI. The entire
+— deepen it rather than leaking detail into the normal UI.
+
+**AMENDED to THREE surfaces (2026-08-02, explicit user directive —
+see the HCA section above and `docs/COGNITIVE-ARCHITECTURE-2026-08-02.
+md` §6).** The user asked for a runtime UI that is a *cognitive
+observatory*: "I want to watch the mind think — information flowing
+between systems, workspace contents, attention shifts, prediction
+errors, memory activation, competing goals, belief revision, concept
+evolution, learning, and why conscious reasoning was or was not
+invoked." Since watching cognition IS the stated point of the project,
+the mind is now a *subject*, not an implementation detail:
+
+- **The World** — map, events, inspectors. *What is happening?*
+- **The Mind** — the Cognitive Observatory. *How is it being thought
+  about?* Workspace contents **and the losing coalitions**, attention
+  timeline, per-specialist surprise (incl. a **surprise map overlay**),
+  live memory activation/decay, competing goals with utilities, belief-
+  revision diffs, concept lineage, the learning chart, and the headline
+  panel: a one-line plain-language reason per cycle for **why
+  deliberation did or did not fire** (`IMPASSE(no-change) · "family
+  lines dying out" · 590 occurrences, no rule · DELIBERATED (94s)` /
+  `no impasse · peak surprise 0.3 < threshold 1.5 · cheap path`).
+- **The Machine** — `⚙ dev`, `/diagnostics`. *Is the runtime healthy?*
+
+This is a promotion, not a leak — material that was dev-console-only
+because nothing consumed it becomes first-class because it is the
+point. **Phase G is unaffected and explicitly re-scoped:** the
+Observatory covers agent and pillar cognition only; the Town
+Consciousness's own workspace (personality/objectives/player model/
+interventions) stays dev-console-only exactly as today, and
+temperament/mood/omens stay unlabelled. The ambiguity discipline is
+permanent and the Observatory never narrates anything as supernatural.
+
+The entire
 original backlog for this direction is shipped (relationship graph with
 family-tree edges, unified hover, NPC inspector incl. personality/
 skills/institutions/health, surfaced-vs-routine dialogue, monologue,
@@ -533,6 +639,73 @@ substrate code; migrating the existing ~200 onto a real B1 task graph
 is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
+
+## Current state (v1.34.185)
+
+Explicit user directive reframing the project's own primary goal
+(cognition as the object of study, NPCs as a consequence; functionally
+mimic brain *organisation*; treat the LLM as one subsystem; apply at
+every scale; build a cognitive-observatory UI; **"update the
+documentation before implementation and justify the changes"**).
+**Docs-only — no code changed.** New `docs/COGNITIVE-ARCHITECTURE-
+2026-08-02.md` (HCA); new CLAUDE.md standing section above; three-
+surface UI amendment; roadmap Tier 7.
+
+**Grounded in the user's own pasted 64,453-tick soak, not theory
+alone** — four measured pathologies, each targeted by one adopted
+principle: (1) **~93% of LLM calls went to ambient narration**
+(voice_dialogue 1,077 / cognition 563 / musing 441) while settlement-
+and pillar-level cognition got ~37 calls *total* — arbitration today is
+an unarbitrated race between independent cadence gates, won by
+whichever job fires most often; (2) **`reflection_notebook_total: 0`**
+— the metacognitive layer read "Eligible / Deferred" and never ran once
+(pillar `turns_processed`: village 0, humans 0, innovation 0, nature 2,
+reflection 2), because staleness is not an input to any gate; (3)
+**93% of the emergence log is `unexplained_shift`**, its recent entries
+all "X decided to socialize: content, seeking company" — the most
+predictable event possible — and the Humans pillar's bounded memory is
+~35/40 slots of hungry people foraging; (4) **590 identical hardships,
+7 deliberations, 0 rules** — nothing turns repeated failure-to-resolve
+into either a resolution or a learned "stop asking."
+
+**Two incidental bugs found in the same data, filed as Tier 7 preflight
+(P1/P2), not architecture:** `ontology_proposal` returned
+`raw_model_output: ""` with `reasoning: true` — the same large-schema-
+plus-reasoning-trace budget exhaustion fixed for `personal_belief` in
+v1.6.0 (`PERSONAL_BELIEF_NUM_PREDICT_MULT`), never generalised to
+`ontology_proposal`/`beliefs`/`institution_belief`/`narrative_
+direction`; and the `laws` prompt is biased toward "not yet" (7 calls,
+all `forms: false`). Also recorded as a hard constraint rather than a
+bug: reasoning p50 95.5s, `personal_belief` p95 498s (8.3 min).
+
+**Architecture:** six scale-generic layers (L0 substrate → L1
+specialists that bid rather than call → L2 activation-ranked working
+memory → L3 global workspace with one arbitrated winner **broadcast to
+all**, resolved by chunk/model/LLM → L4 impasse-gated deliberation +
+chunking → L5 metacognition + attention schema), nested so one mind's
+broadcast is a larger mind's input. Principles from the Standard Model
+of Mind, GWT, predictive processing, Soar, ACT-R, Attention Schema
+Theory, Clarion — each with what was *left* stated explicitly, and
+spiking-neural substrate / full active inference / monolithic prompts /
+**any sentience claim** explicitly rejected.
+
+**Tiers 5 and 6 re-scoped as HCA's substrate, not discarded** — and
+this is the honest explanation for why both have felt inert: every
+Tier 5 item ends with "not wired into any real control point." Tier 5
+built a runtime with no client; Tier 6 built resolvers with nothing to
+resolve; Tier 7 is the consumer. Mapping is close to one-to-one (design
+doc §4). Remaining Tier 5 items keep their existing scope.
+
+**Every Tier 7 item carries a falsifiable test** (the structural guard
+against renaming existing systems in cognitive-architecture vocabulary
+and calling it progress; an item that cannot state one does not ship),
+and the direction as a whole has one: **deliberative cost per unit of
+emergence must FALL as a world matures.** If LLM calls fall but
+emergence falls proportionally, impasse-gating is just starvation with
+extra steps and this should be abandoned.
+
+Nothing implemented. Same standing convention as every vision doc here
+— work from it only on explicit direction naming a specific item.
 
 ## Current state (v1.34.184)
 

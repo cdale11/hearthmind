@@ -4,6 +4,81 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.185] — The Hearthmind Cognitive Architecture (HCA), docs-only
+
+Explicit user directive reframing the project's own primary goal:
+Hearthmind exists to explore whether human-like cognition can emerge
+from interacting computational systems; NPCs are a consequence of that
+goal, not the goal itself; functionally mimic how a brain is
+*organised* (many specialised subconscious systems, little reaching
+conscious reasoning); **treat the LLM as one cognitive subsystem, not
+the mind**; apply the same principle at every scale; and build a
+runtime UI that is a *cognitive observatory*. The directive explicitly
+asked for documentation and justification **before** implementation —
+so this release changes no code.
+
+**New: `docs/COGNITIVE-ARCHITECTURE-2026-08-02.md`.** Authoritative for
+how minds are organised at every scale. Six scale-generic layers (L0
+substrate → L1 specialists that *bid* rather than call → L2
+activation-ranked working memory → L3 global workspace with one
+arbitrated winner **broadcast to all**, resolved by chunk/model/LLM →
+L4 impasse-gated deliberation + chunking → L5 metacognition + attention
+schema), nested so one mind's broadcast is a larger mind's input.
+
+**Grounded in the user's own 64,453-tick soak, not theory alone.** Four
+measured pathologies, each targeted by one adopted principle: ~93% of
+LLM calls went to ambient narration while pillar-level cognition got
+~37 calls total; `reflection_notebook_total: 0` (the metacognitive
+layer was "Eligible / Deferred" and never ran once); 93% of the
+emergence log is `unexplained_shift`, nearly all of it "content agent
+decided to socialize"; and 590 identical hardships produced 7
+deliberations and 0 rules with no memory that the question was already
+asked.
+
+**Principles adopted** (each with what was *left*): Standard Model of
+Mind (Laird/Lebiere/Rosenbloom 2017) as structural anchor; Global
+Workspace Theory (competition + broadcast); predictive processing
+(precision-weighted surprise as salience); Soar (typed impasses +
+chunking); ACT-R (base-level activation, replacing four hand-tuned
+retrieval mechanisms); Attention Schema Theory; Clarion/dual-process.
+**Explicitly rejected:** spiking-neural substrate, full Bayesian active
+inference, monolithic "agent brain" prompts, and any claim that this
+architecture produces sentience — it is a bet on *functional*
+organisation, and the code must stay honest about that difference.
+
+**Roadmap: new Tier 7**, 17 items across preflight/surprise/workspace/
+impasse/memory/observatory/semantic-pointers. **Every item carries a
+falsifiable success test** — the structural guard against renaming
+existing systems in cognitive-architecture vocabulary and calling it
+progress. Tiers 5 and 6 are **re-scoped as HCA's substrate, not
+discarded**, which is also the honest explanation for why both have
+felt inert: Tier 5 built a runtime with no client and Tier 6 built
+resolvers with nothing to resolve; Tier 7 is the consumer. Mapping is
+close to one-to-one.
+
+**UI: the two-surface rule is amended to three** — The World (map,
+*what is happening*), The Mind (Cognitive Observatory, *how is it being
+thought about*), The Machine (`⚙ dev`, *is the runtime healthy*). A
+promotion, not a leak: watching cognition is the stated point of the
+project. **Phase G is unaffected and explicitly re-scoped** — the Town
+Consciousness's own workspace stays dev-console-only exactly as today,
+and the Observatory never narrates anything as supernatural.
+
+**Headline falsification test:** deliberative cost per unit of
+emergence must FALL as a world matures. If LLM calls fall but emergence
+falls proportionally, impasse-gating is just starvation with extra
+steps and this direction should be abandoned.
+
+Two incidental bugs found in the same diagnostic and filed as Tier 7
+preflight (not architecture): `ontology_proposal` returns
+`raw_model_output: ""` — the v1.6.0 `PERSONAL_BELIEF_NUM_PREDICT_MULT`
+fix was never generalised to the other large-schema reasoning jobs; and
+the `laws` prompt is biased toward "not yet" (7 calls, 0 rules).
+
+Also updated: `CLAUDE.md` (new standing HCA section, three-surface UI
+amendment, current-state entry), `docs/ROADMAP-2026-07-REMAINING.md`
+(Tier 7), `docs/README.md` (index entry).
+
 ## [1.34.127] — Tier 0's thirty-fourth conversion: a new occupation-shortage Village producer
 
 Explicit user decision via `AskUserQuestion` (following a codebase-wide

@@ -31,8 +31,19 @@ moved to `docs/archive/` (see the path-change note at the bottom).
   Emergence > Memory efficiency > Performance > Simplicity > Backward
   compatibility.
 
+- **`COGNITIVE-ARCHITECTURE-2026-08-02.md`** — **the Hearthmind
+  Cognitive Architecture (HCA)**, filed on explicit user direction
+  reframing the project's primary goal as the study of emergent
+  cognition (NPCs a consequence, not the goal). Authoritative for how
+  minds are organised at *every* scale — six layers, the LLM as one
+  subsystem among several, impasse-gated deliberation, a global
+  workspace with broadcast, prediction-error salience. Also defines the
+  **Cognitive Observatory** UI and the amended three-surface rule.
+  `CONSTITUTION.md` still wins on priority ordering. Roadmap: Tier 7.
+  Nothing implemented yet.
+
 - **`ROADMAP-2026-07-REMAINING.md`** — **the** roadmap. Every open item,
-  tiered (Tier 0 → Tier 5). Its "Open-task checklist" section near the
+  tiered (Tier 0 → Tier 7). Its "Open-task checklist" section near the
   top is the fastest read of what is actually left.
 
 - **`DECISIONS.md`** — running design-decision log: root causes,
