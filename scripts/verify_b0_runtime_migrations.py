@@ -38,7 +38,10 @@ declared `PriorityClass.CRITICAL` + `TriggerKind.PERIODIC` so the
 scheduler reproduces that exact "always runs, regardless of budget"
 behavior rather than risking a real behavior change (any lower
 priority class could let budget pressure defer a job the original
-direct call never deferred).
+direct call never deferred). **One exception, added by Tier 5 B3's
+real control point**: `institution_dormancy` is now `ON_EVENT`, not
+PERIODIC — see `EVENT_DRIVEN_TASK_IDS` below and `scripts/verify_b3_
+dirty_events.py` for the full detail.
 
 Each migrated job gets its OWN registry+scheduler pair rather than
 sharing one — a real bug caught and fixed while building the SECOND
@@ -299,14 +302,32 @@ MIGRATIONS = [
         "_runtime_registry_letter", "_runtime_scheduler_letter", _JOB_EVENTS,
     ),
     (
+        # Tier 5 B3's real control point (v1.34.20x): this job's Task
+        # is now ON_EVENT/event_types={"month_end"}, not CRITICAL+
+        # PERIODIC like every other migration here, and its real fn no
+        # longer takes `events` (the scheduler's own EventBus is the
+        # gate now, not an internal `if "month_end" not in events`
+        # guard) — arg_kind is _JOB_NO_ARGS to match. Excluded from
+        # this script's generic "always runs every tick" checks below
+        # (see EVENT_DRIVEN_TASK_IDS) since that's no longer true by
+        # design; its own correct (different) behavior is verified in
+        # depth by `scripts/verify_b3_dirty_events.py` instead.
         "_update_institution_dormancy", "institution_dormancy",
-        "_runtime_registry_institution_dormancy", "_runtime_scheduler_institution_dormancy", _JOB_EVENTS,
+        "_runtime_registry_institution_dormancy", "_runtime_scheduler_institution_dormancy", _JOB_NO_ARGS,
     ),
     (
         "_maybe_schedule_institution_culture", "institution_culture",
         "_runtime_registry_institution_culture", "_runtime_scheduler_institution_culture", _JOB_EVENTS,
     ),
 ]
+
+
+EVENT_DRIVEN_TASK_IDS = {"institution_dormancy"}
+"""Tier 5 B3's real control point: `institution_dormancy` is the one
+migrated job that's genuinely ON_EVENT, not CRITICAL+PERIODIC — it
+does NOT run every tick by design. Excluded from every "always runs"
+generic assertion below; its own correct behavior is verified in
+depth by `scripts/verify_b3_dirty_events.py`."""
 
 
 def check(label: str, condition: bool) -> None:
@@ -357,10 +378,17 @@ async def main() -> None:
                 list(registry.topological_order()) == [task_id],
             )
             task = registry.get(task_id)
-            check(
-                f"'{task_id}' task is CRITICAL + PERIODIC (reproduces 'always runs')",
-                task.priority_class is PriorityClass.CRITICAL and task.trigger is TriggerKind.PERIODIC,
-            )
+            if task_id in EVENT_DRIVEN_TASK_IDS:
+                check(
+                    f"'{task_id}' task is CRITICAL + ON_EVENT (B3's real control point, not 'always runs')",
+                    task.priority_class is PriorityClass.CRITICAL and task.trigger is TriggerKind.ON_EVENT
+                    and bool(task.event_types),
+                )
+            else:
+                check(
+                    f"'{task_id}' task is CRITICAL + PERIODIC (reproduces 'always runs')",
+                    task.priority_class is PriorityClass.CRITICAL and task.trigger is TriggerKind.PERIODIC,
+                )
             check(
                 f"the job->scheduler mapping resolves '{method_name}' to its real scheduler",
                 mapping.get(method_name) == scheduler_attr
@@ -402,12 +430,14 @@ async def main() -> None:
         #    real bound method, not just a synthetic stand-in.
         all_ran_clean = True
         for _method_name, task_id, _registry_attr, scheduler_attr, arg_kind in MIGRATIONS:
+            if task_id in EVENT_DRIVEN_TASK_IDS:
+                continue
             report = getattr(eng, scheduler_attr).run_tick(*_run_args(arg_kind))
             if task_id not in report.ran or task_id in report.skipped_clean \
                     or task_id in report.deferred or report.errors:
                 all_ran_clean = False
         check(
-            "every migrated task ran this tick with its real args (never skipped/deferred), no errors",
+            "every always-on migrated task ran this tick with its real args (never skipped/deferred), no errors",
             all_ran_clean,
         )
 
@@ -420,11 +450,13 @@ async def main() -> None:
             eng._tick_once()
             await asyncio.sleep(0)
             for _method_name, task_id, _registry_attr, scheduler_attr, arg_kind in MIGRATIONS:
+                if task_id in EVENT_DRIVEN_TASK_IDS:
+                    continue
                 rep = getattr(eng, scheduler_attr).run_tick(*_run_args(arg_kind))
                 if task_id not in rep.ran:
                     all_ran = False
         check(
-            "every migrated task ran on every one of 50 further real ticks",
+            "every always-on migrated task ran on every one of 50 further real ticks",
             all_ran,
         )
 
@@ -460,8 +492,12 @@ async def main() -> None:
         eng._tick_once()
         await asyncio.sleep(0)
         check(
-            "each migrated job's fn runs EXACTLY ONCE per real _tick_once() call (no double-execution)",
-            all(count == 1 for count in call_counts.values()),
+            "each always-on migrated job's fn runs EXACTLY ONCE per real _tick_once() call (no double-execution)",
+            all(count == 1 for task_id, count in call_counts.items() if task_id not in EVENT_DRIVEN_TASK_IDS),
+        )
+        check(
+            "the event-driven migrated job's fn never runs MORE than once per real _tick_once() call",
+            all(count <= 1 for task_id, count in call_counts.items() if task_id in EVENT_DRIVEN_TASK_IDS),
         )
 
     # 6. Error propagation: a migrated CRITICAL task's exception must

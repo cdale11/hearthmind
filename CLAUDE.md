@@ -742,6 +742,57 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.200)
+
+Explicit user follow-up: "B3 and build some cheap next tier intel as
+well" — continuing the Part B closing sequence (B6 v1.34.198, B2
+v1.34.199). B3.1/B3.2 (`DirtyTracker`/`EventBus`, `simulation/
+reactivity.py`) were already real, verified machinery since v1.34.165
+but never given a real production `ON_DIRTY`/`ON_EVENT` task — every
+B0.3-migrated job is `PriorityClass.PERIODIC` (always due).
+
+`_update_institution_dormancy`'s pre-migration body was already a pure
+`if "month_end" not in events: return` guard, no logic ahead of it —
+exactly B3.2's own named shape. Its Task is now `TriggerKind.ON_EVENT`/
+`event_types={"month_end"}` instead of `PERIODIC` — the guard moved
+OUT of the function and INTO the scheduler's own due-check, a real
+`skipped_clean` (never touching budget/deferral machinery) on every
+non-month_end tick. `_tick_once` publishes `"month_end"` into this
+scheduler's real `EventBus` right after `events` is computed. The
+function's `events` param and its now-redundant internal guard are
+gone; its `_TICK_JOBS` entry moved `_JOB_EVENTS` -> `_JOB_NO_ARGS`.
+
+Verified via a real 3,200-tick drive: the job ran on EXACTLY the real
+month_end ticks crossed (never more/fewer), `skipped_clean_count`
+accounts for every other tick, a control run with nothing ever
+published confirmed the gate is real, and the real `_tick_once()` call
+site itself fires the job on a genuine month_end.
+
+**Bonus ("cheap next tier intel"), same batch**: B5.3's `runtime_
+diagnostics_report` (built v1.34.183, never wired for lack of a real
+subsystem running through `Scheduler` — no longer true) now reads the
+real, live `institution_dormancy` scheduler via `full_diagnostics()
+['runtime_diagnostics']['institution_dormancy']` — the first genuinely
+production reading through that function. Scoped to one representative
+scheduler, not an aggregate across all ~57 real per-job schedulers
+(flagged future work).
+
+New `scripts/verify_b3_dirty_events.py` (16 checks). `scripts/verify_
+b0_runtime_migrations.py`'s generic "every job is CRITICAL+PERIODIC"
+assertions now special-case this one now-ON_EVENT job via a new
+`EVENT_DRIVEN_TASK_IDS` set, rather than going silently stale.
+
+Verified: `scripts/verify_b3_dirty_events.py` (16 checks) — all pass,
+first run, no bug found. `verify_task_graph.py`/`verify_scheduler.py`/
+`verify_runtime_invariant.py`/`verify_b0_runtime_migrations.py`
+(updated)/`verify_tuning.py`/`verify_b6_adaptive_concurrency.py`/
+`verify_b2_broadcast_budget.py`/`verify_dormancy.py`/`verify_runtime_
+diagnostics.py` re-run clean. A real before/after replay-hash check
+(4000 ticks, seed 777, `--in-process`) — MATCH, byte-identical.
+`scripts/verify_native_soak.py` (3 seeds x 3000 ticks) — MATCH.
+`pyflakes` clean on all touched files (only the six known pre-existing
+forward-ref findings in `engine.py`).
+
 ## Current state (v1.34.199)
 
 Explicit user follow-up: "B2" — continuing the same Part B closing

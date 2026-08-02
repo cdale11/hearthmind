@@ -974,6 +974,35 @@ starts on an explicit instruction naming an item.
       adaptive_concurrency.py`, a real replay-hash MATCH (4000 ticks,
       seed 777), and a native-soak MATCH (3 seeds x 3000 ticks).
 
+      **B3 (Event-driven execution) wired to a real control point +
+      B5.3 diagnostics wiring — SHIPPED, v1.34.200.** Explicit user
+      follow-up ("B3 and build some cheap next tier intel as well").
+      `_update_institution_dormancy`'s pre-migration body was already a
+      pure `if "month_end" not in events: return` guard — exactly
+      B3.2's own named EventBus shape. Its Task is now `ON_EVENT`/
+      `event_types={"month_end"}` instead of `PERIODIC`, moving the
+      guard out of the function and into the scheduler's own due-check
+      — a real `skipped_clean` on every non-month_end tick.
+      `_tick_once` publishes `"month_end"` into this scheduler's real
+      `EventBus` right after `events` is computed. Verified via a real
+      3,200-tick drive: fired on EXACTLY the real month_end ticks,
+      `skipped_clean_count` accounts for every other tick, a control
+      run with nothing published confirmed the gate is real. Bonus,
+      same batch: B5.3's `runtime_diagnostics_report` (built v1.34.183,
+      previously unwired for lack of a real subsystem — no longer
+      true) now reads this real scheduler via `full_diagnostics()
+      ['runtime_diagnostics']['institution_dormancy']`. New `scripts/
+      verify_b3_dirty_events.py` (16 checks); `verify_b0_runtime_
+      migrations.py` updated with a new `EVENT_DRIVEN_TASK_IDS`
+      special case rather than going stale. See docs/HEARTHBENCH-
+      RUNTIME-2026-07-23.md's B3/B5 sections for full detail. Verified
+      via the script, `verify_task_graph.py`/`verify_scheduler.py`/
+      `verify_runtime_invariant.py`/`verify_b0_runtime_migrations.py`
+      (updated)/`verify_tuning.py`/`verify_b6_adaptive_concurrency.py`/
+      `verify_b2_broadcast_budget.py`/`verify_dormancy.py`/`verify_
+      runtime_diagnostics.py`, a real replay-hash MATCH (4000 ticks,
+      seed 777), and a native-soak MATCH (3 seeds x 3000 ticks).
+
       **B4.2 pilot ("idle institutions") — SHIPPED, v1.34.187.**
       Explicit user choice via `AskUserQuestion` among B4.2's five named
       candidates, after an investigation found the other four (forgotten

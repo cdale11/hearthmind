@@ -4,6 +4,71 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.200] — Part B: B3 (Event-driven execution) wired to a real control point + B5.3 diagnostics wiring
+
+Explicit user follow-up ("B3 and build some cheap next tier intel as
+well"), continuing the same Part-B closing sequence (B6 v1.34.198, B2
+v1.34.199). B3.1 (`DirtyTracker`)/B3.2 (`EventBus`) were already real,
+verified machinery (`simulation/reactivity.py`, v1.34.165) but had
+never been given a real production `ON_DIRTY`/`ON_EVENT` task to act
+on — every one of B0.3's 56 migrated jobs is `PriorityClass.PERIODIC`
+(always due).
+
+`_update_institution_dormancy`'s own pre-migration body was already a
+pure `if "month_end" not in events: return` guard with no other logic
+ahead of it — exactly B3.2's own named shape (a discrete "did this
+happen" signal, distinct from `_maybe_tick_trigger_state_edges`'s
+ongoing-state edge detection). Its Task is now declared `TriggerKind.
+ON_EVENT`/`event_types={"month_end"}` instead of `PERIODIC`, moving
+that guard OUT of the function body and INTO the scheduler's own
+`_due_and_reason` gate — a real `skipped_clean` (never touching
+budget/deferral machinery) on every non-month_end tick instead of the
+function being called and immediately returning. `_tick_once`
+publishes `"month_end"` into this specific scheduler's real `EventBus`
+right after `events` is computed, the same source the old internal
+guard read from directly. The function's own signature dropped its now
+-redundant `events` param; its `_TICK_JOBS` entry moved from
+`_JOB_EVENTS` to `_JOB_NO_ARGS` to match.
+
+Verified via a real 3,200-tick drive (not a synthetic scenario): the
+job ran on EXACTLY the real month_end ticks crossed, never more or
+fewer; `TaskMetrics.skipped_clean_count` accounts for every other tick
+(a genuine skip, not merely a fast internal return); a control run
+with nothing ever published to the EventBus confirmed the gate is
+real (never fires without a publish); and the real `_tick_once()` call
+site itself (not just a direct scheduler drive) fires the job on a
+genuine month_end.
+
+**Bonus, same batch ("cheap next tier intel")**: B5.3's `runtime_
+diagnostics_report` (built v1.34.183, never wired to a real HTTP/
+diagnostics surface for lack of a real subsystem running through
+`Scheduler` to expose — no longer true after B0.3/B2/B3) is now wired
+into `full_diagnostics()['runtime_diagnostics']['institution_
+dormancy']`, reading the real, live `institution_dormancy` scheduler
+built this same pass — the first genuinely production (not synthetic-
+task) reading through that report function. Deliberately scoped to one
+representative scheduler rather than an aggregate across all ~57 real
+per-job schedulers (flagged future work, not guessed at) — cheap
+because it's pure read-only composition of already-existing real data.
+
+New `scripts/verify_b3_dirty_events.py` (16 checks). `scripts/verify_
+b0_runtime_migrations.py` updated: its generic MIGRATIONS-driven
+"every job is CRITICAL+PERIODIC, always runs every tick" assertions
+now special-case `institution_dormancy` (a genuinely different,
+correct behavior by design) via a new `EVENT_DRIVEN_TASK_IDS` set,
+rather than silently going stale.
+
+Verified: `scripts/verify_b3_dirty_events.py` (16 checks) — all pass,
+first run, no bug found. `verify_task_graph.py`/`verify_scheduler.py`/
+`verify_runtime_invariant.py`/`verify_b0_runtime_migrations.py`
+(updated for the one now-ON_EVENT job)/`verify_tuning.py`/`verify_b6_
+adaptive_concurrency.py`/`verify_b2_broadcast_budget.py`/`verify_
+dormancy.py`/`verify_runtime_diagnostics.py` re-run clean. A real
+before/after replay-hash check (4000 ticks, seed 777, `--in-process`)
+— MATCH, byte-identical. `scripts/verify_native_soak.py` (3 seeds x
+3000 ticks) — MATCH. `pyflakes` clean on all touched files (only the
+six known pre-existing forward-ref findings in `engine.py`).
+
 ## [1.34.199] — Part B: B2 (Budgets & scheduling) wired to a real control point
 
 Explicit user follow-up ("B2"), continuing the same Part-B closing

@@ -107,6 +107,7 @@ from hearthmind.simulation.dormancy import DormancyManager
 from hearthmind.simulation.task_graph import PriorityClass, Task, TaskRegistry, TriggerKind
 from hearthmind.simulation.scheduler import Scheduler, SubsystemBudget
 from hearthmind.simulation.tuning import BangBangController, TunableRegistry, register_llm_pacing_tunables
+from hearthmind.simulation.runtime_diagnostics import runtime_diagnostics_report
 from hearthmind.llm.client import build_llm_client, fetch_llama_server_metrics
 from hearthmind.llm.review_diagnostics import context_reflects_any
 from hearthmind.llm.json_schemas import schema_for_task
@@ -2971,12 +2972,30 @@ class SimulationEngine:
         ))
         self._runtime_scheduler_letter = Scheduler(self._runtime_registry_letter)
 
+        # Tier 5 B3's real control point (explicit user directive: "B3").
+        # `_update_institution_dormancy`'s own pre-migration body was
+        # ALREADY a pure `if "month_end" not in events: return` guard
+        # with no other logic ahead of it — exactly B3.2's own named
+        # shape (a discrete "did this happen" signal, not an ongoing
+        # state needing edge detection like B3's trigger-edges job).
+        # Declaring it `ON_EVENT` instead of `PERIODIC` moves that guard
+        # OUT of the function body and INTO the scheduler's own B3.1/
+        # B3.2 due-check (`_due_and_reason`) — the real, structural
+        # "skipped_clean, never touches budget/deferral machinery"
+        # CPU win B3.1's own text names, rather than the function still
+        # being called every tick only to immediately return. `events`
+        # no longer needs to be threaded into the function itself (the
+        # scheduler's own `EventBus.pending()` is now the source of
+        # truth for whether this tick is a real month_end) — see the
+        # real per-tick publish call in `_tick_once`, right after
+        # `events` is computed.
         self._runtime_registry_institution_dormancy = TaskRegistry()
         self._runtime_registry_institution_dormancy.register(Task(
             id="institution_dormancy",
             subsystem="institution_dormancy",
             fn=self._update_institution_dormancy,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"month_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -3804,7 +3823,7 @@ class SimulationEngine:
         ("_maybe_schedule_laws", _JOB_EVENTS),
         ("_maybe_schedule_noncore_nudge", _JOB_EVENTS),
         ("_maybe_schedule_letter", _JOB_EVENTS),
-        ("_update_institution_dormancy", _JOB_EVENTS),
+        ("_update_institution_dormancy", _JOB_NO_ARGS),
         ("_maybe_schedule_institution_culture", _JOB_EVENTS),
         ("_schedule_due_cognition", _JOB_NO_ARGS),
         ("_schedule_due_dialogue", _JOB_NO_ARGS),
@@ -3889,6 +3908,14 @@ class SimulationEngine:
 
         previous_season = self.world.clock.season
         events = self.world.tick()
+        # Tier 5 B3's real control point: `_update_institution_dormancy`'s
+        # Task is declared `ON_EVENT`/`event_types={"month_end"}` — the
+        # scheduler's own B3.2 EventBus needs the real per-tick calendar
+        # event published into it before that job's dispatch slot runs,
+        # same source (`events`) its old internal `if "month_end" not
+        # in events: return` guard used to read directly.
+        if "month_end" in events:
+            self._runtime_scheduler_institution_dormancy.event_bus.publish("month_end")
         total_materials = sum(s.materials for s in self.world.settlements)
         self._materials_level_history.append((self.world.clock.tick_count, total_materials))
         for event in events:
@@ -8404,7 +8431,7 @@ class SimulationEngine:
         # Cultural evolution (v1.3.37).
         self._schedule_llm_job("culture_digest", prompt, culture_digest.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True)
 
-    def _update_institution_dormancy(self, events: list[str]) -> None:
+    def _update_institution_dormancy(self) -> None:
         """Tier 5 B4.2 pilot — the real sleep/wake criterion for "idle
         institutions," one monthly pass over every real (settlement,
         institution) pair. Cheap by construction: `_institution_
@@ -8423,9 +8450,17 @@ class SimulationEngine:
         own docstring for the Constitution B15 `TWO_PART_GUARANTEE`
         reasoning). An unchanged fingerprint for `INSTITUTION_DORMANCY_
         IDLE_CHECKS_THRESHOLD` consecutive monthly checks puts it to
-        sleep."""
-        if "month_end" not in events:
-            return
+        sleep.
+
+        Tier 5 B3's real control point: this used to be a plain `if
+        "month_end" not in events: return` guard, called every tick
+        just to immediately no-op on all but one. That guard is now the
+        scheduler's own job (`ON_EVENT`/`event_types={"month_end"}` on
+        this task's declaration, `_tick_once` publishes "month_end"
+        into this scheduler's real `EventBus` right after `events` is
+        computed) — the function itself is only ever invoked on a real
+        month_end tick now, `skipped_clean` (never touching budget/
+        deferral machinery) every other tick."""
         seen: set[tuple[int, int]] = set()
         for settlement in self.world.settlements:
             if not settlement.name:
@@ -14347,6 +14382,24 @@ class SimulationEngine:
             # invented concepts, the same "don't compute every tick"
             # reasoning peak_memory_rss_mb/system_memory below follow.
             "pillar_cognition_status": self._pillar_cognition_status(),
+            # Tier 5 B5.3's real first wiring: `runtime_diagnostics_
+            # report` (built v1.34.183, never given a real HTTP route/
+            # dev-console surface since "there's no real engine
+            # subsystem running through Scheduler yet to expose" — no
+            # longer true after B0.3/B2/B3). Reads ONLY the real
+            # institution_dormancy scheduler's already-real B5.1/B2.1/
+            # B5.4 state (TaskMetrics/SubsystemBudget/TickTrace) — the
+            # first genuinely B3-reactive (ON_EVENT) job, so its
+            # `skipped_clean_count` here is a real, live proof this
+            # pass's B3 wiring is doing what it claims (skipped_clean
+            # on every non-month_end tick, `ran` only on month_end).
+            # On-demand only (full_diagnostics, not the per-tick
+            # snapshot) — cheap, but no reason to compute it every tick.
+            "runtime_diagnostics": {
+                "institution_dormancy": runtime_diagnostics_report(
+                    self._runtime_scheduler_institution_dormancy,
+                ),
+            },
             "peak_memory_rss_mb": peak_rss_mb,
             "system_memory": system_memory_report(),
             "db_size_mb": db_size_mb,

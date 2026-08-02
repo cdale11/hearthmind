@@ -796,7 +796,7 @@ and the scheduler has only ever been run against synthetic tasks
 ready for a future subsystem migration to actually use, not a
 migration itself.
 
-## B3 — Event-driven execution [Hard Rule 3] [PARTIAL — B3.1/B3.2 shipped v1.34.165, not yet wired into the live tick loop]
+## B3 — Event-driven execution [Hard Rule 3] [SHIPPED — B3.1/B3.2 built v1.34.165, wired to a real production control point v1.34.200]
 
 - [x] **B3.1 — Dirty tracking — SHIPPED, v1.34.165.** New
   `hearthmind/simulation/reactivity.py`'s `DirtyTracker`: every
@@ -829,11 +829,33 @@ migration itself.
   verification to convert safely — not a mechanism to build. Real
   future work, same shape as B1.4's actual subsystem migration.
 
-**Not wired into the live tick loop this pass** — same discipline as
-B1/B2: no import from `reactivity.py` exists in `simulation/engine.py`,
-and both primitives have only ever been exercised against synthetic
-task sets (`scripts/verify_scheduler.py`, extended with 5 new B3
-checks alongside the existing 5 B2 ones).
+- [x] **Wired to a real production control point — SHIPPED, v1.34.200.**
+  Explicit user directive ("B3"), same closing sequence as B2/B6.
+  `_update_institution_dormancy`'s own pre-migration body was already a
+  pure `if "month_end" not in events: return` guard with no logic
+  ahead of it — exactly B3.2's own named shape (a discrete "did this
+  happen" signal, not an ongoing state needing B3.1-style edge
+  detection). Its Task is now declared `TriggerKind.ON_EVENT`/
+  `event_types={"month_end"}` instead of `PERIODIC`, moving that guard
+  OUT of the function body and INTO the scheduler's own `_due_and_
+  reason` gate — a real `skipped_clean` (never touching budget/
+  deferral machinery) on every non-month_end tick instead of the
+  function being called and immediately returning every tick.
+  `_tick_once` publishes `"month_end"` into this specific scheduler's
+  real `EventBus` right after `events` is computed, the same source
+  the old internal guard read from directly. Verified directly against
+  a real 3,200-tick drive: the job ran on EXACTLY the real month_end
+  ticks (never more, never fewer), `skipped_clean_count` accounts for
+  every other tick, and a control run with nothing ever published to
+  the EventBus confirms the gate is real (never fires). Same batch,
+  B5.3's `runtime_diagnostics_report` (built v1.34.183, previously
+  unwired for lack of a real subsystem to expose — no longer true) is
+  now wired into `full_diagnostics()['runtime_diagnostics']
+  ['institution_dormancy']`, the first genuinely live (not synthetic)
+  reading through that report function. Verified: `scripts/verify_b3_
+  dirty_events.py` (16 checks); `scripts/verify_b0_runtime_migrations.py`
+  updated to special-case this one now-ON_EVENT job rather than
+  assuming every migration is CRITICAL+PERIODIC.
 
 ## B4 — Dormancy [Hard Rule 4] [PARTIAL — B4.1/B4.3/B4.4 shipped v1.34.166, one real B4.2 pilot candidate ("idle institutions") shipped v1.34.187]
 
@@ -905,7 +927,7 @@ checks alongside the existing 5 B2 ones).
   synthetic counter; wiring that up is real future work, not this
   pass's scope.
 
-## B5 — Continuous profiling [Hard Rules 5, 15] [PARTIAL — B5.1/B5.2/B5.4 shipped v1.34.167, B5.3 shipped v1.34.183, not wired into any real control point]
+## B5 — Continuous profiling [Hard Rules 5, 15] [SHIPPED — B5.1/B5.2/B5.4 shipped v1.34.167, B5.3 shipped v1.34.183, wired to a real live scheduler v1.34.200]
 
 - [x] **B5.1 — Per-task instrumentation, always on — SHIPPED (real
   subset), v1.34.167.** New `hearthmind/simulation/profiling.py`'s
@@ -955,6 +977,24 @@ checks alongside the existing 5 B2 ones).
   STRUCTURAL guarantee `profiling.py` already documents — `Scheduler.
   metrics_for`/`all_metrics` mean every processed task already has a
   real `TaskMetrics` entry, so there is nothing for a CI rule to catch.
+- [x] **Wired to a real, live scheduler — SHIPPED, v1.34.200.**
+  Explicit user request ("build some cheap next tier intel," same
+  batch as B3). The structural blocker named above ("no real engine
+  subsystem running through `Scheduler` yet") is gone as of B0.3/B2/
+  B3 — `full_diagnostics()` now includes `runtime_diagnostics.
+  institution_dormancy`, a real call to `runtime_diagnostics_report`
+  against `SimulationEngine._runtime_scheduler_institution_dormancy`
+  (the same B3-reactive scheduler above) — the first genuinely live
+  (not synthetic-task) reading through that function. Deliberately
+  scoped to one representative scheduler, not an aggregate across all
+  ~57 real per-job schedulers (a real aggregation mechanism is future
+  work, flagged rather than guessed at) — cheap because it's pure
+  read-only composition of already-existing real data, no new
+  tracked state. Still no dedicated `/diagnostics/runtime` HTTP route
+  or dev-console panel — `full_diagnostics()`'s existing raw-JSON dump
+  is the only surface, same depth as `nature_pillar`/`reflection_
+  notebook`. Verified: `scripts/verify_b3_dirty_events.py`'s checks 12-15
+  (the surfaced report matches the real scheduler's own live metrics).
 - [x] **B5.4 — "Explain this tick" — SHIPPED, v1.34.167.** New
   `profiling.py`'s `TickTrace`/`TaskTraceEntry`: `Scheduler.run_tick`
   now builds a full trace EVERY tick (not an opt-in "profiling mode")
