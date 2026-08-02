@@ -1070,6 +1070,70 @@ starts on an explicit instruction naming an item.
       hardware_citizenship.py`, a real replay-hash MATCH (4000 ticks,
       seed 777), and a native-soak MATCH (3 seeds x 3000 ticks).
 
+      **B1 corrected PARTIAL -> SHIPPED + B14.1/B15.3/B15.4 wired —
+      v1.34.203.** Explicit user instruction ("continue B and try
+      closing it this turn so build as many items as possible"). B1's
+      own header still said "not yet wired into the live tick loop" —
+      stale since v1.34.197's B0.3 closure migrated all 56 real
+      `_TICK_JOBS` entries onto B1's own `Task`/`TaskRegistry`
+      machinery; docs-only correction, no code changed.
+
+      B14.1: `SimulationEngine.__init__` builds a real `Snapshot
+      Scheduler` — `max_interval_ticks = config.snapshot_every_ticks`
+      (the exact prior worst-case durability guarantee, UNCHANGED),
+      `min_interval_ticks = snapshot_every_ticks // 2` (real
+      opportunistic tightening via the same daily `is_quiet_window`/
+      backlog history already wired for B7.2/B8.4). `_tick_once`'s old
+      flat `_ticks_since_snapshot` counter is gone, replaced by a real
+      `due()` call. B14.2's FULL/INCREMENTAL kind stays unconsulted —
+      no real diff mechanism exists in `persistence/database.py` to
+      hand a planned kind to.
+
+      B15.3/B15.4, deliberately narrow — never touches the real `llm_
+      pressure` slowdown/pause mechanism (CLAUDE.md's own "Preserve
+      absolutely" names it explicitly). New daily `_maybe_advance_
+      escalation_ladder` observes `llm_pressure_ratio() >= LLM_
+      PRESSURE_SLOWDOWN_START_RATIO` — the SAME threshold the untouched
+      real-time pacing already treats as "pressure begins here."
+      `cognition_budget_for_rung` caps `_schedule_due_cognition`'s
+      per-tick LLM-call count — a genuine no-op at every rung except
+      sustained rung-5 pressure (budget 1,000,000 -> 3). WHICH agents
+      fill the budget stays entirely the simulation's own staggered-
+      slot/significance ordering. `full_diagnostics()['escalation_
+      ladder']` surfaces the real rung/streak/budget/history.
+
+      New `scripts/verify_b14_persistence_scheduling.py` (8 checks)/
+      `scripts/verify_b15_escalation_ladder.py` (17 checks) — one real
+      test-isolation bug caught before shipping (the "unbounded
+      budget" B15 scenario initially undercounted because B2's own
+      independent backpressure ceiling was also active; fixed by
+      mocking it for that one scenario, same isolation discipline
+      `verify_b6_adaptive_concurrency.py` already established). See
+      docs/HEARTHBENCH-RUNTIME-2026-07-23.md's B1/B14/B15 sections for
+      full detail. Verified via both scripts, `verify_task_graph.py`/
+      `verify_scheduler.py`/`verify_runtime_invariant.py`/`verify_b0_
+      runtime_migrations.py`/`verify_tuning.py`/`verify_b6_adaptive_
+      concurrency.py`/`verify_b2_broadcast_budget.py`/`verify_b3_
+      dirty_events.py`/`verify_dormancy.py`/`verify_runtime_
+      diagnostics.py`/`verify_hardware_profile.py`/`verify_b7_hardware_
+      citizenship.py`/`verify_b8_predictive_scheduling.py`, a real
+      replay-hash MATCH (4000 ticks, seed 777), and a native-soak MATCH
+      (3 seeds x 3000 ticks).
+
+      **What's still open in Part B, honestly, after this pass**:
+      B4.2's four remaining candidates (forgotten traditions, inactive
+      settlements, distant wildlife, unused ideas — each needs a real
+      lossless elapsed-tick reconstruction); B9.3 (a full ~200-site
+      timescale-mismatch audit); B10.2 (72 of ~89 flagged sites);
+      B11/B12/B13 (Hierarchical memory, History compression,
+      Optimization hypotheses — each needs a real first consumer/
+      trained-loop instance); B14.2/B14.3 (no diff-format/batched-write
+      mechanism exists to consult); B15.5 (`reference_mode` unused — no
+      HearthBench runner exists yet to request a pinned profile). None
+      of these was rushed through — each genuinely needs its own larger
+      design decision or live-diagnostic-driven judgment call, per this
+      project's own "never big-bang" discipline.
+
       **B4.2 pilot ("idle institutions") — SHIPPED, v1.34.187.**
       Explicit user choice via `AskUserQuestion` among B4.2's five named
       candidates, after an investigation found the other four (forgotten

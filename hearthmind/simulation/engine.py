@@ -111,6 +111,8 @@ from hearthmind.simulation.tuning import BangBangController, TunableRegistry, re
 from hearthmind.simulation.runtime_diagnostics import runtime_diagnostics_report
 from hearthmind.simulation.hardware_profile import GoodCitizenPolicy, HostProbe, MachineProfile, host_fingerprint, select_strategy
 from hearthmind.simulation.forecasting import is_quiet_window
+from hearthmind.simulation.persistence_scheduling import SnapshotPolicy, SnapshotScheduler
+from hearthmind.simulation.escalation import CognitionBudget, EscalationLadder, Rung
 from hearthmind.llm.client import build_llm_client, fetch_llama_server_metrics
 from hearthmind.llm.review_diagnostics import context_reflects_any
 from hearthmind.llm.json_schemas import schema_for_task
@@ -1146,6 +1148,25 @@ of whether it goes on to skip its own tuning check — roughly a
 month's worth of daily samples, enough for `is_quiet_window` to judge
 "has load stayed low for a good while," never a single lucky reading."""
 
+ESCALATION_COGNITION_BASE_BUDGET = 1_000_000
+"""Tier 5 B15.4's `CognitionBudget` at every rung except `REDUCE_
+COGNITION_BREADTH` (rung 5) — a number no real tick's `_schedule_due_
+cognition` per-tick due-list could ever reach (staggered daily slots
+already bound it far below population size), so rungs 1-4 leave real
+per-tick LLM cognition scheduling completely untouched, matching the
+doc's own framing that only rung 5 does real, visible work."""
+
+ESCALATION_COGNITION_REDUCED_BUDGET = 3
+"""Tier 5 B15.4's `CognitionBudget` at rung 5 (`REDUCE_COGNITION_
+BREADTH`) — a real cap on how many core-cast agents may spend an LLM
+cognition call in one tick once sustained pressure has exhausted rungs
+1-4. A reasoned floor, not a live measurement: high enough that a
+triggered emergency (grief, hunger) can still usually get through, low
+enough to be a genuine reduction from the effectively-unbounded normal
+budget above. WHICH agents fill this budget stays entirely `due_for_
+cognition`'s own staggered-slot/significance ordering — B15.4's own
+"never a selection" guarantee."""
+
 BROADCAST_SUBSYSTEM_BUDGET_SECONDS = 0.015
 """Tier 5 B2's real control point: `_maybe_broadcast` (the per-tick
 WebSocket payload build — agents/buildings/summary/etc., explicitly
@@ -1725,7 +1746,28 @@ class SimulationEngine:
         self.config = config
         self.world = world
         self._stop_event = asyncio.Event()
-        self._ticks_since_snapshot = 0
+        # Tier 5 B14.1's real control point (explicit user instruction:
+        # "continue B and try closing it this turn"): a real
+        # `SnapshotScheduler` replaces the old flat `_ticks_since_
+        # snapshot >= snapshot_every_ticks` check. `max_interval_ticks`
+        # is kept at the exact configured `snapshot_every_ticks` — the
+        # existing worst-case durability guarantee (a snapshot always
+        # happens by this point, regardless of load) is UNCHANGED.
+        # `min_interval_ticks` is set to half that, so a genuinely
+        # LLM-quiet stretch (the same real `is_quiet_window` signal
+        # B8.4/B7.2 already wired) can opportunistically snapshot more
+        # often — real, low-risk added durability, never less frequent
+        # than before. Snapshot cadence has no bearing on deterministic
+        # `World.tick()` state, so this can't affect `verify_replay_
+        # hash.py`. B14.2 (`plan()`'s FULL/INCREMENTAL kind) is
+        # deliberately NOT called here — `save_snapshot` has no real
+        # diff/incremental-write mechanism to hand a planned kind to,
+        # so consulting it would be decorative, not real; stays flagged
+        # future work per persistence_scheduling.py's own module note.
+        self._snapshot_scheduler = SnapshotScheduler(SnapshotPolicy(
+            min_interval_ticks=max(1, config.snapshot_every_ticks // 2),
+            max_interval_ticks=config.snapshot_every_ticks,
+        ))
         self._broadcaster = broadcaster
         self._last_tick_duration_ms = 0.0
         self._tick_durations_ms: deque[float] = deque(maxlen=500)
@@ -1831,6 +1873,23 @@ class SimulationEngine:
         # (the storage micro-benchmark) rather than running it blindly
         # every month regardless of load.
         self._recent_llm_backlog_samples: deque[float] = deque(maxlen=RECENT_LLM_BACKLOG_SAMPLES_MAX)
+
+        # Tier 5 B15.3/B15.4's real control point (explicit user
+        # instruction: "continue B and try closing it this turn"):
+        # `EscalationLadder` observes the SAME `llm_pressure_ratio()`
+        # reading `run_forever`'s own real-time pacing already acts on
+        # (LLM_PRESSURE_SLOWDOWN_START_RATIO is the threshold both this
+        # and that mechanism now agree "pressure" begins at) — but this
+        # wiring never touches real-time tick pacing itself (CLAUDE.md's
+        # "Preserve absolutely" names that mechanism explicitly). It
+        # only feeds `cognition_budget_for_rung` into `_schedule_due_
+        # cognition`'s own per-tick LLM-call gate (see there) — a
+        # genuinely additive, narrower control point. `reference_mode`
+        # stays False (a live deployment, not a HearthBench reference
+        # run) — B15.5's pin is real future work once HearthBench's own
+        # runner exists to request one.
+        self._escalation_ladder = EscalationLadder()
+        self._cognition_budget = CognitionBudget(count=ESCALATION_COGNITION_BASE_BUDGET)
 
         self._reserved_this_tick = 0
         """Jobs actually scheduled (a task created) so far THIS tick,
@@ -3438,6 +3497,32 @@ class SimulationEngine:
             except OSError:
                 pass
 
+    def _maybe_advance_escalation_ladder(self, events: list[str]) -> None:
+        """Tier 5 B15.3/B15.4's real control point (explicit user
+        instruction: "continue B and try closing it this turn").
+        Daily, same cadence as `_maybe_tune_llm_concurrency`/`_maybe_
+        refresh_machine_profile`. `pressured` reuses `LLM_PRESSURE_
+        SLOWDOWN_START_RATIO` — the exact threshold `run_forever`'s own
+        real-time tick pacing already treats as "pressure begins here"
+        — so this ladder and that untouched, preserved mechanism agree
+        on what counts as pressure, without this ever driving pacing
+        itself.
+
+        `EscalationLadder.observe` moves at most one rung per call, per
+        its own contract; `cognition_budget_for_rung` is recomputed
+        every call (cheap, a bare dataclass) and cached in `self.
+        _cognition_budget` for `_schedule_due_cognition`'s per-tick
+        consumption — a real change is only ever visible once rung 5
+        (`REDUCE_COGNITION_BREADTH`) is actually reached, per B15.4's
+        own "only rung 5 does real, visible work" framing."""
+        if "day_end" not in events:
+            return
+        pressured = self.llm_pressure_ratio() >= LLM_PRESSURE_SLOWDOWN_START_RATIO
+        self._escalation_ladder.observe(self.world.clock.tick_count, pressured)
+        self._cognition_budget = self._escalation_ladder.cognition_budget_for_rung(
+            ESCALATION_COGNITION_BASE_BUDGET, ESCALATION_COGNITION_REDUCED_BUDGET,
+        )
+
     def llm_pressure_ratio(self) -> float:
         """`_effective_backlog() / _current_backpressure_limit()` — 1.0
         means the queue is exactly at the (already-adaptive) limit, 2.0
@@ -4042,6 +4127,7 @@ class SimulationEngine:
         ("_schedule_due_dialogue", _JOB_NO_ARGS),
         ("_schedule_voice_dialogue", _JOB_NO_ARGS),
         ("_maybe_refresh_machine_profile", _JOB_EVENTS),
+        ("_maybe_advance_escalation_ladder", _JOB_EVENTS),
     )
 
     # B0.3's real migrations: `_TICK_JOBS` entries named here are NOT
@@ -4370,11 +4456,11 @@ class SimulationEngine:
         if broadcast_report.errors:
             raise RuntimeError(f"runtime-scheduled task(s) errored: {broadcast_report.errors}")
 
-        self._ticks_since_snapshot += 1
-        if self._ticks_since_snapshot >= self.config.snapshot_every_ticks:
+        if self._snapshot_scheduler.due(
+            self.world.clock.tick_count, list(self._recent_llm_backlog_samples), float(self._backpressure_limit),
+        ):
             save_snapshot(self.conn, self.world)
             self._snapshots_saved += 1
-            self._ticks_since_snapshot = 0
             logger.debug("Snapshot saved at tick %s.", self.world.clock.tick_count)
 
     # --- Phase B: per-agent cognition (goals) -------------------------------
@@ -4612,6 +4698,17 @@ class SimulationEngine:
             due = due + [agent for agent in triggered if agent.id not in due_ids]
         backlog = self._effective_backlog()
         population = self.world.population
+        # Tier 5 B15.4's real control point: `self._cognition_budget`
+        # (`EscalationLadder.cognition_budget_for_rung`, refreshed daily
+        # by `_maybe_advance_escalation_ladder`) caps how many agents
+        # THIS TICK may go on to spend a real LLM call below — see the
+        # `use_llm` gate. At every rung except sustained rung-5 pressure
+        # this cap is effectively unreachable (`ESCALATION_COGNITION_
+        # BASE_BUDGET`), a genuine no-op; WHICH agents fill whatever
+        # budget remains stays entirely `due`'s own staggered-slot/
+        # significance ordering, per B15.4's own "never a selection"
+        # guarantee — this counter only ever says how many, never who.
+        llm_cognition_calls_this_tick = 0
         for agent in due:
             if agent.id in self._inflight_cognition_agent_ids:
                 continue
@@ -4681,6 +4778,7 @@ class SimulationEngine:
                 and self._llm_calls_today < self.config.llm_max_calls_per_day
                 and not forced
                 and (is_triggered or self._is_significant_moment(agent))
+                and llm_cognition_calls_this_tick < self._cognition_budget.count
             )
             if not use_llm:
                 plan_intent = agent.plan["intent"] if agent.plan else ""
@@ -4720,6 +4818,7 @@ class SimulationEngine:
                 continue
             backlog += 1  # count this tick's own scheduling against the gate
             self._reserved_this_tick += 1  # ...and against every other job type's check this tick
+            llm_cognition_calls_this_tick += 1  # ...and against B15.4's cognition_budget_for_rung cap
             self._inflight_cognition_agent_ids.add(agent.id)
             home = self._settlement_by_id(agent.settlement_id)
             latest_tradition = home.traditions[-1] if home.traditions else ""
@@ -14664,6 +14763,27 @@ class SimulationEngine:
                 "recent_llm_backlog_is_quiet_window": is_quiet_window(
                     list(self._recent_llm_backlog_samples), float(self._backpressure_limit),
                 ),
+            },
+            # Tier 5 B15.3/B15.4's real control point: the ladder's real
+            # current rung, its own logged transition history (bounded,
+            # newest-last), and the cognition budget it's currently
+            # producing for `_schedule_due_cognition` — `is_reduced`
+            # names the one rung (5) where that budget genuinely differs
+            # from the effectively-unbounded normal case.
+            "escalation_ladder": {
+                "current_rung": self._escalation_ladder.current_rung.name,
+                "streak_at_current_rung": self._escalation_ladder.streak_at_current_rung,
+                "cognition_budget": self._cognition_budget.count,
+                "is_reduced": self._escalation_ladder.current_rung is Rung.REDUCE_COGNITION_BREADTH,
+                "history_recent": [
+                    {
+                        "tick": event.tick,
+                        "from_rung": event.from_rung.name,
+                        "to_rung": event.to_rung.name,
+                        "reason": event.reason,
+                    }
+                    for event in self._escalation_ladder.history[-10:]
+                ],
             },
             "peak_memory_rss_mb": peak_rss_mb,
             "system_memory": system_memory_report(),

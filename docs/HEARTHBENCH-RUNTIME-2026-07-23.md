@@ -670,7 +670,7 @@ pack.
   ticks) — MATCH. `pyflakes` clean on both touched files (only the
   six known pre-existing forward-ref findings in `engine.py`).
 
-## B1 — Task declaration & the work graph [PARTIAL — B1.1-B1.4 shipped v1.34.162, not yet wired into the live tick loop]
+## B1 — Task declaration & the work graph [SHIPPED — B1.1-B1.4 shipped v1.34.162; wired into the live tick loop via B0.3, fully closed v1.34.197 — stale header corrected v1.34.203]
 
 - [x] **B1.1 — `Task` descriptor — SHIPPED, v1.34.162.**
   `hearthmind/simulation/task_graph.py`'s frozen `Task` dataclass,
@@ -697,17 +697,25 @@ pack.
   call site can use as-is, with `writes={LEGACY_WILDCARD}` so it always
   conflicts with (and thus stays in a real, stable total order behind/
   ahead of) every other task, including other legacy ones. **What
-  "shipped" does NOT mean here**, stated plainly: no real subsystem has
-  actually been migrated onto this graph yet, and the graph is not
+  "shipped" meant AT THE TIME**, stated plainly: no real subsystem had
+  actually been migrated onto this graph yet, and the graph was not
   called from anywhere in `simulation/engine.py`'s real tick loop — the
-  ~200 real schedule points (B0.3) are completely untouched. This pass
-  ships the graph/registry/ordering machinery and the shim mechanism
-  the future incremental migration will use; the migration itself, and
+  ~200 real schedule points (B0.3) were completely untouched. This pass
+  shipped the graph/registry/ordering machinery and the shim mechanism
+  the future incremental migration would use; the migration itself, and
   B2's budgeted scheduler that would actually execute a `TaskRegistry`,
-  remain fully open. Verified against `scripts/verify_replay_hash.py`
-  in spirit only (nothing changed that a replay-hash check could catch
-  — no engine code path was touched); a real per-subsystem migration
-  pass must re-run it for real, per B1.4's own instruction.
+  were the real remaining work.
+
+  **Stale-header correction, v1.34.203** (explicit user instruction:
+  "continue B and try closing it this turn"): the header above still
+  read "not yet wired into the live tick loop" long after B0.3 (v1.34.
+  193-197) actually did exactly that — every one of the 56 real
+  `_TICK_JOBS` entries now runs through a real `TaskRegistry`+
+  `Scheduler` pair built from this module's own `Task`/`TaskRegistry`/
+  `topological_order` machinery, verified against `scripts/verify_
+  replay_hash.py` for real at each migration step. B1 is fully SHIPPED
+  and wired, not PARTIAL — this is a docs-only correction, no code
+  changed.
 
 ## B2 — Budgets & scheduling [Hard Rules 2, 9] [SHIPPED — B2.1-B2.5 built v1.34.164/v1.34.183, wired to a real production control point v1.34.199]
 
@@ -1717,7 +1725,7 @@ retune of a constant like `llm_max_concurrent` — the exact constant
 whose own long documented CLAUDE.md history (4→2→1→2→1→2) this whole
 item exists to eventually automate.
 
-## B14 — Persistence & background work [PARTIAL — B14.1-B14.3 shipped v1.34.181, not wired into any real control point]
+## B14 — Persistence & background work [PARTIAL — B14.1-B14.3 shipped v1.34.181; B14.1 wired to a real control point v1.34.203]
 
 - [x] **B14.1 — Scheduled, budgeted, idle-preferring, adaptive-
   frequency snapshotting — SHIPPED, v1.34.181.** New `hearthmind/
@@ -1756,19 +1764,36 @@ item exists to eventually automate.
   clamped to `max_batch_bytes`; an unmeasured or zero/invalid speed
   falls back to the conservative floor rather than guessing.
 
-**Not wired into any real control point** — no import from
-`persistence_scheduling.py` exists in `simulation/engine.py`/
-`persistence/database.py`; the real snapshot cadence there stays
-fixed, `plan()`'s `SnapshotKind` is never consulted by any real write
-path, and `batch_size_for_storage` has never been called against a
-live `HostProbe.sample()` reading. Real future work: wiring `Snapshot
-Scheduler.due`/`plan` into `persistence/database.py`'s actual save
-cadence (needs a real `diff_fn` against that module's snapshot
-format, which doesn't exist yet — B14.2 only decides WHICH kind is
-due) and threading a live `HostProbe` sample into `batch_size_for_
-storage` at the real write call site.
+- [x] **B14.1 wired to a real control point — SHIPPED, v1.34.203.**
+  Explicit user instruction ("continue B and try closing it this
+  turn"). `SimulationEngine.__init__` now builds a real `Snapshot
+  Scheduler` (`self._snapshot_scheduler`) — `max_interval_ticks =
+  config.snapshot_every_ticks` (the EXACT prior worst-case durability
+  guarantee, unchanged), `min_interval_ticks = snapshot_every_ticks //
+  2` (a genuine opportunistic tightening reusing the same real daily
+  `is_quiet_window`/backlog-history signal B7.2/B8.4 already wired).
+  `_tick_once`'s old flat `_ticks_since_snapshot >= snapshot_every_
+  ticks` counter is gone — replaced by a real `self._snapshot_
+  scheduler.due(tick, backlog_samples, capacity)` call. Verified
+  directly through the real engine: a genuinely BUSY backlog history
+  never snapshots before the (unchanged) hard ceiling; a genuinely
+  QUIET one can snapshot as early as the new tighter floor; the "first
+  check never fires" contract holds through the real `_tick_once`
+  path, not just the standalone module; the real `snapshots` table
+  row count matches the engine's own counter exactly. New `scripts/
+  verify_b14_persistence_scheduling.py` (8 checks).
 
-## B15 — Semantic safety: the determinism guarantee [Hard Rule 1] [PARTIAL — B15.1-B15.5 shipped v1.34.102/v1.34.182, not wired into any real control point]
+**B14.2/B14.3 remain NOT wired** — `plan()`'s `SnapshotKind` is
+deliberately never consulted (`save_snapshot` has no real diff/
+incremental-write mechanism to hand a planned kind to; calling `plan()`
+here would be decorative, not real — same honest gap as before this
+pass), and `batch_size_for_storage` has never been called against a
+live `HostProbe.sample()` reading (no batched-write mechanism exists
+in `persistence/database.py` to size). Real future work, unchanged:
+a genuine incremental-snapshot storage format would need to exist
+first for B14.2 to have anything real to decide between.
+
+## B15 — Semantic safety: the determinism guarantee [Hard Rule 1] [PARTIAL — B15.1-B15.5 shipped v1.34.102/v1.34.182; B15.3/B15.4 wired to a real control point v1.34.203]
 
 *This deserves its own section because Hard Rule 1 and adaptive LLM
 scheduling are in genuine tension, and the resolution must be explicit.*
@@ -1830,19 +1855,45 @@ scheduling are in genuine tension, and the resolution must be explicit.*
   `World`/save-file field to attach to, which this standalone module
   deliberately doesn't touch.
 
-**Not wired into any real control point** — no import from
-`escalation.py` exists in `simulation/engine.py`/`server.py`; the real
-existing `llm_pressure` slowdown/pause mechanism (rungs 3/4, already
-implemented per this item's own text) is NOT yet re-expressed through
-this `EscalationLadder` — it stays its own independent, already-live
-mechanism, same "metadata/infrastructure now, live rewire later"
-discipline every prior B-item holds. Real future work: threading the
-real `llm_pressure_ratio()` signal into `EscalationLadder.observe` as
-the `pressured` input, wiring `cognition_budget_for_rung` into the
-per-agent cognition scheduling loop it would actually cap, and adding
-a UI indicator for rung 5 specifically ("declared, visible, logged...
-never silent," per the item's own text — no UI surfacing exists yet
-since nothing calls this module live).
+- [x] **B15.3/B15.4 wired to a real control point — SHIPPED, v1.34.203.**
+  Explicit user instruction ("continue B and try closing it this
+  turn"). Deliberately narrow scope: this NEVER touches the real
+  existing `llm_pressure` slowdown/pause mechanism (rungs 3/4) —
+  CLAUDE.md's "Preserve absolutely" names that real-time tick-pacing
+  mechanism explicitly, and it stays completely untouched. New
+  `SimulationEngine._maybe_advance_escalation_ladder` (daily, same
+  cadence as `_maybe_tune_llm_concurrency`/`_maybe_refresh_machine_
+  profile`) observes `llm_pressure_ratio() >= LLM_PRESSURE_SLOWDOWN_
+  START_RATIO` — the EXACT threshold the untouched real-time pacing
+  mechanism already treats as "pressure begins here," so the ladder
+  and that mechanism agree on what counts as pressure without one
+  driving the other. `cognition_budget_for_rung` is recomputed daily
+  and cached (`self._cognition_budget`); `_schedule_due_cognition`'s
+  own per-tick `use_llm` gate now also requires `llm_cognition_calls_
+  this_tick < self._cognition_budget.count` — at every rung except
+  sustained rung-5 pressure this is `ESCALATION_COGNITION_BASE_BUDGET`
+  (1,000,000 — no real due-list could ever reach it, a genuine no-op);
+  at rung 5 it's `ESCALATION_COGNITION_REDUCED_BUDGET` (3), a real
+  reduction. WHICH agents fill whatever budget remains stays entirely
+  `due_for_cognition`'s own staggered-slot/significance ordering —
+  the counter only ever says how many, never who, per B15.4's own
+  "never a selection" guarantee, verified directly. Rung 5's own
+  degradation is now real and visible via `full_diagnostics()
+  ['escalation_ladder']` (current rung, streak, live cognition budget,
+  `is_reduced`, and the bounded logged transition history) — the "UI
+  indicator for rung 5... declared, visible, logged, never silent"
+  the item's own text asked for. New `scripts/verify_b15_escalation_
+  ladder.py` (17 checks — the daily job only fires through the real
+  `_TICK_JOBS` dispatch on `day_end`; sustained pressure escalates the
+  real ladder one rung at a time up to rung 5 and only then reduces
+  the real budget; clearing pressure de-escalates and restores it; an
+  unbounded budget lets every genuinely-eligible core-cast agent in
+  one tick's due list get a real scheduled call; a reduced rung-5
+  budget caps it exactly, with the rest correctly falling back rather
+  than being silently dropped; the shared pressure threshold is
+  exact). B15.5 (`reference_mode`) remains explicitly unused in
+  production — no HearthBench runner exists yet to request a pinned
+  reference profile, real future work unchanged from before this pass.
 
 - [ ] **B15.6 — Record the profile in the save and the diagnostics:**
   host fingerprint, effective cognition budget, and the full rung-5

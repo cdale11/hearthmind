@@ -742,6 +742,64 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.203)
+
+Explicit user instruction: "Continue B and try closing it this turn so
+build as many items as possible." Two more real control-point wirings,
+plus a docs-only correction that closes a third item outright.
+
+**B1 corrected PARTIAL -> SHIPPED (docs-only).** Its header still said
+"not yet wired into the live tick loop" — stale since v1.34.197, when
+B0.3 fully migrated all 56 real `_TICK_JOBS` entries onto B1's own
+`Task`/`TaskRegistry`/`topological_order` machinery. No code changed.
+
+**B14.1 (snapshotting) wired.** `SimulationEngine.__init__` builds a
+real `SnapshotScheduler` — `max_interval_ticks = config.snapshot_
+every_ticks` (the exact prior worst-case durability guarantee,
+UNCHANGED), `min_interval_ticks = snapshot_every_ticks // 2` (real
+opportunistic tightening, reusing the daily `is_quiet_window`/backlog
+history already wired for B7.2/B8.4). `_tick_once`'s old flat counter
+is gone, replaced by a real `due()` call. B14.2's FULL/INCREMENTAL
+kind stays deliberately unconsulted — `save_snapshot` has no real
+diff mechanism to hand a kind to.
+
+**B15.3/B15.4 (escalation ladder + cognition budget) wired,
+deliberately narrow — never touches the real `llm_pressure` slowdown/
+pause mechanism** (CLAUDE.md's own "Preserve absolutely" names that
+mechanism explicitly). New daily `_maybe_advance_escalation_ladder`
+observes `llm_pressure_ratio() >= LLM_PRESSURE_SLOWDOWN_START_RATIO`
+— the SAME threshold the untouched real-time pacing already treats as
+"pressure begins here." `cognition_budget_for_rung` caps `_schedule_
+due_cognition`'s per-tick LLM-call count — a genuine no-op at every
+rung except sustained rung-5 pressure (budget drops from 1,000,000 to
+3). WHICH agents fill the budget stays entirely the simulation's own
+staggered-slot/significance ordering — the counter only ever says how
+many, never who. `full_diagnostics()['escalation_ladder']` surfaces
+the real rung/streak/budget/history.
+
+New `scripts/verify_b14_persistence_scheduling.py` (8 checks) and
+`scripts/verify_b15_escalation_ladder.py` (17 checks) — all pass. One
+real test-isolation bug caught before shipping: the "unbounded
+budget" B15 scenario initially undercounted because B2's own
+independent backpressure ceiling was also active in the test config
+— fixed by isolating it via a mock, same discipline `verify_b6_
+adaptive_concurrency.py` already established for a similar cross-item
+interaction.
+
+**What's still open in Part B, honestly**: B4.2's four remaining
+candidates, B9.3 (full timescale audit), B10.2 (72 of ~89 flagged
+sites), B11/B12/B13 (each needs a real first consumer/trained-loop
+instance), B14.2/B14.3 (no diff-format/batched-write mechanism to
+consult), B15.5 (`reference_mode` unused — no HearthBench runner
+exists yet). None rushed through — each needs its own larger design
+decision or live-diagnostic judgment call.
+
+Verified: both new scripts (25 checks total) — all pass. Full existing
+verify-script suite re-run clean. A real replay-hash check (4000
+ticks, seed 777) — MATCH. `scripts/verify_native_soak.py` (3 seeds x
+3000 ticks) — MATCH. `pyflakes` clean (only the six known pre-existing
+forward-ref findings in `engine.py`).
+
 ## Current state (v1.34.202)
 
 Explicit user follow-up: "B8 and MachineProfile persistence and

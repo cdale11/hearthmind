@@ -4,6 +4,117 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.203] — Part B: B14.1 + B15.3/B15.4 wired, B1's stale header corrected
+
+Explicit user instruction: "Continue B and try closing it this turn so
+build as many items as possible." Two more real control-point wirings
+in one batch, plus a docs-only correction that closes a third item
+outright.
+
+**B1 corrected from PARTIAL to SHIPPED (docs-only).** B1's own header
+had read "not yet wired into the live tick loop" since v1.34.162 —
+stale since v1.34.197, when B0.3's migration fully closed and every
+one of the 56 real `_TICK_JOBS` entries started running through a
+real `TaskRegistry`+`Scheduler` pair built from B1's own `Task`/
+`topological_order` machinery. No code changed; the doc simply hadn't
+caught up.
+
+**B14.1 (Scheduled, budgeted, idle-preferring snapshotting) wired.**
+`SimulationEngine.__init__` now builds a real `SnapshotScheduler`
+(`self._snapshot_scheduler`) — `max_interval_ticks = config.snapshot_
+every_ticks` (the exact prior worst-case durability guarantee,
+UNCHANGED) and `min_interval_ticks = snapshot_every_ticks // 2` (a
+genuine opportunistic tightening, reusing the same real daily `is_
+quiet_window`/backlog-history signal B7.2/B8.4 already wired last
+pass). `_tick_once`'s old flat `_ticks_since_snapshot >= snapshot_
+every_ticks` counter is gone, replaced by a real `self._snapshot_
+scheduler.due(tick, backlog_samples, capacity)` call. B14.2's
+FULL/INCREMENTAL kind selection is deliberately NOT consulted —
+`save_snapshot` has no real diff/incremental-write mechanism to hand
+a planned kind to, so calling `plan()` would be decorative, not real.
+
+New `scripts/verify_b14_persistence_scheduling.py` (8 checks): the
+real policy an engine builds matches `config.snapshot_every_ticks`
+exactly on the (unchanged) max bound and is genuinely tighter on the
+min; a genuinely BUSY backlog history never snapshots before the old
+hard ceiling; a genuinely QUIET one snapshots as early as the new
+tighter floor; the "first check never fires" contract holds through
+the real `_tick_once` path; the real `snapshots` table row count
+matches the engine's own counter (accounting for the pre-existing
+genesis snapshot `load_or_create` already writes at construction).
+
+**B15.3/B15.4 (the escalation ladder + cognition budget) wired,
+deliberately narrow.** This NEVER touches the real existing `llm_
+pressure` slowdown/pause mechanism — CLAUDE.md's "Preserve absolutely"
+names that real-time tick-pacing mechanism explicitly, and it stays
+completely untouched. New `SimulationEngine._maybe_advance_escalation_
+ladder` (daily) observes `llm_pressure_ratio() >= LLM_PRESSURE_
+SLOWDOWN_START_RATIO` — the exact threshold the untouched pacing
+mechanism already treats as "pressure begins here," so the two agree
+on what counts as pressure without one driving the other.
+`cognition_budget_for_rung` is recomputed daily and cached; `_schedule_
+due_cognition`'s own per-tick `use_llm` gate now also requires
+`llm_cognition_calls_this_tick < self._cognition_budget.count` — a
+genuine no-op at every rung except sustained rung-5 pressure
+(`ESCALATION_COGNITION_BASE_BUDGET = 1,000,000`, unreachable by any
+real due list), a real cap at rung 5 (`ESCALATION_COGNITION_REDUCED_
+BUDGET = 3`). WHICH agents fill whatever budget remains stays entirely
+`due_for_cognition`'s own staggered-slot/significance ordering — the
+counter only ever says how many, never who, per B15.4's own "never a
+selection" guarantee. `full_diagnostics()['escalation_ladder']`
+surfaces the real current rung, streak, live budget, `is_reduced`, and
+bounded transition history — the real "UI indicator for rung 5...
+never silent" B15.3's own text asked for.
+
+New `scripts/verify_b15_escalation_ladder.py` (17 checks): the daily
+job only fires through the real `_TICK_JOBS` dispatch on `day_end`,
+never a synthetic call; sustained pressure escalates the real ladder
+one rung at a time up to rung 5 and only then reduces the real budget;
+clearing pressure de-escalates and restores it; an unbounded budget
+lets every genuinely-eligible core-cast agent in one tick's due list
+get a real (mocked) LLM call scheduled; a reduced rung-5 budget caps
+it exactly, with the rest correctly falling back to the deterministic
+path rather than being silently dropped; the shared pressure threshold
+is exact at the boundary. One real test-isolation fix needed during
+verification: the "unbounded budget" scenario initially undercounted
+because B2's own independent concurrency-derived backpressure ceiling
+(a genuinely separate real gate, unrelated to this pass) was also
+active in the test's default config — fixed by mocking `_current_
+backpressure_limit` for that one scenario, isolating the B15.4 cap
+being tested from B2's own already-verified gate.
+
+**What's still open in Part B, honestly**: B4.2 (four remaining named
+candidates — forgotten traditions, inactive settlements, distant
+wildlife, unused ideas — each needs a real lossless elapsed-tick
+reconstruction to stay B15's own `TWO_PART_GUARANTEE`-compliant, not
+attempted this pass); B9.3 (a real audit of ~200 per-tick call sites
+for timescale mismatch — genuinely large, not attempted); B10.2 (72
+of ~89 flagged sites remain unconverted past the four existing pilot
+conversions); B11/B12/B13 (Hierarchical memory, History compression,
+Optimization hypotheses — each still needs a real first consumer/
+trained-loop instance, none exists yet); B14.2/B14.3 (no real
+diff-format/batched-write mechanism exists to consult); B15.5
+(`reference_mode` unused in production — no HearthBench runner exists
+yet to request a pinned profile). None of these was rushed through
+this pass — each genuinely needs either a larger design decision or a
+real live-diagnostic-driven judgment call this project's own "never
+big-bang" discipline reserves for its own turn.
+
+Verified: `scripts/verify_b14_persistence_scheduling.py` (8 checks)/
+`scripts/verify_b15_escalation_ladder.py` (17 checks) — all pass,
+first run except the one test-isolation fix noted above (a bug in the
+verify script itself, not the module under test). `verify_task_
+graph.py`/`verify_scheduler.py`/`verify_runtime_invariant.py`/
+`verify_b0_runtime_migrations.py`/`verify_tuning.py`/`verify_b6_
+adaptive_concurrency.py`/`verify_b2_broadcast_budget.py`/`verify_b3_
+dirty_events.py`/`verify_dormancy.py`/`verify_runtime_diagnostics.py`/
+`verify_hardware_profile.py`/`verify_b7_hardware_citizenship.py`/
+`verify_b8_predictive_scheduling.py` re-run clean. A real before/after
+replay-hash check (4000 ticks, seed 777, `--in-process`) — MATCH,
+byte-identical. `scripts/verify_native_soak.py` (3 seeds x 3000
+ticks) — MATCH. `pyflakes` clean on all touched files (only the six
+known pre-existing forward-ref findings in `engine.py`).
+
 ## [1.34.202] — Part B: B8.4 wired + B7.2/B7.3's own flagged gaps closed
 
 Explicit user follow-up: "B8 and MachineProfile persistence and
