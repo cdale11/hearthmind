@@ -31,7 +31,8 @@ Observatory UI direction, or the priority ordering in
 `CONSTITUTION.md`. Those stay exactly as they are. HCA describes how
 the *inside of a Mind* is organised; it does not redraw the pillars.
 
-**It does change** four things, each justified in §3:
+**It does change** five things, each justified in §3 (item 5 added
+2026-08-02, same date, a direct user amendment — see §2.5a):
 
 1. **How the LLM is invoked.** Today ~55 call sites each independently
    ask "is it my turn, and am I backpressured?" Under HCA nothing calls
@@ -47,6 +48,11 @@ the *inside of a Mind* is organised; it does not redraw the pillars.
 4. **What the UI is for.** The map shows the world; a new **Cognitive
    Observatory** shows the mind. This is a deliberate amendment to the
    standing two-surface rule (§6).
+5. **What a specialist is.** Today's forward model is a fixed formula
+   (a hand-set EMA). Under HCA it is a **learned model that keeps
+   improving**, revised from accumulated experience and capable of
+   unlearning a pattern that stopped holding — "a society of learning
+   cognitive processes rather than a collection of fixed modules."
 
 And one further claim that makes the whole thing falsifiable: under
 HCA, **LLM cost per unit of emergence should fall as a world matures**,
@@ -286,6 +292,83 @@ curves, recency, frequency and context priming together.
 utility-based conflict resolution for goal selection.
 **Left:** ACT-R's buffer/module timing model.
 
+### 2.5a Complementary Learning Systems: specialists that adapt, not just observe
+
+**Added 2026-08-02, explicit user amendment to the filed architecture:**
+*"Every subsystem should itself be capable of adaptation. Specialists
+should not remain static feature extractors forever. They should
+accumulate experience, revise internal models, forget obsolete
+assumptions, and improve predictions over time. The architecture
+should evolve toward a society of learning cognitive processes rather
+than a collection of fixed modules communicating through a
+workspace."*
+
+This is a real amendment to Layer 1 as originally specified (§3), not
+a rewording. The original text gave every specialist a `predict()`
+method but left *how the forward model gets better* unstated — in
+practice this meant "a hand-set EMA," which is a feature extractor,
+not a learner. The amendment makes that a defect, not a simplification
+worth keeping.
+
+**Evidence-supported principle taken:** Complementary Learning Systems
+theory (McClelland, McNaughton & O'Reilly 1995; Kumaran, Hassabis &
+McClelland 2016) — the mechanism biological memory actually uses to
+get *both* fast adaptation and stable long-term knowledge without one
+destroying the other. A fast, high-plasticity store (hippocampus)
+absorbs new experience immediately; a slow, high-capacity store
+(neocortex) consolidates it later via **interleaved replay**, which is
+precisely what prevents new learning from catastrophically overwriting
+old — the specific, well-documented failure mode any naive "just keep
+training the same model on new data" scheme runs into.
+
+This is not a new mechanism to invent: **Tier 6's L5 lifelong-learning
+loop (`ML-ARCHITECTURE-2026-08-01.md`, `hearthmind/ml/lifelong.py`)
+already IS a CLS implementation**, built and verified in v1.34.172, and
+never previously connected to L1 in the HCA design:
+
+- `ReplayBuffer` (Algorithm-R reservoir sampling) is the interleaved-
+  replay half — new experience mixed with a representative sample of
+  everything the model has ever seen, the exact mechanism CLS theory
+  names as the fix for catastrophic forgetting. Verified against the
+  real theoretical reservoir-sampling retention rate, not just "seems
+  to work."
+- `continual_train_mlp` (warm-start fine-tuning, never reinitializing
+  from scratch) is revising an internal model rather than replacing it
+  — "accumulate experience" made literal.
+- `passes_shadow_gate` (L5.3) is how **"forget obsolete assumptions"
+  stays safe rather than reckless**: a retrained candidate replaces the
+  live model only if it doesn't regress a held-out metric. A specialist
+  is allowed to change its mind, but never allowed to silently get
+  worse at its one job.
+- `CheckpointHistory` gives every specialist's own learning a
+  bounded, versioned, inspectable past — directly answers the
+  Observatory's own "show me the learning" panel (§6.2) with real
+  data instead of an aspiration.
+
+**What L6's model-genome evolution (`hearthmind/ml/evolution.py`,
+v1.34.176) adds beyond L5:** L5 is *ontogeny* — one specialist's
+lineage getting better across its own lifetime. L6 is *phylogeny* —
+variation and selection across a whole population of candidate
+specialist configurations (`GenomePopulation.evaluate_and_select`, a
+real μ+λ evolutionary step). Together they are the two axes the user's
+"society of learning cognitive processes" phrase actually names: each
+process learns individually, and populations of processes can be
+selected over. Neither was previously wired to a real L1 specialist
+— see the new Stage G items below (§7).
+
+**Taken:** every L1 specialist gets a `learn()` capacity alongside
+`predict()`/`observe()`/`error()`/`bid()` — see the amended Layer 1
+definition (§3) — backed by L5's replay-buffer-plus-shadow-gate
+pattern specifically, not a bespoke per-specialist scheme.
+**Left:** full biological plausibility (no claim this models an actual
+hippocampus/neocortex split, only the functional replay-plus-gate
+mechanism that theory motivates) and any specialist learning through
+raw backprop on live simulation ticks (learning happens on an offline/
+async cadence against accumulated experience, per Tier 6's own
+"offline training, cheap inference" discipline — the runtime tick loop
+never blocks on gradient computation, same invariant B0 already
+enforces for scheduling).
+
 ### 2.6 SPA / Nengo: semantic pointers, minus the neurons
 
 Eliasmith's Semantic Pointer Architecture represents concepts as
@@ -360,8 +443,8 @@ requirement that this not be a humans-only design.
  │                       ▲ bids (coalitions, carrying salience)
  ├─ L2  WORKING MEMORY ── small, bounded, activation-ranked (ACT-R)
  │                       ▲ prediction errors only
- ├─ L1  SPECIALISTS ───── many, parallel, cheap, always-on.
- │                       predict() / observe() / error() / bid()
+ ├─ L1  SPECIALISTS ───── many, parallel, cheap, always-on, ADAPTIVE.
+ │                       predict() / observe() / error() / bid() / learn()
  └─ L0  SUBSTRATE ─────── deterministic Body. Physics, ecology, economy.
 ```
 
@@ -377,21 +460,41 @@ valid equivalence check for the deterministic layer throughout.
 
 Every existing `_detect_*`, every `FieldGrid` field, every per-tick
 deterministic job is *already* a specialist. The reframe gives them a
-uniform four-method interface:
+uniform five-method interface — **amended 2026-08-02** to add the
+fifth, per the explicit user direction that specialists must not
+remain static feature extractors (§2.5a):
 
 ```
-predict()  → what this specialist expects next (cheap forward model, EMA)
+predict()  → what this specialist expects next (a LEARNED forward model)
 observe()  → what actually happened
 error()    → precision-weighted surprise: |actual − predicted| / (σ + ε)
 bid()      → a coalition proposal, carrying salience, or nothing
+learn()    → revise the forward model from accumulated (predict, observe)
+             pairs — replay-buffered, shadow-gated (§2.5a), never live-tick
+             gradient descent
 ```
 
 **A specialist never calls the LLM.** It bids. This single rule is what
 converts ~55 independent racing call sites into one arbitrated system,
 and it is the mechanical content of "the LLM is one subsystem."
 
+**A specialist is not a fixed function of its inputs.** `predict()`
+consults whatever model `learn()` has most recently produced — a hand-
+set EMA is a legitimate, cheap STARTING point for a young specialist
+with no accumulated experience, never the permanent ceiling. This is
+the difference between "a collection of fixed modules communicating
+through a workspace" (rejected, per the amendment's own wording) and
+"a society of learning cognitive processes": the same specialist that
+bid confidently on tick 1,000 should bid *more accurately* by tick
+100,000, and should be measurably able to unlearn a pattern that
+stopped holding (a predator species going extinct, a trade route
+closing) rather than keep predicting against it forever.
+
 Most specialists will bid essentially never — which is correct, and is
-the fix for §1.3.
+the fix for §1.3. Learning does not raise that rate: `learn()` runs on
+its own async cadence against accumulated `(predict, observe)` pairs
+(the same "offline training, cheap inference" split Tier 6 already
+holds to), never inside the hot bid path.
 
 ### Layer 2 — Working memory
 
@@ -456,6 +559,20 @@ fall as a world matures.** A ten-year-old village should think hard
 *less* often than a young one, about *harder* things. That is both the
 design goal and the falsification test (§8).
 
+**Two distinct learning mechanisms, not one, and both are now real
+(§2.5a).** L4 chunking is *discrete and symbolic* — one resolved
+impasse becomes one cached artifact, keyed by that impasse's exact
+signature; it generalises only as far as future signatures match. L1
+`learn()` is *continuous and statistical* — a specialist's forward
+model gets incrementally better at its one narrow job from ordinary
+`(predict, observe)` pairs, with no impasse required at all. A
+specialist doesn't need to have ever caused a deliberation to still be
+learning; a chunk doesn't need an underlying learned model to be
+useful. They compose: L4's own "Tier 6 model update" artifact type
+*is* L1's `learn()` being triggered as one impasse's resolution, but
+the reverse is not required — most `learn()` calls happen on the
+ordinary async cadence, never touching L4 at all.
+
 ### Layer 5 — Metacognition
 
 Watches Layer 3's own history rather than the world: which coalitions
@@ -505,6 +622,8 @@ client. Every Tier 5 entry in `CLAUDE.md` ends with some variant of
 | Tier 6 L2.1 value head | salience/consequence estimation | direct |
 | Tier 6 L2.2 policy | the cheap resolver tier | direct |
 | Tier 6 L1.1 embedding | semantic-pointer space (§2.6) | direct |
+| Tier 6 L5 lifelong learning (`ml/lifelong.py`) | L1 `learn()`'s implementation — replay buffer + shadow gate (§2.5a) | direct |
+| Tier 6 L6 model-genome evolution (`ml/evolution.py`) | variation/selection across a specialist's candidate configurations (§2.5a) | direct |
 | `cognition/attention.py` `pillar_salience` | an early, partial arbitration | extend |
 | `Pillar` observe/interpret cycle | L1→L2→L3 cycle, under-differentiated | extend |
 | `world/emergence.py` | the bid stream — needs surprise, not just magnitude | extend |
@@ -534,6 +653,12 @@ not as promises:
   metric (§8).
 - **Cross-system surprises appear.** Broadcast means Nature's belief
   can move Innovation without anyone wiring a Nature→Innovation arrow.
+- **Specialists get measurably better at their own job.** A learning
+  specialist's prediction error should trend down over its own
+  lifetime on a stationary signal, and should visibly re-adapt (not
+  stay wrong forever) when the underlying pattern genuinely shifts —
+  the direct test for §2.5a's amendment, tracked live in the
+  Observatory's learning chart (§6.2).
 
 ---
 
@@ -655,12 +780,45 @@ direction naming a specific item.
   while four constants are deleted.
 - **D2** Declarative/procedural separation made architectural.
 
+**Stage G — Learning specialists** *(§2.5a, added 2026-08-02)*
+- **G1** The `learn()` interface on `Task`/the specialist base shape,
+  wired to Tier 6 L5's `ReplayBuffer`/`continual_train_mlp`/`passes_
+  shadow_gate` directly (no new learning mechanism). *Test:* a
+  specialist's own prediction error trends down over its lifetime on a
+  stationary synthetic signal, using the real shadow gate, not a mock.
+- **G2** Wire one real, already-existing L1 specialist to G1 — B8's
+  `WorkloadForecaster` (already flagged in §4 as "an early, partial
+  arbitration") is the natural first target, since it already IS a
+  small trained MLP with no continual-retrain loop attached yet.
+  *Test:* forecast error on held-out real workload data falls after a
+  real `learn()` cycle, and the shadow gate provably rejects a
+  retrain that would have made it worse (same test shape L5.3's own
+  `passes_shadow_gate` verification already used).
+- **G3** "Forget obsolete assumptions," made testable: a specialist
+  trained against a pattern that then genuinely stops holding (a
+  species goes extinct, a trade route closes) should measurably
+  re-adapt within a bounded number of `learn()` cycles, not keep
+  predicting the stale pattern indefinitely. *Test:* a synthetic
+  regime-change scenario — pre-shift error low, post-shift error
+  spikes then falls back down within N cycles, N stated in advance.
+- **G4** L6 population-level variation for one specialist family (the
+  *phylogeny* half of §2.5a, distinct from G1-G3's *ontogeny*).
+  *Test:* a genome population's mean fitness climbs over generations
+  on a real specialist's own task, using the real `GenomePopulation.
+  evaluate_and_select` (already verified in isolation, never against a
+  real L1 consumer).
+
 **Stage E — The Observatory**
 - **E1** The "why reasoning was invoked" panel. *Test:* every cycle in
   a live run has a legible one-line reason.
 - **E2** Workspace + losing-coalitions panel.
 - **E3** Memory activation and competing-goals panels.
 - **E4** The learning chart (§8's metric, live).
+- **E5** *(depends on Stage G)* Per-specialist learning curves — live
+  prediction-error-over-time, one line per specialist, with the
+  regime-change re-adaptation from G3 visibly plotted. *Test:* a
+  specialist visibly re-adapting after a real regime shift (G3) is
+  legible on this panel without reading logs.
 
 **Stage F — Semantic pointers** *(gated behind Tier 6 L1.1)*
 - **F1** Concept vectors; bundling/binding; LLM names the best
@@ -714,6 +872,13 @@ That chart is Stage E4, rendered live.
   is worse than deliberating. Chunks need confidence decay and
   invalidation on high surprise — the same "beliefs may be wrong and
   revisable" discipline the project already applies to beliefs.
+- **A learning specialist can catastrophically forget or drift silently
+  worse (§2.5a).** This is precisely the risk CLS theory's replay
+  mechanism and L5's shadow gate exist to bound — but the gate is only
+  as good as its held-out metric, and a specialist with a poorly-chosen
+  metric could pass the gate while genuinely degrading at the thing
+  that actually matters. G1/G2 (§7) must verify against a real,
+  meaningful held-out signal, not a convenient proxy.
 - **This is a large reframe of a working system.** It must land the way
   everything else here lands: incrementally, one subsystem at a time,
   verified, never big-bang.
@@ -729,7 +894,10 @@ That chart is Stage E4, rendered live.
 - **`ROADMAP-2026-07-REMAINING.md`** — gains Tier 7; Tiers 5 and 6
   re-scoped as its substrate (§7.1).
 - **`ML-ARCHITECTURE-2026-08-01.md`** — unchanged; its four layers
-  become HCA's cheap-resolver tier. The two documents compose.
+  become HCA's cheap-resolver tier, and its **L5/L6 are now the
+  direct, load-bearing implementation of L1 `learn()`** (§2.5a), not
+  just adjacent substrate — the strongest coupling between the two
+  documents anywhere in this filing.
 - **`HEARTHBENCH-RUNTIME-2026-07-23.md`** — unchanged; Part B is the
   workspace's execution substrate (§4).
 - **`MASTERCHECKLIST-2026-07-22.md`** — unchanged; its Body items are

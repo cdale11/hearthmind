@@ -1199,12 +1199,41 @@ cannot state one does not ship.
   bag-of-words relevance). *Test:* retrieval quality holds on the
   recorder archive while four constants are deleted.
 - [ ] **D2** — declarative/procedural separation made architectural.
+- [ ] **G1** *(§2.5a, added 2026-08-02 — "every subsystem should itself
+  be capable of adaptation")* — the `learn()` interface on the
+  specialist shape, wired to Tier 6 L5's `ReplayBuffer`/`continual_
+  train_mlp`/`passes_shadow_gate` directly (no new learning mechanism).
+  *Test:* a specialist's own prediction error trends down over its
+  lifetime on a stationary synthetic signal, using the real shadow
+  gate, not a mock.
+- [ ] **G2** — wire one real, already-existing L1 specialist to G1 —
+  B8's `WorkloadForecaster` (already a small trained MLP with no
+  continual-retrain loop attached). *Test:* forecast error on held-out
+  real workload data falls after a real `learn()` cycle, and the
+  shadow gate provably rejects a retrain that would have made it
+  worse.
+- [ ] **G3** — "forget obsolete assumptions," made testable: a
+  specialist trained against a pattern that then genuinely stops
+  holding should measurably re-adapt within a bounded, stated-in-
+  advance number of `learn()` cycles, not keep predicting the stale
+  pattern indefinitely. *Test:* a synthetic regime-change scenario —
+  pre-shift error low, post-shift error spikes then falls back down
+  within N cycles.
+- [ ] **G4** — L6 population-level variation for one specialist family
+  (the *phylogeny* half of §2.5a, distinct from G1-G3's *ontogeny*).
+  *Test:* a genome population's mean fitness climbs over generations
+  on a real specialist's own task, using the real `GenomePopulation.
+  evaluate_and_select` against a real L1 consumer (verified in
+  isolation only so far).
 - [ ] **E1** — the "why reasoning was or was not invoked" panel.
   *Test:* every cycle in a live run has a legible one-line reason.
 - [ ] **E2** — workspace contents + **losing coalitions** panel.
 - [ ] **E3** — memory-activation and competing-goals panels.
 - [ ] **E4** — the learning chart: deliberative calls per 1,000 ticks
   trended against emergence rate (§8's falsification test, live).
+- [ ] **E5** *(depends on Stage G)* — per-specialist learning curves:
+  live prediction-error-over-time, one line per specialist, with G3's
+  regime-change re-adaptation visibly plotted.
 - [ ] **F1** *(gated behind Tier 6 L1.1)* — semantic pointers:
   concept vectors, bundling/binding, LLM names the best algebraic
   candidate. *Test:* a concept combination is generated and judged

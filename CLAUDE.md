@@ -163,9 +163,10 @@ a larger mind's sensory input):
 
 - **L0 Substrate** — deterministic Body. Untouched by HCA, so
   `verify_replay_hash.py` stays a valid equivalence check throughout.
-- **L1 Specialists** — many, parallel, cheap, always-on. Uniform
-  interface `predict()`/`observe()`/`error()`/`bid()`. **A specialist
-  never calls the LLM — it bids.** Most bid essentially never.
+- **L1 Specialists** — many, parallel, cheap, always-on, **adaptive**
+  (2026-08-02 amendment, below). Uniform interface `predict()`/
+  `observe()`/`error()`/`bid()`/`learn()`. **A specialist never calls
+  the LLM — it bids.** Most bid essentially never.
 - **L2 Working memory** — small, bounded, **activation-ranked** (ACT-R
   base-level + spreading activation), entered only by prediction errors
   clearing a precision-weighted threshold.
@@ -195,6 +196,36 @@ weighted prediction error), never on mere occurrence. The measured
 failure this exists to prevent: 93% of a 64k-tick soak's emergence log
 was `unexplained_shift`, almost all of it "content agent decided to
 socialize."
+
+**Specialists adapt, not just observe (explicit user amendment,
+2026-08-02 — HCA §2.5a).** "Every subsystem should itself be capable
+of adaptation. Specialists should not remain static feature extractors
+forever. They should accumulate experience, revise internal models,
+forget obsolete assumptions, and improve predictions over time. The
+architecture should evolve toward a society of learning cognitive
+processes rather than a collection of fixed modules communicating
+through a workspace." A static-formula `predict()` (e.g. a flat EMA)
+is now a defect, not an acceptable ceiling — grounded in
+Complementary Learning Systems theory (McClelland/McNaughton/O'Reilly
+1995; Kumaran/Hassabis/McClelland 2016). L1's new `learn()` maps
+directly onto Tier 6's already-shipped L5 lifelong-learning primitives
+(`ml/lifelong.py`): `ReplayBuffer` is the interleaved-replay
+mechanism, `continual_train_mlp` is "revise, never replace outright,"
+`passes_shadow_gate` is the safe "forget obsolete assumptions" — a
+retrain only ever replaces a live specialist if it doesn't regress a
+held-out metric — and `CheckpointHistory` is the bounded, versioned
+learning trail. Tier 6's L6 (`ml/evolution.py`) supplies the
+population-level counterpart (phylogeny: variation/selection across a
+specialist's candidate configurations) alongside L5's per-lineage
+ontogeny. `learn()` always runs on its own async/offline cadence, per
+B0's prime invariant — never live-tick gradient descent, and never
+raises how often a specialist bids. Distinct from L4 chunking (§ below):
+chunking is discrete/symbolic and fires only on a named impasse;
+`learn()` is continuous/statistical and needs no impasse at all — the
+two compose, neither requires the other. Roadmap: Tier 7 Stage G
+(G1-G4, between Stage D Memory and Stage E Observatory). Nothing
+implemented yet (docs-only amendment); work from it only on explicit
+direction naming a specific item, same convention as the rest of HCA.
 
 **Headline falsification test:** deliberative cost per unit of
 emergence must FALL as a world matures (chunking compiles resolutions
@@ -639,6 +670,70 @@ substrate code; migrating the existing ~200 onto a real B1 task graph
 is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
+
+## Current state (v1.34.188)
+
+Explicit user directive amending HCA (2026-08-02 architecture, filed
+v1.34.185): "Every subsystem should itself be capable of adaptation.
+Specialists should not remain static feature extractors forever. They
+should accumulate experience, revise internal models, forget obsolete
+assumptions, and improve predictions over time. The architecture
+should evolve toward a society of learning cognitive processes rather
+than a collection of fixed modules communicating through a
+workspace." **Docs-only — no code changed**, same standing convention
+as the original HCA filing and every vision doc in this project.
+
+New `docs/COGNITIVE-ARCHITECTURE-2026-08-02.md` §2.5a
+("Complementary Learning Systems: specialists that adapt, not just
+observe") — cites CLS theory (McClelland/McNaughton/O'Reilly 1995;
+Kumaran/Hassabis/McClelland 2016) as the evidence-based grounding.
+L1's four-method interface (`predict()`/`observe()`/`error()`/
+`bid()`) gains a fifth, `learn()` — the doc's §3 diagram, Layer 1
+body text, and this file's own standing HCA section (above) all
+updated in step. Deliberately not a new mechanism invented from
+nothing: `learn()` maps directly onto Tier 6's already-shipped L5
+lifelong-learning primitives (`ml/lifelong.py`, v1.34.172) —
+`ReplayBuffer` is the interleaved-replay half of CLS theory,
+`continual_train_mlp` is "revise, never replace outright,"
+`passes_shadow_gate` is the safe mechanism behind "forget obsolete
+assumptions" (a retrain only replaces a live specialist if it doesn't
+regress a held-out metric), `CheckpointHistory` is the bounded
+learning trail. Tier 6's L6 model-genome evolution (`ml/evolution.py`,
+v1.34.176) supplies the population-level counterpart (phylogeny)
+alongside L5's per-lineage ontogeny — this is, per the doc's own §9,
+now the strongest direct coupling anywhere between the HCA and
+ML-architecture documents.
+
+New Layer 4 clarifying paragraph distinguishes the two now-real forms
+of "learning" so they don't read as redundant: L4 chunking is
+discrete/symbolic and fires only on a named impasse (tie/no-change/
+conflict/novelty); L1 `learn()` is continuous/statistical and needs no
+impasse at all — they compose, neither requires the other. `learn()`
+always runs on its own async/offline cadence per B0's prime invariant
+— never live-tick gradient descent, and never raises how often a
+specialist bids (a live worry named directly in the doc, addressed
+rather than left implicit).
+
+Roadmap: new Tier 7 **Stage G — Learning specialists** (`docs/
+ROADMAP-2026-07-REMAINING.md`, mirrored in the HCA doc's §7), sequenced
+between Stage D (Memory) and Stage E (Observatory): G1 (wire the real
+`learn()` interface to L5), G2 (the first concrete target — B8's
+already-shipped `WorkloadForecaster`, with a falsifiable test:
+forecast error trends down over time, and the shadow gate provably
+rejects a worse retrain), G3 ("forget obsolete assumptions" via a
+synthetic regime-change test with a bounded re-adaptation cycle
+count), G4 (L6 population variation for one specialist family —
+phylogeny, distinct from G1-G3's ontogeny). New Stage E item E5
+("depends on Stage G") for a future per-specialist learning-curves
+Observatory panel. New §8 risk: "a learning specialist can
+catastrophically forget or drift silently worse" — the shadow gate is
+only as good as its held-out metric, flagged as something G1/G2 must
+verify against a meaningful signal, not a convenient proxy. §0's "what
+actually changes" list extended from four items to five.
+
+Same standing convention as every HCA/vision-doc entry: nothing
+implemented yet, work from Stage G only on future explicit direction
+naming a specific item (G1-G4).
 
 ## Current state (v1.34.187)
 

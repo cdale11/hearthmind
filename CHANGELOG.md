@@ -4,6 +4,53 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.188] — HCA amendment: adaptive specialists (§2.5a)
+
+Explicit user directive amending `docs/COGNITIVE-ARCHITECTURE-2026-08-
+02.md`: "Every subsystem should itself be capable of adaptation.
+Specialists should not remain static feature extractors forever. They
+should accumulate experience, revise internal models, forget obsolete
+assumptions, and improve predictions over time. The architecture
+should evolve toward a society of learning cognitive processes rather
+than a collection of fixed modules communicating through a
+workspace." Docs-only, no code changed.
+
+New §2.5a grounds the amendment in Complementary Learning Systems
+theory (McClelland/McNaughton/O'Reilly 1995; Kumaran/Hassabis/
+McClelland 2016) and adds a fifth L1 specialist method, `learn()`,
+alongside `predict()`/`observe()`/`error()`/`bid()` — mapped directly
+onto Tier 6's already-shipped L5 lifelong-learning primitives
+(`ml/lifelong.py`: `ReplayBuffer`=interleaved replay, `continual_
+train_mlp`=revise-not-replace, `passes_shadow_gate`=safe forgetting,
+`CheckpointHistory`=bounded learning trail) plus L6's population-level
+counterpart (`ml/evolution.py`, phylogeny vs. L5's ontogeny). New
+Layer 4 paragraph distinguishes L4 chunking (discrete/symbolic,
+impasse-gated) from L1 `learn()` (continuous/statistical, no impasse
+needed) — the two compose, neither requires the other. `learn()`
+always runs async/offline per B0's prime invariant, never live-tick
+gradient descent, never raises bid frequency.
+
+Roadmap: new Tier 7 Stage G ("Learning specialists," G1-G4) inserted
+between Stage D (Memory) and Stage E (Observatory) in both the HCA
+doc's §7 and `docs/ROADMAP-2026-07-REMAINING.md`'s checklist — G1 (the
+`learn()` interface wired to L5), G2 (the first concrete target: B8's
+`WorkloadForecaster`, with a falsifiable forecast-error-improvement
+test and a shadow-gate-rejects-worse-retrain test), G3 (forget
+obsolete assumptions, via a synthetic regime-change test), G4 (L6
+population variation for one specialist family). New Stage E item E5
+(a future per-specialist learning-curves Observatory panel, gated on
+Stage G). New §8 risk ("a learning specialist can catastrophically
+forget or drift silently worse — the shadow gate is only as good as
+its held-out metric"). §0's "what actually changes" list extended
+four items -> five. §4's Tier-6-to-HCA mapping table gained two new
+rows (L5 -> `learn()`, L6 -> specialist-level variation/selection).
+This file's own standing "## The Cognitive Architecture — HCA" section
+updated to match (L1 bullet + a new dedicated paragraph).
+
+Same standing convention as the rest of HCA: nothing implemented yet;
+work from Stage G only on future explicit direction naming a specific
+item (G1-G4).
+
 ## [1.34.187] — Tier 5 B4.2 pilot: "idle institutions" dormancy
 
 Explicit user instruction ("continue part B of tier 5"), resolved via
