@@ -170,7 +170,8 @@ a larger mind's sensory input):
 - **L2 Working memory** — small, bounded, **activation-ranked** (ACT-R
   base-level + spreading activation), entered only by prediction errors
   clearing a precision-weighted threshold.
-- **L3 Global workspace** — one serial arbitrated winner per cycle,
+- **L3 Global workspace** — coalitions compete; one serial arbitrated
+  winner per cycle,
   **broadcast to every subsystem** (not point-to-point), resolved by
   whichever suffices: **cached chunk → learned model → LLM**. Plus a
   starvation floor so no subsystem can be starved indefinitely.
@@ -226,6 +227,64 @@ two compose, neither requires the other. Roadmap: Tier 7 Stage G
 (G1-G4, between Stage D Memory and Stage E Observatory). Nothing
 implemented yet (docs-only amendment); work from it only on explicit
 direction naming a specific item, same convention as the rest of HCA.
+
+**Attention emerges from competition, not a priority queue (explicit
+user amendment, 2026-08-02 — HCA §2.10/§3.3).** The first draft scored
+bids `w₁·surprise + w₂·urgency + w₃·staleness + w₄·goal_relevance` and
+took the max — a priority queue, which cannot express *agreement*
+(GWT's actual claim is that coalitions compete), rates a reliable
+specialist's surprise the same as a chronic false-alarmer's, and never
+investigates what the mind doesn't already understand. Replaced by:
+**coalitions form before scoring** (superadditive, sublinear,
+independence-checked — corroboration counts, but ten weak
+corroborations never beat one real crisis); **historical usefulness is
+a multiplicative gain, not an addend** (precision-weighting applied to
+*sources*); **uncertainty earns a `+β·√(uncertainty)` exploration
+bonus** (UCB, Auer et al. 2002 — the principled NON-random reason to
+attend to what you don't understand, self-limiting as evidence
+accumulates); **staleness is an unbounded multiplier** so nothing
+starves on merit (B2.2's floor demoted to a hard backstop). **No RNG
+anywhere in arbitration** — ties break on staleness then on largest
+unexplained error, so the Observatory's "why did this win?" is always
+answerable and Mind arbitration stays replayable; variety comes from
+competition between many learning bidders, not a die. Specialists
+learn to bid better from *measured* realised outcomes (did the
+broadcast reduce anyone's later prediction error? did real emergence
+follow? was a chunk produced?) — L1 `learn()` applied to the bidding
+policy, so this depends on Stage G. **Two non-negotiable guardrails:**
+staleness gain is never learnable (a never-winning specialist that
+learned to bid lower makes starvation self-reinforcing), and a bid is
+only credited when its outcome was actually measured. Roadmap: Tier 7
+Stage B items B4-B7.
+
+**Cognitive domains — the Runtime and Player Model are minds (explicit
+user amendment, same session — HCA §3.2).** The honest finding: the
+Adaptive Runtime already implements four of the five L1 methods under
+other names (B8 forecaster = `predict()`/`error()`, B5 `TaskMetrics` =
+`observe()`, B15 `EscalationLadder` = an unarbitrated `bid()`, B13
+`HypothesisLoop` = `learn()`) and today exercises real authority over
+how much the world gets to think — unilaterally, unlogged, invisible.
+Making it bid is what makes that power legible. Every specialist,
+coalition and broadcast carries a **domain**: `WORLD` (the simulated
+world), `MACHINE` (computation/scheduling — may write ONLY B6
+`TunableRegistry` tunables), `OBSERVER` (the player — read-only).
+Three load-bearing rules: (1) write scope is **mechanically enforced**
+(an AST check extending `verify_runtime_invariant.py`), making
+"incapable of directly changing deterministic world state" structural,
+not conventional — B15's `TWO_PART_GUARANTEE` already half-guarantees
+it; (2) **domains never compete for each other's budget** — a MACHINE
+bid sets the size of the budget the WORLD domain arbitrates *within*,
+never a rival inside it, which is §3.1's nesting applied honestly and
+the defence against the obvious inversion (the machine deciding the
+world should think less and winning on merit); (3) **cross-domain
+content flows only through L5**, so a settlement can never form a
+belief about being throttled. The Player Model joins as an OBSERVER
+specialist — and is deliberately NOT the Town Consciousness's
+*interventions* (false memories, weather nudges, misplaced objects),
+which do write world state and stay exactly as they are; Phase G's
+discipline becomes partly structural, since OBSERVER content is
+dev-console-only by domain rule. Roadmap: Tier 7 Stage H (H1-H4) +
+E6. Nothing implemented (docs-only); same standing convention.
 
 **Headline falsification test:** deliberative cost per unit of
 emergence must FALL as a world matures (chunking compiles resolutions
@@ -670,6 +729,108 @@ substrate code; migrating the existing ~200 onto a real B1 task graph
 is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
+
+## Current state (v1.34.189)
+
+Explicit user directive: "One additional architecture pass before
+implementation" — two amendments to the 2026-08-02 HCA, **docs-only,
+no code changed**, same standing convention as every prior HCA/vision
+filing. Both are recorded in the standing HCA section above; full
+design in `docs/COGNITIVE-ARCHITECTURE-2026-08-02.md` §2.10/§3.2/§3.3,
+roadmap in Tier 7 (new Stage B items B4-B7, new Stage H, new E6).
+
+**(1) Arbitration redesign.** The user's objection — "a simple
+highest-score priority queue does not resemble attention" — is
+correct, and the first draft's `w₁·surprise + w₂·urgency +
+w₃·staleness + w₄·goal_relevance` max was exactly that. Three
+independent defects named and each fixed by a distinct mechanism: a
+per-bid max **cannot express agreement** (fixed by coalition formation
+before scoring — superadditive but sublinear, independence-checked, so
+several specialists independently surprised about one subject is
+genuinely stronger evidence, while ten weak corroborations still lose
+to one real crisis); **fixed weights aren't attention** (fixed by
+making historical usefulness a multiplicative *gain* on surprise and
+consequence rather than another addend — precision-weighting applied
+to *sources*, so a proven bidder is amplified and a chronic
+false-alarmer attenuates toward silence without ever being hard-muted);
+and **exploitation-only scoring never investigates what it doesn't
+understand** (fixed by a `+β·√(uncertainty)` UCB term, Auer et al.
+2002 — the principled non-random reason to attend to the unknown, and
+self-limiting as evidence accumulates). Starvation is now primarily
+competitive: staleness is an **unbounded multiplier**, so anything
+ignored long enough wins on merit; B2.2's bounded-deferral floor is
+demoted to a hard backstop underneath, since a gain is a tendency and
+a floor is a guarantee. **No randomness anywhere** — softmax/
+probability-matching explicitly rejected because it would break
+Mind-layer replayability and make the Observatory's "why did this
+win?" panel unanswerable; ties break on staleness, then largest
+unexplained error. Specialists learn to bid from **measured** realised
+outcomes (did the broadcast reduce a subscriber's later prediction
+error? did real emergence follow? was a chunk produced?), credited
+back to winning coalitions and — where a counterfactual is honestly
+available — to losing ones, which is how a systematically-ignored
+specialist climbs out on evidence rather than on a floor. This is L1
+`learn()` applied to the bidding policy, so it depends on Stage G and
+the roadmap sequences it that way. **Two guardrails treated as
+non-negotiable:** staleness gain is never learnable (otherwise a
+never-winning specialist learns to bid lower and starvation becomes
+self-reinforcing — the exact failure the redesign exists to prevent,
+re-created inside the learning loop), and a bid is credited only when
+its outcome was actually measured (mirroring ML-ARCHITECTURE's
+standing guard against training on unweighted self-outputs).
+
+**(2) Cognitive domains — the Runtime and Player Model as first-class
+minds.** Evaluated as asked; the finding is stronger than "should we
+add this": the Adaptive Runtime **already is a mind in substance**,
+implementing four of five L1 methods under other names (B8.1
+`WorkloadForecaster` = `predict()`, B5.1 `TaskMetrics` = `observe()`,
+B8.3 `ForecastAccuracyTracker` = `error()`, B15.3 `EscalationLadder` =
+`bid()`, B13 `HypothesisLoop` = `learn()`). The real defect is that it
+runs **unarbitrated and unobserved** — B15's ladder unilaterally
+decides to reduce cognition breadth, a decision with direct authority
+over how much the world thinks, without competing for it, without
+being logged into any workspace, and without appearing anywhere a
+person can watch. Making it bid is what makes that power legible,
+which is this project's own stated purpose applied to the one
+subsystem that had escaped it. Mechanism: a `domain` type
+(`WORLD`/`MACHINE`/`OBSERVER`) on every specialist, coalition and
+broadcast, with three load-bearing rules — mechanically-enforced write
+scope (MACHINE may write only B6 `TunableRegistry` tunables, OBSERVER
+nothing; checkable by the same AST technique
+`verify_runtime_invariant.py` already uses, which is what makes
+"incapable of changing deterministic world state" structural rather
+than conventional, and which extends B15's own `TWO_PART_GUARANTEE`
+from a runtime property to an architectural one); **no cross-domain
+budget competition** (a MACHINE bid sets the size of the budget the
+WORLD domain arbitrates *within* — §3.1's nesting applied honestly,
+and the defence against the obvious inversion where the machine argues
+the world should think less and wins on its own merits); and
+**cross-domain flow only via L5**, so a settlement can never form a
+belief about scheduling or load. The Player Model joins as an
+OBSERVER-domain specialist (read-only prediction about the observer)
+and is explicitly **not** the Town Consciousness's interventions —
+those do write world state and stay exactly as they are; Phase G's
+discipline becomes partly structural, since OBSERVER content is
+dev-console-only by domain rule rather than by convention.
+
+**New risks recorded honestly rather than assumed away** (§8): the
+machine could starve the mind if the domain-budget boundary leaks
+(watch for world cognition falling as MACHINE activity rises — that IS
+the leak); learned bid gains could collapse into self-reinforcing
+starvation (the staleness carve-out is the defence, and it is the
+subtlest failure in the design — deserves a live-diagnostic check, not
+only a unit test); and the Machine could leak into the fiction if a
+MACHINE/OBSERVER broadcast ever reaches a WORLD-domain L1/L2.
+
+§0's "what actually changes" list extended five items -> seven.
+`HEARTHBENCH-RUNTIME-2026-07-23.md` itself is untouched (a filed
+user-uploaded spec, same convention as MASTERCHECKLIST), but §9 now
+records that its **role** is amended: Part B is no longer only the
+workspace's execution substrate — it is itself a mind, in the MACHINE
+domain. B0's prime invariant is untouched and in fact reinforced.
+
+Nothing implemented; work from Stage B4-B7 / Stage H / E6 only on
+future explicit direction naming a specific item.
 
 ## Current state (v1.34.188)
 

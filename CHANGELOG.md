@@ -4,6 +4,66 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.189] — HCA amendment: competitive arbitration + cognitive domains
+
+Explicit user directive ("one additional architecture pass before
+implementation"), two amendments, docs-only, no code changed.
+
+**Arbitration (§2.10, §3.3; roadmap Tier 7 B4-B7).** The first draft's
+`w₁·surprise + w₂·urgency + w₃·staleness + w₄·goal_relevance` max was a
+priority queue with a nicer name. Three defects, each fixed by a
+distinct mechanism: a per-bid max cannot express *agreement* → bids
+merge into coalitions before scoring (superadditive, sublinear,
+independence-checked); fixed weights are not attention → historical
+usefulness becomes a multiplicative *gain* on surprise/consequence, so
+a proven bidder is amplified and a chronic false-alarmer attenuates
+toward silence; exploitation-only scoring never investigates the
+unknown → a `+β·√(uncertainty)` UCB term (Auer et al. 2002), the
+principled **non-random** answer to exploration. Staleness becomes an
+unbounded multiplier (competitive anti-starvation; B2.2's floor demoted
+to a hard backstop). **No RNG anywhere in arbitration** — softmax
+sampling explicitly rejected because it would break Mind-layer
+replayability and make the Observatory's "why did this win?" panel
+unanswerable. Specialists learn to bid from *measured* realised
+outcomes, credited to winning and (where a counterfactual exists)
+losing coalitions — L1 `learn()` applied to the bidding policy, hence
+dependent on Stage G. Two non-negotiable guardrails: staleness gain is
+never learnable (else starvation self-reinforces), and a bid is
+credited only when its outcome was measured.
+
+**Cognitive domains (§3.2; roadmap Tier 7 Stage H + E6).** Evaluated
+whether the Adaptive Runtime and Player Model should be first-class
+cognitive participants — finding: the Runtime **already is one in
+substance** (B8 forecaster = `predict()`/`error()`, B5 `TaskMetrics` =
+`observe()`, B15 `EscalationLadder` = an unarbitrated `bid()`, B13
+`HypothesisLoop` = `learn()`), running unarbitrated and unobserved
+while exercising real authority over how much the world gets to think.
+Adds a `domain` type — `WORLD` / `MACHINE` / `OBSERVER` — on every
+specialist, coalition and broadcast, with three load-bearing rules:
+mechanically-enforced write scope (MACHINE writes only B6 tunables,
+OBSERVER nothing; AST-checkable, extending
+`verify_runtime_invariant.py`), no cross-domain budget competition (a
+MACHINE bid sets the budget the WORLD domain arbitrates *within*, never
+a rival inside it — the defence against the machine arguing the world
+should think less and winning), and cross-domain flow only through L5
+(so no settlement can form a belief about scheduling). The Player Model
+joins as an OBSERVER specialist and is explicitly not the Town
+Consciousness's interventions, which stay unchanged; Phase G's
+discipline becomes partly structural.
+
+Also: §0's "what actually changes" extended five items → seven; §4's
+mapping table gained B6/B8.3/B13/B15.3 rows and re-scoped B2; §5 gained
+two new predictions; §6.2's workspace panel gained per-factor breakdown
+and a domain filter; §8 gained three new risks (machine starves mind,
+learned gains collapse into self-reinforcing starvation, machine leaks
+into fiction); §9 records that `HEARTHBENCH-RUNTIME-2026-07-23.md` is
+textually unchanged but its *role* is amended — Part B is now itself a
+mind, not only execution substrate, with B0's prime invariant
+reinforced rather than weakened. `CLAUDE.md`'s standing HCA section
+updated with both amendments.
+
+Nothing implemented; same standing convention as the rest of HCA.
+
 ## [1.34.188] — HCA amendment: adaptive specialists (§2.5a)
 
 Explicit user directive amending `docs/COGNITIVE-ARCHITECTURE-2026-08-
