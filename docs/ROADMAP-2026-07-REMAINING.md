@@ -810,6 +810,37 @@ starts on an explicit instruction naming an item.
       B9.3, stay open — same proof-of-pattern scoping as every prior
       pilot.
 
+      **B0.3 first real migration — SHIPPED, v1.34.193.** Explicit
+      user instruction ("continue part B"). This time B10.2's kind-
+      index pilot pattern was confirmed genuinely exhausted — every
+      remaining `scan_global_scans.py`-flagged site is either a
+      full-grid CA/terrain double loop, an unfiltered per-tick scan
+      that must touch every entity regardless of kind (no index would
+      help), or a `.agents` scan already covered by the `Population.
+      get()` pilot — so `AskUserQuestion` scoped this turn to "a real
+      subsystem migration onto the B1 task graph" instead: the first
+      time B1's `TaskRegistry`/B2's `Scheduler` (built and verified
+      since v1.34.162/.164, never wired into `engine.py`) execute a
+      real schedule point rather than synthetic tasks in a verify
+      script. `SimulationEngine._maybe_schedule_naming` migrated as the
+      pilot — small, self-contained, already unconditional every tick,
+      declared `PriorityClass.CRITICAL` + `TriggerKind.PERIODIC` so the
+      scheduler reproduces that exact "always runs" behavior rather
+      than risk a real change. `_tick_once`'s `_TICK_JOBS` loop keeps
+      naming in its exact ordering slot but routes it through a new
+      `self._runtime_scheduler.run_tick()` call via `_RUNTIME_
+      SCHEDULED_JOB_NAMES`. One real behavior-preservation risk found
+      and closed: `Scheduler._run_one` catches exceptions broadly,
+      where the pre-migration direct call let one crash the tick
+      outright — `_tick_once`'s new call site re-raises whenever
+      `report.errors` is non-empty. Verified via a real before/after
+      replay-hash check (MATCH, two independent seed sets) plus a
+      dedicated `scripts/verify_b0_naming_migration.py` (10 checks).
+      Migrates exactly ONE of the ~200 real schedule points — the
+      other ~199 remain direct calls, same "never big-bang" discipline;
+      a future migration can follow the same shape with the plumbing
+      risk already retired.
+
       **B4.2 pilot ("idle institutions") — SHIPPED, v1.34.187.**
       Explicit user choice via `AskUserQuestion` among B4.2's five named
       candidates, after an investigation found the other four (forgotten

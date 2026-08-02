@@ -426,7 +426,7 @@ pack.
 
 # PART B — THE ADAPTIVE RUNTIME
 
-## B0 — The prime invariant [PARTIAL — B0.1/B0.2 shipped v1.34.161]
+## B0 — The prime invariant [PARTIAL — B0.1/B0.2 shipped v1.34.161, B0.3's first real migration shipped v1.34.193]
 
 > **Gameplay systems declare *what* work exists. The runtime decides
 > *when*, *where*, and *how* it executes. Gameplay never makes
@@ -453,6 +453,72 @@ pack.
   inside `engine.py` and subsystems. Migrating them is the bulk of Part
   B and must be incremental (B1.4). Not an action item — a scoping
   note recorded in CLAUDE.md's new B0 section, unchanged.
+
+  **First real migration — SHIPPED, v1.34.193.** Explicit user
+  instruction ("continue part B"), scoped via `AskUserQuestion` once
+  B10.2's kind-index pilot pattern (buildings/vehicles/institutions)
+  was confirmed genuinely exhausted — every remaining `scan_global_
+  scans.py`-flagged site is either a full-grid CA/terrain double loop,
+  an unfiltered per-tick scan that must touch every entity regardless
+  of kind (no index would help — e.g. `Settlement.tick`'s decay loop),
+  or a `.agents` scan already covered by the earlier `Population.get()`
+  pilot. Chose "B0.3: a real subsystem migration onto the B1 task
+  graph" — the first time B1's `TaskRegistry`/B2's `Scheduler` (both
+  built and verified since v1.34.162/.164 but never imported from
+  `engine.py`) actually execute a real schedule point instead of
+  synthetic tasks in a verify script.
+
+  `SimulationEngine._maybe_schedule_naming` was picked as the pilot:
+  small, self-contained (no cross-job read/write coupling to get
+  wrong), and already unconditional every tick — declared `Priority
+  Class.CRITICAL` + `TriggerKind.PERIODIC` so the scheduler reproduces
+  that exact "always runs, regardless of budget" behavior instead of
+  risking a real change (any lower priority class could let budget
+  pressure defer a job the original direct call never deferred).
+  `SimulationEngine.__init__` now builds `self._runtime_registry`/
+  `self._runtime_scheduler` (a real `TaskRegistry` holding exactly this
+  one `Task`, executed by a real `Scheduler`); `_tick_once`'s existing
+  `_TICK_JOBS` loop keeps naming in its exact ordering slot (order is
+  load-bearing) but a new `_RUNTIME_SCHEDULED_JOB_NAMES` frozenset
+  routes it through `self._runtime_scheduler.run_tick()` instead of a
+  direct `getattr(self, method_name)()` call. One real behavior-
+  preservation risk found and closed: `Scheduler._run_one` catches
+  exceptions broadly and records a repr into `TickReport.errors` rather
+  than letting them propagate (so one budgeted task's failure can't
+  take down a sibling's run) — the pre-migration direct call let an
+  exception crash the tick outright, so `_tick_once`'s new call site
+  re-raises a `RuntimeError` whenever `report.errors` is non-empty,
+  preserving "an error here stops the tick" rather than silently
+  swallowing it.
+
+  Verified: a real before/after `World.to_dict()` replay-hash check
+  (`scripts/verify_replay_hash.py --ticks 4000 --seeds 777
+  --in-process`) — MATCH, byte-identical, confirming the migration is
+  a genuine behavior-preserving refactor, not just "didn't crash"; a
+  second full multi-seed run (`--seeds 1,55,999 --ticks 3000`) — also
+  MATCH; new `scripts/verify_b0_naming_migration.py` (10 checks,
+  standalone, no unittest) proving the registry/task declaration is
+  correct, the real production early-out (LLM disabled -> never
+  scheduled) still fires when driven through the real scheduler
+  against a real pending settlement id, `run_tick()` genuinely invokes
+  the bound method with real side effects on real engine state (not a
+  sandboxed copy), the task never gets skipped/deferred across 50
+  consecutive ticks, and — the one real risk this migration
+  introduces — an error inside the migrated job genuinely propagates
+  out of `_tick_once` instead of being silently swallowed by the
+  scheduler's own broad exception handling. Every pre-existing `scripts/
+  verify_*.py` (native soak included) re-run clean; `pyflakes` clean on
+  `engine.py` (only the six known pre-existing forward-ref findings)
+  and the new script.
+
+  **Scope, stated plainly**: this migrates exactly ONE of the ~200
+  real schedule points — the other ~199 remain direct calls, same
+  "never big-bang, one subsystem at a time" discipline B1.4's own text
+  set. What this pass actually proves is that the wiring works end to
+  end against a real, live subsystem with zero behavior change — the
+  next migration can follow the same shape (declare, register, route
+  through `_RUNTIME_SCHEDULED_JOB_NAMES`, verify replay-hash) with the
+  plumbing risk already retired.
 
 ## B1 — Task declaration & the work graph [PARTIAL — B1.1-B1.4 shipped v1.34.162, not yet wired into the live tick loop]
 

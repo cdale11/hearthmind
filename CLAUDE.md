@@ -730,6 +730,81 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.193)
+
+Explicit user instruction ("continue part B"). Investigated whether a
+fifth B10.2 kind-index pilot existed and found the pattern genuinely
+exhausted: every remaining `scripts/scan_global_scans.py`-flagged site
+is either a full-grid CA/terrain double loop, an unfiltered per-tick
+scan that must touch every entity regardless of kind (`Settlement.
+tick`'s own decay loop is the clearest example — no index would help
+since it processes every building either way), or a `.agents` scan
+already covered by the earlier `Population.get()` pilot. `AskUser
+Question` scoped this turn instead to **B0.3: a real subsystem
+migration onto the B1 task graph** — the first time B1's `TaskRegistry`
+(v1.34.162) and B2's `Scheduler` (v1.34.164), both fully built and
+verified since but never once imported from `engine.py`, actually
+execute a real schedule point rather than synthetic tasks in a verify
+script.
+
+`SimulationEngine._maybe_schedule_naming` was chosen as the pilot: the
+smallest, most self-contained job in `_TICK_JOBS` (no cross-job read/
+write coupling to get wrong) and already unconditional every tick —
+declared `PriorityClass.CRITICAL` + `TriggerKind.PERIODIC` so the
+scheduler reproduces that exact "always runs, regardless of budget"
+behavior instead of risking a real change (any lower priority class
+could let budget pressure defer a job the direct call never deferred).
+`SimulationEngine.__init__` now builds `self._runtime_registry`/
+`self._runtime_scheduler` — a real `TaskRegistry` holding exactly this
+one `Task`, executed by a real `Scheduler`. `_tick_once`'s existing
+`_TICK_JOBS` loop keeps naming in its exact ordering slot (order is
+load-bearing across the whole table) but a new `_RUNTIME_SCHEDULED_
+JOB_NAMES` frozenset routes it through `self._runtime_scheduler.
+run_tick()` instead of a direct `getattr(self, method_name)()` call.
+
+One real behavior-preservation risk found and closed during
+implementation, not by the user: `Scheduler._run_one` catches
+exceptions broadly and records a repr into `TickReport.errors` rather
+than letting them propagate (deliberately, so one budgeted task's
+failure can't take down a sibling task's run) — but the pre-migration
+direct call let an uncaught exception crash the tick outright.
+`_tick_once`'s new call site re-raises a `RuntimeError` whenever
+`report.errors` is non-empty after a runtime-scheduled job runs,
+preserving "an error here stops the tick" instead of silently
+swallowing it.
+
+Verified: a real before/after `World.to_dict()` replay-hash check
+(`scripts/verify_replay_hash.py --ticks 4000 --seeds 777
+--in-process`) — MATCH, byte-identical, confirming the migration is a
+genuine behavior-preserving refactor and not just "didn't crash"; a
+second independent run at the script's default multi-seed shape
+(seeds 1/55/999, 3000 ticks) — also MATCH; new `scripts/verify_b0_
+naming_migration.py` (10 checks, standalone, no unittest) proving the
+registry/task declaration is correct, the real production early-out
+(LLM disabled -> never scheduled) still fires correctly when driven
+through the real scheduler against a real pending settlement id,
+`run_tick()` genuinely invokes the bound method with real side effects
+on real `SimulationEngine` state rather than some sandboxed copy, the
+task never gets skipped/deferred across 50 consecutive ticks, and —
+the one real risk this migration introduces — an error inside the
+migrated job genuinely propagates out of `_tick_once` rather than
+being silently swallowed by the scheduler's own broad exception
+handling. Every pre-existing `scripts/verify_*.py` (native soak
+included) re-run clean; `pyflakes` clean on `engine.py` (only the six
+known pre-existing forward-ref findings) and the new script.
+
+Scope, stated plainly: this migrates exactly ONE of the ~200 real
+schedule points still living directly inside `engine.py` — the other
+~199 remain ordinary direct calls, same "never big-bang, one subsystem
+at a time" discipline B1.4's own text set from the start. What this
+pass actually establishes is that the B1/B2 wiring works end to end
+against a real, live subsystem with zero behavior change; a future
+migration can follow the identical shape (declare a `Task`, register
+it, add its method name to `_RUNTIME_SCHEDULED_JOB_NAMES`, verify
+replay-hash) with the plumbing risk already retired. The remaining 72
+`scan_global_scans.py`-flagged sites, plus B3.3/B4.2's other four
+candidates/B9.3/B0.3's remaining ~199 schedule points, stay open.
+
 ## Current state (v1.34.192)
 
 Explicit user instruction ("continue part B"), continuing the same

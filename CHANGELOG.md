@@ -4,6 +4,54 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.193] — Tier 5 B0.3: first real subsystem migration onto the runtime
+
+Explicit user instruction ("continue part B"). B10.2's kind-index
+pilot pattern (`buildings_of_kind`/`vehicles_of_kind`/`institutions_
+of_kind`) was confirmed genuinely exhausted this pass — every
+remaining `scan_global_scans.py`-flagged site is either a full-grid
+CA/terrain double loop, an unfiltered per-tick scan that must touch
+every entity regardless of kind (no index would help), or a `.agents`
+scan already covered by the `Population.get()` pilot. Scoped via
+`AskUserQuestion` to "B0.3: a real subsystem migration onto the B1
+task graph" — the first time B1's `TaskRegistry`/B2's `Scheduler`
+(built and verified since v1.34.162/.164, never wired into `engine.py`)
+execute a real schedule point instead of synthetic tasks in a verify
+script.
+
+`SimulationEngine._maybe_schedule_naming` migrated as the pilot: small,
+self-contained, already unconditional every tick — declared `Priority
+Class.CRITICAL` + `TriggerKind.PERIODIC` to reproduce that exact
+"always runs" behavior through the scheduler rather than risk a real
+change. `SimulationEngine.__init__` builds `self._runtime_registry`/
+`self._runtime_scheduler`; `_tick_once`'s `_TICK_JOBS` loop keeps
+naming in its exact ordering slot but routes it through `self.
+_runtime_scheduler.run_tick()` via a new `_RUNTIME_SCHEDULED_JOB_
+NAMES` frozenset. One real behavior-preservation risk found and
+closed: `Scheduler._run_one` catches exceptions broadly (so one
+budgeted task's failure can't take down a sibling's) where the
+pre-migration direct call let an exception crash the tick outright —
+`_tick_once`'s new call site re-raises a `RuntimeError` whenever
+`report.errors` is non-empty.
+
+Verified: a real before/after `World.to_dict()` replay-hash check
+(4000 ticks, seed 777, `--in-process`) — MATCH, byte-identical; a
+second multi-seed run (seeds 1/55/999, 3000 ticks) — also MATCH; new
+`scripts/verify_b0_naming_migration.py` (10 checks, standalone) proving
+the registry/task declaration, the real production early-out firing
+correctly through the scheduler, `run_tick()` genuinely invoking the
+bound method with real side effects on real engine state, the task
+never skipped/deferred across 50 consecutive ticks, and an error inside
+the migrated job propagating out of `_tick_once` instead of being
+silently swallowed. Every pre-existing `scripts/verify_*.py` (native
+soak included) re-run clean; `pyflakes` clean (only the six known
+pre-existing forward-ref findings in `engine.py`).
+
+Scope: migrates exactly ONE of the ~200 real schedule points — same
+"never big-bang" discipline as every prior B-item. The other ~199
+remain direct calls; a future migration can follow the same shape with
+the plumbing risk already retired.
+
 ## [1.34.192] — Tier 5 B10.2 fourth pilot: institutions_of_kind index
 
 Explicit user instruction ("continue part B"), scoped to a fourth

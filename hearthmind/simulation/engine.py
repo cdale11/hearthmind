@@ -104,6 +104,8 @@ from hearthmind.world.wildlife import (
 )
 from hearthmind.simulation.sandbox import evaluate_concept_dual_fork, run_counterfactual
 from hearthmind.simulation.dormancy import DormancyManager
+from hearthmind.simulation.task_graph import PriorityClass, Task, TaskRegistry, TriggerKind
+from hearthmind.simulation.scheduler import Scheduler
 from hearthmind.llm.client import build_llm_client, fetch_llama_server_metrics
 from hearthmind.llm.review_diagnostics import context_reflects_any
 from hearthmind.llm.json_schemas import schema_for_task
@@ -2061,6 +2063,40 @@ class SimulationEngine:
         placeholder stands forever, same as any other LLM-fallback
         outcome."""
 
+        # B0.3's first real migration (Tier 5 Part B): `_maybe_schedule_
+        # naming` runs through a genuine B1 TaskRegistry + B2 Scheduler
+        # instead of a direct method call — the actual "gameplay
+        # declares WHAT, the runtime decides WHEN/HOW" invariant (B0)
+        # applied to one real schedule point rather than left as
+        # infrastructure nothing consumes. Chosen as the first pilot
+        # because it's small, self-contained (no cross-job read/write
+        # coupling to get wrong), and already unconditional every tick
+        # — CRITICAL priority + PERIODIC trigger reproduces that exact
+        # "always runs" behavior through the scheduler rather than
+        # risking a real behavior change (a lower priority class could
+        # let budget pressure defer it, which the original code never
+        # did). `reads`/`writes` are declared honestly for when a
+        # second migrated task might one day need to conflict-check
+        # against this one — irrelevant to correctness with only one
+        # task registered, but the point of doing it now rather than
+        # `Task.legacy(...)` is proving the real declaration shape
+        # works, not just the shim. See `_tick_once`'s own call site
+        # for how a `_TICK_JOBS` entry can now be runtime-scheduled
+        # instead of directly invoked while keeping its exact ordering
+        # slot in the table.
+        self._runtime_registry = TaskRegistry()
+        self._runtime_registry.register(Task(
+            id="naming",
+            subsystem="naming",
+            fn=self._maybe_schedule_naming,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.newly_named_settlement_ids"}),
+            writes=frozenset({"engine.naming_scheduled_ids"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler = Scheduler(self._runtime_registry)
+
         if self._broadcaster is not None:
             # Terrain never changes after creation — set once, not part
             # of the per-tick payload. See docs/DECISIONS.md, F2.
@@ -2816,6 +2852,15 @@ class SimulationEngine:
         ("_schedule_voice_dialogue", _JOB_NO_ARGS),
     )
 
+    # B0.3's first real migration: `_TICK_JOBS` entries named here are
+    # NOT called directly in `_tick_once`'s loop below — they run
+    # through `self._runtime_scheduler` (a real B1 TaskRegistry + B2
+    # Scheduler, built in `__init__`) instead. Kept as a separate,
+    # explicit set rather than inferred from the registry so the table
+    # above stays the single readable source of ordering, and adding a
+    # job here is a one-line, deliberate opt-in.
+    _RUNTIME_SCHEDULED_JOB_NAMES: frozenset[str] = frozenset({"_maybe_schedule_naming"})
+
     def _tick_once(self) -> None:
         tick_start = time.perf_counter()
         self._reserved_this_tick = 0  # see its docstring: fresh reservation count each tick
@@ -2986,6 +3031,25 @@ class SimulationEngine:
         # before omen, cognition before dialogue) — lives in exactly one
         # place. The job methods themselves are unchanged.
         for method_name, arg_kind in self._TICK_JOBS:
+            if method_name in self._RUNTIME_SCHEDULED_JOB_NAMES:
+                # B0.3's first real migration: this job's entry stays in
+                # its exact ordering slot in the table above (order is
+                # load-bearing), but instead of a direct call it now
+                # runs through the real B1/B2 TaskRegistry+Scheduler —
+                # see `__init__`'s registration for why naming was
+                # picked as the pilot and why CRITICAL+PERIODIC
+                # reproduces "always runs, every tick" exactly.
+                report = self._runtime_scheduler.run_tick()
+                if report.errors:
+                    # Scheduler.run_tick() catches broadly and records a
+                    # repr rather than letting an exception propagate
+                    # (so one budgeted task's failure can't take down a
+                    # sibling task's run) — re-raising here preserves
+                    # this job's own pre-migration behavior (an
+                    # uncaught exception stops the tick) instead of
+                    # silently swallowing it.
+                    raise RuntimeError(f"runtime-scheduled task(s) errored: {report.errors}")
+                continue
             method = getattr(self, method_name)
             if arg_kind == _JOB_NO_ARGS:
                 method()
