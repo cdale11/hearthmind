@@ -4,6 +4,44 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.195] — Part B: B0.3 third migration (`_maybe_tick_trigger_state_edges`)
+
+Explicit user instruction: "Continue doing part B."
+
+A third real `_TICK_JOBS` entry migrated onto the B1/B2 runtime,
+following the exact per-job-dedicated-registry shape v1.34.193/.194
+established: `SimulationEngine._maybe_tick_trigger_state_edges` (the
+`on_drought`/`on_surplus` trigger-rule edge detector — small, self-
+contained, already unconditional every tick, CRITICAL+PERIODIC so the
+scheduler reproduces its "always runs" behavior exactly). Gets its own
+`self._runtime_registry_trigger_edges`/`self._runtime_scheduler_
+trigger_edges` pair, registered in `_RUNTIME_SCHEDULED_JOB_SCHEDULERS`
+alongside naming and mind-authoring — avoiding the double-execution
+bug class v1.34.194 caught and fixed, by construction, from the start.
+
+`scripts/verify_b0_runtime_migrations.py` rewritten to be generic over
+an arbitrary list of migrations (a `MIGRATIONS` table of `(method_name,
+task_id, registry_attr, scheduler_attr)` tuples) rather than hardcoding
+checks per job — now covers all three migrated jobs with one shared
+check suite, including the load-bearing "each job's fn runs EXACTLY
+ONCE per real `_tick_once()` call" no-double-execution proof. A future
+fourth migration only needs one new tuple plus a registration check.
+
+Verified: `scripts/verify_b0_runtime_migrations.py` (15 checks across
+all three migrations) — all pass, first run, no bug found.
+`verify_task_graph.py`/`verify_scheduler.py`/`verify_runtime_
+invariant.py` re-run clean. A real before/after `World.to_dict()`
+replay-hash check (`scripts/verify_replay_hash.py --ticks 4000 --seeds
+777 --in-process`) — MATCH, byte-identical. `scripts/verify_native_
+soak.py` (3 seeds x 3000 ticks) — MATCH. `pyflakes` clean on both
+touched files (only the six known pre-existing forward-ref findings
+in `engine.py`).
+
+Scope unchanged from the prior two migrations' own framing: this is
+the third of the ~200 real schedule points still living directly
+inside `engine.py` — the other ~197 remain ordinary direct calls, same
+"never big-bang, one subsystem at a time" discipline.
+
 ## [1.34.194] — Tier 0 rumor-first-listener lean + B0.3 second migration
 
 Explicit user instruction: "Continue tier 0" / "Continue B" in one

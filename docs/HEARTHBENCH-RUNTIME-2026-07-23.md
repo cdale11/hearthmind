@@ -426,7 +426,7 @@ pack.
 
 # PART B — THE ADAPTIVE RUNTIME
 
-## B0 — The prime invariant [PARTIAL — B0.1/B0.2 shipped v1.34.161, B0.3's first two real migrations shipped v1.34.193/v1.34.194]
+## B0 — The prime invariant [PARTIAL — B0.1/B0.2 shipped v1.34.161, B0.3's first three real migrations shipped v1.34.193/v1.34.194/v1.34.195]
 
 > **Gameplay systems declare *what* work exists. The runtime decides
 > *when*, *where*, and *how* it executes. Gameplay never makes
@@ -560,6 +560,32 @@ pack.
   byte-identical. `scripts/verify_native_soak.py` (3 seeds x 3000
   ticks) — MATCH. `verify_task_graph.py`/`verify_scheduler.py`/
   `verify_runtime_invariant.py` re-run clean. `pyflakes` clean.
+
+  **Third real migration — SHIPPED, v1.34.195.** Explicit user
+  instruction ("Continue doing part B"). `SimulationEngine._maybe_
+  tick_trigger_state_edges` (the `on_drought`/`on_surplus` trigger-
+  rule edge detector) migrated as a third pilot, same criteria as the
+  first two: small, self-contained, already unconditional every tick,
+  CRITICAL+PERIODIC. Given its own dedicated `self._runtime_registry_
+  trigger_edges`/`self._runtime_scheduler_trigger_edges` pair from the
+  start — avoids the second migration's double-execution bug class by
+  construction rather than needing a second fix.
+
+  `scripts/verify_b0_runtime_migrations.py` rewritten to be generic
+  over a `MIGRATIONS` list of `(method_name, task_id, registry_attr,
+  scheduler_attr)` tuples rather than hardcoded per-job checks — now
+  15 checks covering all three migrated jobs with one shared suite,
+  including the load-bearing "each job's fn runs exactly once per
+  real tick, not twice" proof for all three at once. A future fourth
+  migration needs only one new tuple plus a registration check.
+
+  Verified: `scripts/verify_b0_runtime_migrations.py` (15 checks) —
+  all pass, first run, no bug found. A real before/after replay-hash
+  check (4000 ticks, seed 777) — MATCH, byte-identical. `scripts/
+  verify_native_soak.py` (3 seeds x 3000 ticks) — MATCH. `verify_
+  task_graph.py`/`verify_scheduler.py`/`verify_runtime_invariant.py`
+  re-run clean. `pyflakes` clean on both touched files (only the six
+  known pre-existing forward-ref findings in `engine.py`).
 
 ## B1 — Task declaration & the work graph [PARTIAL — B1.1-B1.4 shipped v1.34.162, not yet wired into the live tick loop]
 

@@ -867,6 +867,21 @@ starts on an explicit instruction naming an item.
       load-bearing "each job's fn runs exactly once per real tick, not
       twice" proof), a real replay-hash MATCH, and a native-soak MATCH.
 
+      **B0.3 third migration — SHIPPED, v1.34.195.** Explicit user
+      instruction ("Continue doing part B"). `_maybe_tick_trigger_
+      state_edges` (the `on_drought`/`on_surplus` trigger-rule edge
+      detector) migrated as a third pilot, same criteria and same
+      dedicated-registry-per-job shape as naming/mind-authoring —
+      avoids the second migration's double-execution bug class by
+      construction from the start. `scripts/verify_b0_runtime_
+      migrations.py` rewritten to be generic over a `MIGRATIONS` list
+      of `(method_name, task_id, registry_attr, scheduler_attr)`
+      tuples rather than hardcoded per-job checks — now covers all
+      three migrations with one shared 15-check suite; a future
+      fourth migration needs only one new tuple. Verified via the
+      rewritten script, a real replay-hash MATCH (4000 ticks, seed
+      777), and a native-soak MATCH (3 seeds x 3000 ticks).
+
       **B4.2 pilot ("idle institutions") — SHIPPED, v1.34.187.**
       Explicit user choice via `AskUserQuestion` among B4.2's five named
       candidates, after an investigation found the other four (forgotten

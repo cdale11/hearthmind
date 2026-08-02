@@ -730,6 +730,43 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.195)
+
+Explicit user instruction: "Continue doing part B."
+
+Third B0.3 real migration, following the exact same shape v1.34.193/
+.194 established for naming/mind-authoring: `SimulationEngine._maybe_
+tick_trigger_state_edges` (the `on_drought`/`on_surplus` trigger-rule
+edge detector) now runs through its own dedicated `TaskRegistry`/
+`Scheduler` pair (`self._runtime_registry_trigger_edges`/`self._
+runtime_scheduler_trigger_edges`), registered in `_RUNTIME_SCHEDULED_
+JOB_SCHEDULERS` alongside the first two — CRITICAL+PERIODIC, avoiding
+v1.34.194's double-execution bug class by construction from the start
+rather than needing a second fix.
+
+`scripts/verify_b0_runtime_migrations.py` was rewritten to be generic
+over an arbitrary `MIGRATIONS` list of `(method_name, task_id,
+registry_attr, scheduler_attr)` tuples rather than hardcoded per-job
+checks — now covers all three migrations with one shared check suite
+(15 checks total), including the load-bearing "each job's fn runs
+EXACTLY ONCE per real `_tick_once()` call" no-double-execution proof
+for all three at once. A future fourth migration needs only one new
+tuple plus a registration check, not a new script section.
+
+Verified: `scripts/verify_b0_runtime_migrations.py` (15 checks) — all
+pass, first run, no bug found. `verify_task_graph.py`/`verify_
+scheduler.py`/`verify_runtime_invariant.py` re-run clean. A real
+before/after `World.to_dict()` replay-hash check (`scripts/verify_
+replay_hash.py --ticks 4000 --seeds 777 --in-process`) — MATCH,
+byte-identical. `scripts/verify_native_soak.py` (3 seeds x 3000
+ticks) — MATCH. `pyflakes` clean on both touched files (only the six
+known pre-existing forward-ref findings in `engine.py`).
+
+Scope unchanged: this migrates a third of the ~200 real schedule
+points still living directly inside `engine.py` — the other ~197
+remain ordinary direct calls, same "never big-bang, one subsystem at
+a time" discipline.
+
 ## Current state (v1.34.194)
 
 Explicit user instruction: "Continue tier 0" / "Continue B" in one

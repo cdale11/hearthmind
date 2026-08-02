@@ -2132,6 +2132,28 @@ class SimulationEngine:
         ))
         self._runtime_scheduler_mind_authoring = Scheduler(self._runtime_registry_mind_authoring)
 
+        # Third B0.3 migration: `_maybe_tick_trigger_state_edges` — same
+        # pilot criteria (small, self-contained, already unconditional
+        # every tick, CRITICAL+PERIODIC so the scheduler can't defer a
+        # tick the direct call never would have). Real writes go
+        # through unchanged: `_apply_trigger_rules_for` still mutates
+        # real World/settlement state exactly as before, this only
+        # changes HOW the method itself gets invoked each tick.
+        self._runtime_registry_trigger_edges = TaskRegistry()
+        self._runtime_registry_trigger_edges.register(Task(
+            id="trigger_state_edges",
+            subsystem="trigger_state_edges",
+            fn=self._maybe_tick_trigger_state_edges,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({
+                "world.trigger_rules", "world.disasters.heat_pressure", "world.settlements",
+            }),
+            writes=frozenset({"engine.prev_drought_state", "engine.prev_surplus_state"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_trigger_edges = Scheduler(self._runtime_registry_trigger_edges)
+
         if self._broadcaster is not None:
             # Terrain never changes after creation — set once, not part
             # of the per-tick payload. See docs/DECISIONS.md, F2.
@@ -2900,6 +2922,7 @@ class SimulationEngine:
     _RUNTIME_SCHEDULED_JOB_SCHEDULERS: dict[str, str] = {
         "_maybe_schedule_naming": "_runtime_scheduler",
         "_maybe_retry_mind_authoring": "_runtime_scheduler_mind_authoring",
+        "_maybe_tick_trigger_state_edges": "_runtime_scheduler_trigger_edges",
     }
 
     def _tick_once(self) -> None:
