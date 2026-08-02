@@ -1035,6 +1035,41 @@ starts on an explicit instruction naming an item.
       MATCH (4000 ticks, seed 777), and a native-soak MATCH (3 seeds x
       3000 ticks).
 
+      **B7.2/B7.3's flagged gaps closed + B8.4 (Idle-window scheduling)
+      wired — SHIPPED, v1.34.202.** Explicit user follow-up ("B8 and
+      MachineProfile persistence and select_strategy's output still
+      have no real call site — flagged for later"). `MachineProfile`
+      now loads/saves a real, host-fingerprinted profile next to
+      `Config.db_path` (in-RAM-only for `:memory:`, never crashes on a
+      corrupted file), refined monthly from a real storage micro-
+      benchmark gated by B8.4's own `is_quiet_window` reading a real
+      daily `CognitionRunner.backlog` history — the first real
+      consumer of B8.4 anywhere. `select_strategy`'s output is now a
+      THIRD real signal in `_maybe_tune_llm_concurrency`, a downward-
+      only cap gated to `after > before` so an already-stable value
+      above the hint is never forced down (a human retune/CLI override
+      still always wins). **A real regression caught and fixed before
+      shipping**: an unconditional cap broke two pre-existing green
+      scripts (`select_strategy`'s formula tops out at hint=3
+      regardless of hardware) — fixed with the `after > before` gating,
+      `verify_b6_adaptive_concurrency.py` given a companion fix
+      (patches `select_strategy` permissive for its own duration to
+      keep testing B6 in isolation). B8.1-B8.3 (`WorkloadForecaster`/
+      `plan_reservation`/`ForecastAccuracyTracker`) remain explicitly
+      unwired — all three need a real trained forecaster first, and
+      training one needs a real recorder archive this pass had no
+      reason to fabricate; flagged as real future work. New `scripts/
+      verify_b8_predictive_scheduling.py` (25 checks). See docs/
+      HEARTHBENCH-RUNTIME-2026-07-23.md's B7/B8 sections for full
+      detail. Verified via the script, `verify_task_graph.py`/`verify_
+      scheduler.py`/`verify_runtime_invariant.py`/`verify_b0_runtime_
+      migrations.py`/`verify_tuning.py`/`verify_b6_adaptive_
+      concurrency.py` (updated)/`verify_b2_broadcast_budget.py`/
+      `verify_b3_dirty_events.py`/`verify_dormancy.py`/`verify_
+      runtime_diagnostics.py`/`verify_hardware_profile.py`/`verify_b7_
+      hardware_citizenship.py`, a real replay-hash MATCH (4000 ticks,
+      seed 777), and a native-soak MATCH (3 seeds x 3000 ticks).
+
       **B4.2 pilot ("idle institutions") — SHIPPED, v1.34.187.**
       Explicit user choice via `AskUserQuestion` among B4.2's five named
       candidates, after an investigation found the other four (forgotten

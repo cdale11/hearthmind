@@ -742,6 +742,78 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.202)
+
+Explicit user follow-up: "B8 and MachineProfile persistence and
+select_strategy's output still have no real call site — flagged for
+later" — closing my own B7-turn "Known Issues" note (v1.34.201) and
+wiring B8 (Predictive scheduling) in the same batch.
+
+`MachineProfile` persistence (B7.2): `SimulationEngine.__init__` now
+loads a real, host-fingerprinted profile from a file next to `Config.
+db_path` (`_machine_profile_path_for`, `None`/in-RAM-only for a
+`:memory:` db) via `_load_or_create_machine_profile` (a missing/
+corrupted/unsupported-schema file degrades to a fresh profile, never
+crashes startup), records a real session, and a new monthly `_maybe_
+refresh_machine_profile` runs the real storage micro-benchmark
+(`run_storage_bench=True`, unlike the daily check's own skipped one)
+and saves back to disk — genuinely survives a restart now, verified
+directly (a second engine against the same db path loads what the
+first saved).
+
+`select_strategy`'s output (B7.3): `_maybe_tune_llm_concurrency` now
+also consults `select_strategy(probe, self._machine_profile)` as a
+THIRD signal — a downward-only cap, gated to `after > before` (only
+intervenes on a fresh latency-driven increase, mirroring the host-
+pressure veto's own gating) so an already-stable value above the hint
+is never forced down. **Real regression caught before shipping**: an
+unconditional cap (my first draft) broke two pre-existing green
+scripts, since `select_strategy`'s formula tops out at hint=3
+regardless of hardware — even a genuine no-op scenario got force-
+adjusted. Fixed with the `after > before` gating; `verify_b6_adaptive_
+concurrency.py` (whose own scenarios move concurrency up to 4/6, above
+that ceiling) now patches `select_strategy` permissive for its own
+duration to keep testing B6 in isolation.
+
+B8.4 (Idle-window scheduling) wired: `_maybe_tune_llm_concurrency`
+samples `self._cognition_runner.backlog` into a bounded daily history
+every call (even the two cases it skips tuning for); `_maybe_refresh_
+machine_profile`'s real storage benchmark only runs when `is_quiet_
+window` reads that history as genuinely quiet. B8.1-B8.3
+(`WorkloadForecaster`/`plan_reservation`/`ForecastAccuracyTracker`)
+remain explicitly unwired — all three need a real trained forecaster
+first, and training one needs a real recorder archive this pass had
+no reason to fabricate; flagged as real future work, same "no
+fine-tuning run itself is implemented" scope trim this project's own
+FT items already used.
+
+`full_diagnostics()['machine_profile']` surfaces the real profile,
+the last `select_strategy` verdict (honest `None` before any call),
+and the live `is_quiet_window` reading.
+
+New `scripts/verify_b8_predictive_scheduling.py` (25 checks — profile
+persistence across two real engine constructions, `:memory:` never
+touching disk, corrupted-file degradation, the strategy cap firing/
+not-firing correctly with the real semaphore reflecting it, the daily
+backlog sample under both skip conditions, the quiet-window gate on
+the real monthly refresh, `full_diagnostics()` surfacing real state).
+
+Verified: `scripts/verify_b8_predictive_scheduling.py` (25 checks) —
+all pass, first run, no bug found (the one real bug — the cap's
+missing `after > before` gating — was caught via the pre-existing
+`verify_b6_adaptive_concurrency.py`/`verify_b7_hardware_
+citizenship.py` regressions it caused, fixed before this script was
+even written). `verify_task_graph.py`/`verify_scheduler.py`/`verify_
+runtime_invariant.py`/`verify_b0_runtime_migrations.py`/`verify_
+tuning.py`/`verify_b6_adaptive_concurrency.py` (updated)/`verify_b2_
+broadcast_budget.py`/`verify_b3_dirty_events.py`/`verify_dormancy.py`/
+`verify_runtime_diagnostics.py`/`verify_hardware_profile.py`/`verify_
+b7_hardware_citizenship.py` re-run clean. A real before/after replay-
+hash check (4000 ticks, seed 777, `--in-process`) — MATCH, byte-
+identical. `scripts/verify_native_soak.py` (3 seeds x 3000 ticks) —
+MATCH. `pyflakes` clean on all touched files (only the six known
+pre-existing forward-ref findings in `engine.py`).
+
 ## Current state (v1.34.201)
 
 Explicit user follow-up: "B7 and cheap next tier item" — continuing

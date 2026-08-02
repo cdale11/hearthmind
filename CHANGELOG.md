@@ -4,6 +4,127 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.202] — Part B: B8.4 wired + B7.2/B7.3's own flagged gaps closed
+
+Explicit user follow-up: "B8 and MachineProfile persistence and
+select_strategy's output still have no real call site — flagged for
+later" — picking up my own "Known Issues" note from the B7 turn
+(v1.34.201) and closing it, plus B8 (Predictive scheduling), in one
+batch.
+
+**MachineProfile persistence (B7.2).** `SimulationEngine.__init__`
+now loads a real, host-fingerprinted `MachineProfile` from a file next
+to `Config.db_path` (new `_machine_profile_path_for`, `None` for a
+`:memory:` db path — kept in-RAM only for that process's lifetime,
+never touches disk, never crashes) via a new `_load_or_create_
+machine_profile` that degrades a missing, corrupted, or unsupported-
+`schema_version` file to a fresh profile rather than crashing startup
+— a bad profile file must never be able to take down a real
+deployment, same discipline `HostProbe.sample()` itself already holds
+to. Records a real session at construction. A new monthly `_maybe_
+refresh_machine_profile` runs the real storage micro-benchmark
+(`HostProbe.sample(run_storage_bench=True)`, deliberately NOT the
+daily check's own `run_storage_bench=False` reading — a few ms of
+real disk I/O the daily check explicitly skips as needless), folds it
+into the profile's EMA, and saves back to disk — the profile now
+genuinely "gradually evolves... not resets each time" across a real
+restart, per B7.2's own original design text, verified directly (a
+second `SimulationEngine` constructed against the SAME db path loads
+exactly what the first one saved, `sessions_recorded` incrementing
+correctly across both).
+
+**select_strategy's output (B7.3).** `_maybe_tune_llm_concurrency`
+(already B6/B7.4's real control point) now also consults `select_
+strategy(probe, self._machine_profile)` — the SAME probe already
+sampled that call, never a second one — as a THIRD real signal: a
+downward-only cap on top of B6's latency-driven step and B7.4's live-
+pressure veto, gated to `after > before` (mirroring the host-pressure
+veto's own `after >= before` gating) so it only ever intervenes on a
+fresh latency-driven INCREASE, never forcing down an already-stable
+value sitting above the hint — a human retune or CLI override still
+always wins going forward, exactly the promise this method's own
+opening docstring already makes for the host-pressure veto. Logged
+with `strategy_cap_applied: True`, distinct from `host_pressure_veto`.
+Verified directly: modest hardware's hint genuinely caps a would-be
+latency-driven climb independent of any live host-pressure veto; a
+real-hardware probe's hint does NOT needlessly clamp an ordinary
+healthy step that stays within it.
+
+**B8.4 — Idle-window scheduling, wired.** `_maybe_tune_llm_
+concurrency` now samples `self._cognition_runner.backlog` into a
+bounded daily history (new `self._recent_llm_backlog_samples`,
+`RECENT_LLM_BACKLOG_SAMPLES_MAX=30`) on EVERY call — including the two
+cases the method itself goes on to skip (LLM disabled, under-
+evidenced), since those are exactly the cases where "load has stayed
+low" is both most likely true and most useful to know, verified
+directly. `_maybe_refresh_machine_profile`'s own real storage-
+benchmark disk I/O only runs once `is_quiet_window` reads that history
+as genuinely quiet — B8.4's own stated purpose ("schedule expensive
+maintenance... into predicted-quiet periods") applied to this exact
+kind of work for the first time — verified directly: a busy backlog
+history skips the benchmark entirely, a quiet one runs exactly one
+real call asking for the actual micro-benchmark. **B8.1-B8.3 remain
+explicitly unwired** — `plan_reservation`/`ForecastAccuracyTracker`
+both depend on B8.1's `WorkloadForecaster` producing a real trained
+prediction first, and training one for real needs a real recorder
+archive this pass had no reason to fabricate (same "no fine-tuning run
+itself is implemented" scope trim this project's own FT items already
+used) — flagged as real future work, not forced through dishonestly.
+
+`full_diagnostics()['machine_profile']` surfaces the real persisted
+profile (host_fingerprint/sessions_recorded/storage benchmark EMA/
+whether it's actually persisted-to-disk), the most recent `select_
+strategy` verdict (honestly `None` before any real call), and the live
+`is_quiet_window` reading — verified directly.
+
+**A real regression caught and fixed before shipping, not left for
+later**: wiring `select_strategy`'s cap in unconditionally (my first
+draft) broke two pre-existing, previously-green scripts (`verify_b6_
+adaptive_concurrency.py`, `verify_b7_hardware_citizenship.py`) —
+`select_strategy`'s own formula tops out at a hint of 3 regardless of
+how capable the probed hardware is, so an unconditional cap silently
+made `llm_max_concurrent`'s registered [1,8] legal range effectively
+[1,3] for every host, and even a "true no-op" scenario (latency inside
+the dead zone, nothing should change) got force-adjusted down whenever
+the starting value already sat above 3. Root-caused to the cap
+applying even when no real change was in progress; fixed with the
+`after > before` gating described above, then `verify_b6_adaptive_
+concurrency.py` (whose own scenarios deliberately move `llm_max_
+concurrent` up to 4/6, above `select_strategy`'s own ceiling) was
+given a companion fix — it patches `select_strategy` to a permissive
+stand-in for its own duration, so it keeps proving B6's bang-bang
+mechanics in isolation rather than re-measuring B7.3's real
+interaction, which the two scripts below already cover.
+
+New `scripts/verify_b8_predictive_scheduling.py` (25 checks): profile
+persistence across two real engine constructions against the same db
+path, `:memory:` never touching disk, a corrupted profile file
+degrading rather than crashing, the strategy cap firing/not-firing
+correctly in both directions with the real semaphore/backpressure
+state reflecting it, the daily backlog sample firing under both skip
+conditions, the quiet-window gate on the real monthly refresh (busy
+skips, quiet runs exactly once with the right benchmark kind), and
+`full_diagnostics()` surfacing real state including the honest
+pre-first-call `None`.
+
+Verified: `scripts/verify_b8_predictive_scheduling.py` (25 checks) —
+all pass, first run, no bug found in the module under test (the one
+real bug found — the cap's `after > before` gating — was caught and
+fixed in `engine.py` before this script was even written, via the
+pre-existing `verify_b6_adaptive_concurrency.py`/`verify_b7_hardware_
+citizenship.py` regressions it caused). `verify_task_graph.py`/
+`verify_scheduler.py`/`verify_runtime_invariant.py`/`verify_b0_
+runtime_migrations.py`/`verify_tuning.py`/`verify_b6_adaptive_
+concurrency.py` (updated)/`verify_b2_broadcast_budget.py`/`verify_b3_
+dirty_events.py`/`verify_dormancy.py`/`verify_runtime_diagnostics.py`/
+`verify_hardware_profile.py`/`verify_b7_hardware_citizenship.py`
+re-run clean. A real before/after replay-hash check (4000 ticks, seed
+777, `--in-process`) — MATCH, byte-identical (expected: every touched
+code path is inert while the LLM is disabled). `scripts/verify_
+native_soak.py` (3 seeds x 3000 ticks) — MATCH. `pyflakes` clean on
+all touched files (only the six known pre-existing forward-ref
+findings in `engine.py`).
+
 ## [1.34.201] — Part B: B7 (Hardware model) wired to a real control point + host-probe diagnostics
 
 Explicit user follow-up ("B7 and cheap next tier item"), continuing

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import itertools
+import json
 import logging
 import math
 import os
@@ -108,7 +109,8 @@ from hearthmind.simulation.task_graph import PriorityClass, Task, TaskRegistry, 
 from hearthmind.simulation.scheduler import Scheduler, SubsystemBudget
 from hearthmind.simulation.tuning import BangBangController, TunableRegistry, register_llm_pacing_tunables
 from hearthmind.simulation.runtime_diagnostics import runtime_diagnostics_report
-from hearthmind.simulation.hardware_profile import GoodCitizenPolicy, HostProbe
+from hearthmind.simulation.hardware_profile import GoodCitizenPolicy, HostProbe, MachineProfile, host_fingerprint, select_strategy
+from hearthmind.simulation.forecasting import is_quiet_window
 from hearthmind.llm.client import build_llm_client, fetch_llama_server_metrics
 from hearthmind.llm.review_diagnostics import context_reflects_any
 from hearthmind.llm.json_schemas import schema_for_task
@@ -1128,6 +1130,22 @@ ADAPTIVE_TUNING_LOG_MAX = 200
 log` — same cap-and-append discipline as every other unbounded-growth-
 prone list in this codebase (traditions/inventions/events/etc.)."""
 
+MACHINE_PROFILE_FILENAME = "machine_profile.json"
+"""Tier 5 B7.2's real control point (explicit user directive: "B8 and
+MachineProfile persistence... flagged for later" — closing that flag).
+Stored as a sibling file next to `Config.db_path` so it travels with a
+world's own data directory rather than a hardcoded absolute path; a
+`:memory:` `db_path` (every verify script, `experiment.py`) keeps the
+profile in-RAM only for that process's lifetime — see `_machine_
+profile_path_for`."""
+
+RECENT_LLM_BACKLOG_SAMPLES_MAX = 30
+"""Tier 5 B8.4's real control point: `_maybe_tune_llm_concurrency`
+(daily) appends one `CognitionRunner.backlog` reading here regardless
+of whether it goes on to skip its own tuning check — roughly a
+month's worth of daily samples, enough for `is_quiet_window` to judge
+"has load stayed low for a good while," never a single lucky reading."""
+
 BROADCAST_SUBSYSTEM_BUDGET_SECONDS = 0.015
 """Tier 5 B2's real control point: `_maybe_broadcast` (the per-tick
 WebSocket payload build — agents/buildings/summary/etc., explicitly
@@ -1637,6 +1655,34 @@ def _generation_config_snapshot(config: Config) -> dict:
     return cfg
 
 
+def _machine_profile_path_for(db_path: str) -> str | None:
+    """Tier 5 B7.2's real control point: a `MachineProfile` persists as
+    a sibling file next to the world's own `db_path` so it travels with
+    that world's data directory. `None` for `db_path == ":memory:"`
+    (every verify script, `experiment.py`'s ephemeral runs) — no real
+    directory to place it next to, so the profile stays in-RAM only for
+    that process's lifetime rather than writing somewhere surprising."""
+    if db_path == ":memory:":
+        return None
+    directory = os.path.dirname(os.path.abspath(db_path))
+    return os.path.join(directory, MACHINE_PROFILE_FILENAME)
+
+
+def _load_or_create_machine_profile(path: str | None) -> MachineProfile:
+    """Loads a persisted `MachineProfile` if one exists and is readable;
+    falls back to a fresh profile for this host on ANY failure (missing
+    file, corrupted JSON, an unsupported `schema_version`) — a bad
+    profile file must never be able to crash startup, same "a probe
+    must never crash its caller" discipline `HostProbe.sample()` itself
+    holds to."""
+    if path is None:
+        return MachineProfile(host_fingerprint=host_fingerprint())
+    try:
+        return MachineProfile.load_or_create(path)
+    except (OSError, ValueError, KeyError, json.JSONDecodeError):
+        return MachineProfile(host_fingerprint=host_fingerprint())
+
+
 INSTITUTION_DORMANCY_IDLE_CHECKS_THRESHOLD = 3
 """Tier 5 B4.2 pilot ("idle institutions"): consecutive monthly
 `_update_institution_dormancy` checks with an unchanged fingerprint
@@ -1761,6 +1807,30 @@ class SimulationEngine:
         logged, same "only what actually happened" discipline as
         `World.self_tuning_actions`) — dev-console-visible via `full_
         diagnostics()`'s `adaptive_tuning_log_recent`."""
+
+        # Tier 5 B7.2 + B8's real control points (explicit user
+        # directive: "B8 and MachineProfile persistence and select_
+        # strategy's output still have no real call site — flagged for
+        # later"), same batch since B8's own docstring already names
+        # them as naturally paired. `self._machine_profile` is loaded
+        # once here (a real, host-fingerprinted, versioned JSON file
+        # that survives a restart — B7.2's "gradually evolves... not
+        # resets each time") and consulted by `_maybe_tune_llm_
+        # concurrency` (below) via `select_strategy`; refined and saved
+        # back to disk by `_maybe_refresh_machine_profile` (monthly).
+        self._machine_profile_path = _machine_profile_path_for(config.db_path)
+        self._machine_profile = _load_or_create_machine_profile(self._machine_profile_path)
+        self._machine_profile.record_session()
+        self._last_strategy = None
+        # B8.4's real control point: a bounded history of daily
+        # `CognitionRunner.backlog` readings, sampled unconditionally in
+        # `_maybe_tune_llm_concurrency` regardless of whether that
+        # method goes on to skip its own tuning check — the one real
+        # signal `is_quiet_window` needs to judge whether now is a good
+        # time for `_maybe_refresh_machine_profile`'s own real disk I/O
+        # (the storage micro-benchmark) rather than running it blindly
+        # every month regardless of load.
+        self._recent_llm_backlog_samples: deque[float] = deque(maxlen=RECENT_LLM_BACKLOG_SAMPLES_MAX)
 
         self._reserved_this_tick = 0
         """Jobs actually scheduled (a task created) so far THIS tick,
@@ -3224,7 +3294,26 @@ class SimulationEngine:
         downward-only veto on top of the latency-driven decision above
         — real memory pressure/swap/load/thermal state can force a
         step down that latency alone wouldn't have taken, logged with
-        `host_pressure_veto: True`."""
+        `host_pressure_veto: True`.
+
+        Also Tier 5 B7.3/B8.4's real control points (explicit user
+        directive: "B8 and MachineProfile persistence and select_
+        strategy's output still have no real call site — flagged for
+        later"): `self._recent_llm_backlog_samples` gets one real
+        `CognitionRunner.backlog` reading EVERY call, unconditionally
+        (before either early-return below) — `is_quiet_window` (B8.4)
+        needs this history regardless of whether tuning itself is
+        skipped this call, and skipping the sample along with the
+        tuning check would starve it exactly when the LLM is disabled
+        or under-evidenced, the two cases where "load has stayed low"
+        is most likely to be true and most useful to know. `select_
+        strategy(probe, self._machine_profile)` (B7.3) supplies a
+        SECOND downward-only cap on top of the host-pressure veto —
+        this machine's own broad hardware category (cores/RAM) sets a
+        ceiling B6's latency-driven step and B7.4's live-pressure veto
+        can each still pull below, but neither can push above, logged
+        with `strategy_cap_applied: True`."""
+        self._recent_llm_backlog_samples.append(float(self._cognition_runner.backlog))
         if not self._cognition_runner.enabled:
             return
         stats = self._cognition_runner.stats()
@@ -3265,6 +3354,30 @@ class SimulationEngine:
             if vetoed != after:
                 after = vetoed
                 host_pressure_veto = True
+        # Tier 5 B7.3's real control point (explicit user directive:
+        # "B8 and MachineProfile persistence and select_strategy's
+        # output still have no real call site — flagged for later"):
+        # `select_strategy` reads this SAME probe (never a second
+        # sample) plus the persisted `MachineProfile` — a genuinely
+        # different signal from `should_back_off`'s live pressure
+        # reading, since it's a broad hardware-category ceiling
+        # (cores/RAM), not a moment-to-moment one. Gated the same way
+        # as the host-pressure veto just above (`after > before`, i.e.
+        # only when a real INCREASE is already in progress): this
+        # never forces down an already-stable value sitting above the
+        # hint (a human retune or CLI override still always wins going
+        # forward, per this method's own opening docstring — the same
+        # promise the host-pressure veto already keeps), it only
+        # prevents a fresh latency-driven climb from pushing PAST what
+        # this machine's own broad hardware category supports.
+        strategy = select_strategy(probe, self._machine_profile)
+        self._last_strategy = strategy
+        strategy_cap_applied = False
+        if after > before and after > strategy.llm_max_concurrent_hint:
+            capped = self._tuning_registry.set_value("llm_max_concurrent", strategy.llm_max_concurrent_hint)
+            if capped != after:
+                after = capped
+                strategy_cap_applied = True
         if after == before:
             return
         new_limit = int(after)
@@ -3278,7 +3391,52 @@ class SimulationEngine:
             "measured_p95_ms": stats["latency_ms_p95"],
             "target_ms": ADAPTIVE_CONCURRENCY_TARGET_MS,
             "host_pressure_veto": host_pressure_veto,
+            "strategy_cap_applied": strategy_cap_applied,
         })
+
+    def _maybe_refresh_machine_profile(self, events: list[str]) -> None:
+        """Tier 5 B7.2's real control point (explicit user directive:
+        "B8 and MachineProfile persistence... still have no real call
+        site — flagged for later" — closing that flag). Monthly, not
+        daily like `_maybe_tune_llm_concurrency` — this is the one
+        place that runs `HostProbe.sample(run_storage_bench=True)`, a
+        real (small, ~4 MiB) disk write+read+fsync the daily check
+        deliberately skips as "needless disk I/O on a check that
+        already runs at most once a day."
+
+        Tier 5 B8.4's real control point, same batch: that benchmark
+        only runs when `is_quiet_window` reads the real `self._recent_
+        llm_backlog_samples` history (sampled daily by `_maybe_tune_
+        llm_concurrency`, regardless of whether that method goes on to
+        skip its own tuning check) as genuinely quiet — "schedule
+        expensive maintenance... into predicted-quiet periods," B8.4's
+        own stated purpose, applied to this exact kind of work for the
+        first time. A month with no evidence yet (a fresh world, or an
+        LLM-disabled run whose backlog never moves) reads as NOT quiet
+        by `is_quiet_window`'s own conservative default — the benchmark
+        simply waits for real evidence rather than guessing either way.
+
+        `MachineProfile.record_storage_benchmark` folds the real
+        reading into the profile's EMA (B7.2's "gradually evolves...
+        not resets each time") and the profile is saved back to
+        `self._machine_profile_path` so it survives a restart. A
+        `:memory:` `db_path` (`self._machine_profile_path is None`)
+        keeps the profile in-RAM only for this run — never crashes,
+        just doesn't persist; a real write failure (disk full, a
+        permissions change mid-run) is likewise swallowed rather than
+        taking down the tick loop over what is, at most, a missed
+        refinement."""
+        if "month_end" not in events:
+            return
+        if not is_quiet_window(list(self._recent_llm_backlog_samples), float(self._backpressure_limit)):
+            return
+        probe = HostProbe.sample(run_storage_bench=True)
+        self._machine_profile.record_storage_benchmark(probe)
+        if self._machine_profile_path is not None:
+            try:
+                self._machine_profile.save(self._machine_profile_path)
+            except OSError:
+                pass
 
     def llm_pressure_ratio(self) -> float:
         """`_effective_backlog() / _current_backpressure_limit()` — 1.0
@@ -3883,6 +4041,7 @@ class SimulationEngine:
         ("_schedule_due_cognition", _JOB_NO_ARGS),
         ("_schedule_due_dialogue", _JOB_NO_ARGS),
         ("_schedule_voice_dialogue", _JOB_NO_ARGS),
+        ("_maybe_refresh_machine_profile", _JOB_EVENTS),
     )
 
     # B0.3's real migrations: `_TICK_JOBS` entries named here are NOT
@@ -14477,6 +14636,35 @@ class SimulationEngine:
                 }
                 if self._last_host_probe is not None else None
             ),
+            # Tier 5 B7.2/B7.3/B8.4's real control points (explicit
+            # user directive: "B8 and MachineProfile persistence and
+            # select_strategy's output still have no real call site —
+            # flagged for later"): the persisted profile itself, the
+            # most recent `select_strategy` verdict it fed into `_maybe_
+            # tune_llm_concurrency`'s cap (`None` before the first real
+            # call), and whether `is_quiet_window` currently reads the
+            # LLM as quiet enough for `_maybe_refresh_machine_profile`'s
+            # own storage benchmark to run this month.
+            "machine_profile": {
+                "host_fingerprint": self._machine_profile.host_fingerprint,
+                "sessions_recorded": self._machine_profile.sessions_recorded,
+                "measured_llm_throughput_tokens_per_s": self._machine_profile.measured_llm_throughput_tokens_per_s,
+                "storage_write_mb_s": self._machine_profile.storage_write_mb_s,
+                "storage_read_mb_s": self._machine_profile.storage_read_mb_s,
+                "persisted": self._machine_profile_path is not None,
+                "last_strategy": (
+                    {
+                        "llm_max_concurrent_hint": self._last_strategy.llm_max_concurrent_hint,
+                        "worker_count_hint": self._last_strategy.worker_count_hint,
+                        "cache_size_hint": self._last_strategy.cache_size_hint,
+                        "dormancy_aggressiveness": self._last_strategy.dormancy_aggressiveness,
+                    }
+                    if self._last_strategy is not None else None
+                ),
+                "recent_llm_backlog_is_quiet_window": is_quiet_window(
+                    list(self._recent_llm_backlog_samples), float(self._backpressure_limit),
+                ),
+            },
             "peak_memory_rss_mb": peak_rss_mb,
             "system_memory": system_memory_report(),
             "db_size_mb": db_size_mb,

@@ -1100,7 +1100,7 @@ migration itself.
   touched files (only the six known pre-existing forward-ref findings
   in `engine.py`).
 
-## B7 — Hardware model [Hard Rule 7] [SHIPPED — B7.1-B7.4 built v1.34.173, wired to a real control point v1.34.201]
+## B7 — Hardware model [Hard Rule 7] [SHIPPED — B7.1-B7.4 built v1.34.173, wired to a real control point v1.34.201/v1.34.202]
 
 - [x] **B7.1 — Host probe — SHIPPED, v1.34.173.** New
   `hearthmind/simulation/hardware_profile.py`'s `HostProbe.sample()`:
@@ -1182,13 +1182,70 @@ migration itself.
   back_off` + the tick it was sampled at, honestly `None` before any
   real sample has happened) — sampling was restructured to run
   unconditionally (not only when a veto might apply) so this diagnostic
-  always reflects a fresh reading, still at most once a day. `Machine
-  Profile` persistence/`select_strategy`'s output still have no real
-  call site — flagged, real future work, naturally paired with B8's
-  own forecasting once that gets wired. Verified: `scripts/verify_b7_
-  hardware_citizenship.py` (14 checks).
+  always reflects a fresh reading, still at most once a day. Verified:
+  `scripts/verify_b7_hardware_citizenship.py` (14 checks).
 
-## B8 — Predictive scheduling [Hard Rule 8] [PARTIAL — B8.1-B8.4 shipped v1.34.174, not wired into any real control point]
+- [x] **B7.2/B7.3's own flagged gaps closed — SHIPPED, v1.34.202.**
+  Explicit user follow-up ("B8 and MachineProfile persistence and
+  select_strategy's output still have no real call site — flagged for
+  later"). `MachineProfile` persistence: `SimulationEngine.__init__`
+  loads a real profile from a file next to `Config.db_path` (`_machine_
+  profile_path_for`, `None` for a `:memory:` db — kept in-RAM only,
+  never crashes) via `_load_or_create_machine_profile` (degrades a
+  missing/corrupted/unsupported-schema file to a fresh profile rather
+  than crashing startup), records a real session, and a new monthly
+  `_maybe_refresh_machine_profile` refines its storage-benchmark EMA
+  from a real `HostProbe.sample(run_storage_bench=True)` reading and
+  saves it back to disk — the profile now genuinely survives a
+  restart instead of resetting every session, verified directly (a
+  second `SimulationEngine` against the SAME db path loads what the
+  first one saved). `select_strategy`'s output: `_maybe_tune_llm_
+  concurrency` now also consults `select_strategy(probe, self._
+  machine_profile)` (the same probe already sampled, never a second
+  one) as a THIRD signal, layered the same downward-only way as B7.4's
+  own veto — gated to `after > before` (only intervenes when a
+  latency-driven decision is already an INCREASE, mirroring the host-
+  pressure veto's own `after >= before` gate) so an already-stable
+  value above the hint (a human retune, a CLI override) is never
+  forced down; logged with `strategy_cap_applied: True`, distinct from
+  `host_pressure_veto`. Verified directly: modest hardware's hint
+  genuinely caps a would-be latency-driven increase independent of any
+  host-pressure veto; a real-hardware probe's hint does NOT clamp an
+  ordinary healthy step that stays within it.
+
+  B8.4's real control point, same batch: `_maybe_tune_llm_concurrency`
+  now samples `self._cognition_runner.backlog` into a bounded daily
+  history (`self._recent_llm_backlog_samples`) EVERY call, even the
+  two cases the tuning check itself skips (LLM disabled, under-
+  evidenced) — verified directly. `_maybe_refresh_machine_profile`'s
+  own real storage benchmark only runs once `is_quiet_window` reads
+  that history as genuinely quiet, never during a busy one and never
+  off a non-`month_end` tick — verified directly (a busy history skips
+  the benchmark entirely; a quiet one runs exactly one real call
+  asking for the real micro-benchmark, not a cheap probe).
+
+  `full_diagnostics()['machine_profile']` surfaces the real persisted
+  profile, the most recent `select_strategy` verdict (`None` before
+  any real call), and the live `is_quiet_window` reading — verified
+  directly, including the honest pre-first-call `None`. Two pre-
+  existing scripts needed a companion fix to stay decoupled from this
+  new real signal: `verify_b6_adaptive_concurrency.py` (whose own
+  scenarios deliberately move `llm_max_concurrent` up to 4/6, above
+  `select_strategy`'s own hardcoded ceiling of 3) now patches `select_
+  strategy` to a permissive stand-in for its own duration, so it keeps
+  proving B6's bang-bang mechanics in isolation rather than
+  re-measuring B7.3's real interaction (which the two scripts named
+  below already cover) — re-run and confirmed still green.
+
+  Verified: `scripts/verify_b8_predictive_scheduling.py` (25 checks) —
+  persistence across two real engine constructions against the same
+  db path, `:memory:` never touching disk, a corrupted profile file
+  degrading rather than crashing, the strategy cap firing/not-firing
+  correctly in both directions, the daily backlog sample firing under
+  both skip conditions, the quiet-window gate on the real monthly
+  refresh, and `full_diagnostics()` surfacing real state.
+
+## B8 — Predictive scheduling [Hard Rule 8] [PARTIAL — B8.1-B8.4 shipped v1.34.174; B8.4 wired to a real control point v1.34.202, B8.1-B8.3 remain unwired pending a real trained model]
 
 - [x] **B8.1 — Workload forecaster — SHIPPED, v1.34.174.** New
   `hearthmind/simulation/forecasting.py`'s `WorkloadForecaster`: a
@@ -1241,14 +1298,22 @@ migration itself.
   EVERY recent reading stayed below the threshold fraction of
   capacity, so a single spike correctly breaks "quiet."
 
-**Not wired into any real control point** — same "never big-bang"
-discipline as every prior B-item: no import from `forecasting.py`/
-`cross_run.py` exists in `simulation/engine.py`/`server.py`, no real
-recorder/metrics archive is ever fed through `pool_examples_across_
-runs`, and `plan_reservation`'s output isn't consulted by B2's real
-scheduler. Real future work, naturally paired with B7's own unwired
-`select_strategy`/`GoodCitizenPolicy` once a real migration pass wires
-the Runtime modules into the live tick loop.
+**B8.4 wired to a real control point, v1.34.202** — see B7's own entry
+above (same batch, same explicit user instruction): `is_quiet_window`
+now gates `_maybe_refresh_machine_profile`'s real storage-benchmark
+disk I/O into a genuinely quiet LLM-backlog period, read from a real
+bounded daily history. **B8.1/B8.2/B8.3 remain unwired**, honestly —
+`plan_reservation`/`ForecastAccuracyTracker` both depend on B8.1's
+`WorkloadForecaster` producing a real prediction first, and training
+one for real needs a real recorder archive this pass had no reason to
+fabricate (same "no fine-tuning run itself is implemented" scope trim
+this project's own FT items already used) — no import from
+`forecasting.WorkloadForecaster`/`cross_run.py` exists in `simulation/
+engine.py`/`server.py` yet, and `plan_reservation`'s output still
+isn't consulted by B2's real scheduler. Real future work: training a
+real `WorkloadForecaster` against a real archive (`pool_examples_
+across_runs`) and wiring its prediction into a genuine reservation via
+`plan_reservation`/`ForecastAccuracyTracker`.
 
 ## B9 — Hierarchical timescales [Hard Rule 10] [PARTIAL — B9.1/B9.2 shipped v1.34.175, B9.3 (the real audit) not attempted]
 

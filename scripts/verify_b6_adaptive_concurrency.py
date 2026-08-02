@@ -32,10 +32,22 @@ resizes the real semaphore, logging the change; a genuine healthy-
 latency reading raises it back; the bounded ±1 step and legal-range
 clamp hold under repeated calls; and a no-op check is never logged
 (only genuine changes are).
+
+Tier 5 B7.3's later real wiring (`select_strategy`'s output as a
+downward-only cap, see `verify_b7_hardware_citizenship.py`/`verify_
+b8_predictive_scheduling.py`) means `_maybe_tune_llm_concurrency` now
+consults a SECOND real signal alongside B6's own bang-bang controller
+— this script's own scenarios (deliberately moving `llm_max_concurrent`
+up to 4, above `select_strategy`'s own hardcoded ceiling of 3) patch
+`select_strategy` to a permissive stand-in for the duration of these
+checks so B6's bang-bang mechanics are proven in isolation, exactly as
+this script's own stated scope always was — B7.3's real interaction
+with B6 is covered by the two scripts named above, not duplicated here.
 """
 import asyncio
 import sys
 import tempfile
+from unittest import mock
 
 sys.path.insert(0, "/home/user/hearthmind")
 
@@ -45,6 +57,11 @@ from hearthmind.persistence.database import connect
 from hearthmind.simulation.engine import (
     ADAPTIVE_CONCURRENCY_HYSTERESIS_MS, ADAPTIVE_CONCURRENCY_MIN_EVIDENCE, ADAPTIVE_CONCURRENCY_TARGET_MS,
     SimulationEngine,
+)
+from hearthmind.simulation.hardware_profile import Strategy
+
+_PERMISSIVE_STRATEGY = Strategy(
+    llm_max_concurrent_hint=8, worker_count_hint=8, cache_size_hint="large", dormancy_aggressiveness="low",
 )
 
 FAILURES: list[str] = []
@@ -136,6 +153,10 @@ async def main() -> None:
 
     # 3-8. Real SimulationEngine._maybe_tune_llm_concurrency, driven end
     #      to end (not a synthetic stand-in), including its real gates.
+    #      `select_strategy` patched permissive for this whole block —
+    #      see the module docstring's note on B7.3.
+    strategy_patch = mock.patch("hearthmind.simulation.engine.select_strategy", return_value=_PERMISSIVE_STRATEGY)
+    strategy_patch.start()
     with tempfile.TemporaryDirectory() as d:
         eng = make_engine(d, llm_max_concurrent=4)
 
@@ -233,6 +254,7 @@ async def main() -> None:
             "full_diagnostics exposes the real adaptive_tuning_log_recent",
             "adaptive_tuning_log_recent" in full and len(full["adaptive_tuning_log_recent"]) > 0,
         )
+    strategy_patch.stop()
 
     # 9. A fresh engine seeded from a non-default config.llm_max_
     #    concurrent starts the controller at that real value, not the
