@@ -903,6 +903,28 @@ starts on an explicit instruction naming an item.
       replay-hash MATCH (4000 ticks, seed 777), and a native-soak
       MATCH (3 seeds x 3000 ticks).
 
+      **B0.3 CLOSED — every remaining job migrated, v1.34.197.**
+      Explicit user follow-up ("Choose 1": extend the runtime to
+      unblock the flagged `_JOB_EVENTS` majority). **Corrects the
+      v1.34.196 claim above** — no `Task`/`Scheduler` design change was
+      actually needed: `Scheduler.run_tick(*args, **kwargs)` already
+      forwards positional args straight to `task.fn(*args, **kwargs)`,
+      and since every migrated job holds its own isolated single-task
+      registry, `run_tick(events)`/`run_tick(events, previous_season)`
+      reproduces the pre-migration direct call exactly. All 43
+      remaining `_TICK_JOBS` entries (42 `_JOB_EVENTS` + 1 `_JOB_
+      EVENTS_SEASON`) migrated in one batch, same dedicated-registry-
+      per-job shape; `_tick_once`'s dispatch loop now branches on
+      `arg_kind` for a runtime-scheduled job. `scripts/verify_b0_
+      runtime_migrations.py`'s `MIGRATIONS` table now covers all 56
+      jobs — every real `_TICK_JOBS` entry — with `arg_kind` threaded
+      through every check (175 checks total, incl. two new checks
+      proving error propagation for both the one-arg and two-arg
+      shapes). **B0.3 is now fully closed; B0 (the prime invariant) is
+      promoted from PARTIAL to fully SHIPPED.** Verified via the
+      script, a real replay-hash MATCH (4000 ticks, seed 777), and a
+      native-soak MATCH (3 seeds x 3000 ticks).
+
       **B4.2 pilot ("idle institutions") — SHIPPED, v1.34.187.**
       Explicit user choice via `AskUserQuestion` among B4.2's five named
       candidates, after an investigation found the other four (forgotten

@@ -4,6 +4,74 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.197] — Part B: B0.3 closed — every remaining job migrated
+
+Explicit user follow-up: "Choose 1" (extend the Task/Scheduler runtime
+to unblock the `_JOB_EVENTS`/`_JOB_EVENTS_SEASON` majority flagged as
+blocked after v1.34.196).
+
+**Corrects a wrong claim from v1.34.196's own changelog entry**: no
+design change was actually needed. `Scheduler.run_tick(*args,
+**kwargs)` already forwards positional arguments straight through to
+`task.fn(*args, **kwargs)` (`scheduler.py`) — since every migrated job
+holds its own single-task registry, calling `run_tick(events)`/
+`run_tick(events, previous_season)` at the real `_tick_once` call site
+reproduces the exact prior `method(events)`/`method(events,
+previous_season)` call shape with zero `Task`/`Scheduler` change. The
+"blocker" was a misreading, not a real limitation — corrected here
+rather than left standing.
+
+All 42 remaining `_JOB_EVENTS` jobs plus the 1 `_JOB_EVENTS_SEASON`
+job (`_maybe_schedule_chronicle`) migrated in one batch, same
+per-job-dedicated-registry shape as every prior migration:
+`_maybe_schedule_documentary`, `_maybe_schedule_tradition`, `_maybe_
+schedule_folklore`, `_maybe_schedule_legend_detection`, `_maybe_
+schedule_invention`, `_maybe_schedule_ontology_proposal`, `_maybe_
+schedule_ontology_evolution`, `_maybe_schedule_composite_entity`,
+`_maybe_schedule_nature_mind`, `_maybe_schedule_species_variant`,
+`_maybe_schedule_rule_proposal`, `_maybe_schedule_composite_reaction_
+propose`, `_maybe_schedule_festival`, `_maybe_schedule_religion`,
+`_maybe_schedule_narrative_direction`, `_maybe_schedule_culture_
+digest`, `_maybe_schedule_consciousness`, `_maybe_schedule_
+reflection`, `_maybe_schedule_self_tuning`, `_maybe_schedule_musing`,
+`_maybe_schedule_caravan`, `_maybe_schedule_town_brain`, `_maybe_
+schedule_beliefs`, `_maybe_schedule_personal_belief`, `_maybe_
+schedule_dream`, `_maybe_schedule_memory_drift`, `_maybe_tick_
+temperament`, `_maybe_schedule_omen`, `_maybe_tick_market_prices`,
+`_maybe_tick_settlement_trade`, `_maybe_pillar_initiates_contact`,
+`_maybe_schedule_guild_founding`, `_maybe_schedule_faction`, `_maybe_
+schedule_institution_belief`, `_maybe_schedule_geography`, `_maybe_
+schedule_fission`, `_maybe_schedule_diplomacy`, `_maybe_schedule_
+laws`, `_maybe_schedule_noncore_nudge`, `_maybe_schedule_letter`,
+`_update_institution_dormancy`, `_maybe_schedule_institution_culture`,
+plus `_maybe_schedule_chronicle`. `_tick_once`'s dispatch loop now
+branches on `arg_kind` when a job is runtime-scheduled, calling
+`run_tick()`/`run_tick(events)`/`run_tick(events, previous_season)`
+as appropriate — the same three-way branch the pre-migration direct
+call already had, just routed through each job's own scheduler.
+
+`scripts/verify_b0_runtime_migrations.py`'s `MIGRATIONS` table now
+covers all 56 jobs (every real `_TICK_JOBS` entry) with `arg_kind`
+threaded through every check — 175 checks total, plus two new checks
+(7/8) proving error propagation for both the one-arg (`_JOB_EVENTS`)
+and two-arg (`_JOB_EVENTS_SEASON`) shapes specifically, not just the
+zero-arg shape the prior batches' checks covered.
+
+**This closes B0.3**: every one of the ~200 originally-estimated real
+schedule points inside `engine.py` — precisely, all 56 entries in
+`_TICK_JOBS`, the complete table — now runs through the B1/B2 runtime
+instead of a direct per-tick method call. B0 (the prime invariant) is
+correspondingly promoted from PARTIAL to fully SHIPPED.
+
+Verified: `scripts/verify_b0_runtime_migrations.py` (175 checks) —
+all pass, first run, no bug found. `verify_task_graph.py`/`verify_
+scheduler.py`/`verify_runtime_invariant.py` re-run clean. A real
+before/after `World.to_dict()` replay-hash check (`scripts/verify_
+replay_hash.py --ticks 4000 --seeds 777 --in-process`) — MATCH,
+byte-identical. `scripts/verify_native_soak.py` (3 seeds x 3000
+ticks) — MATCH. `pyflakes` clean on both touched files (only the six
+known pre-existing forward-ref findings in `engine.py`).
+
 ## [1.34.196] — Part B: B0.3 batch migration (ten more real jobs)
 
 Explicit user instruction: "Don't ever do one at a time. Make this

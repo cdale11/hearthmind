@@ -426,7 +426,7 @@ pack.
 
 # PART B — THE ADAPTIVE RUNTIME
 
-## B0 — The prime invariant [PARTIAL — B0.1/B0.2 shipped v1.34.161, B0.3's first 13 real migrations shipped v1.34.193-v1.34.196]
+## B0 — The prime invariant [SHIPPED — B0.1/B0.2 shipped v1.34.161, B0.3's real migrations shipped v1.34.193-v1.34.196, B0.3 fully closed (all 56 real _TICK_JOBS entries migrated) v1.34.197]
 
 > **Gameplay systems declare *what* work exists. The runtime decides
 > *when*, *where*, and *how* it executes. Gameplay never makes
@@ -625,6 +625,50 @@ pack.
   calls, blocked on a real `Task`/`Scheduler` argument-passing
   extension, not on migration willingness. That extension is the
   natural next step for a future pass to consider.
+
+  **B0.3 CLOSED — every remaining job migrated, SHIPPED v1.34.197.**
+  Explicit user follow-up: "Choose 1" (asked to pick between designing
+  the flagged `Task`/`Scheduler` argument-passing extension, or
+  starting HearthBench's Part A). **Corrects the paragraph immediately
+  above, which was wrong**: no design change was actually needed.
+  `Scheduler.run_tick(*args, **kwargs)` already forwards positional
+  args straight through to `task.fn(*args, **kwargs)` (`scheduler.
+  py`), and since every migrated job holds its own isolated single-
+  task registry, calling `run_tick(events)`/`run_tick(events,
+  previous_season)` at the real `_tick_once` call site reproduces the
+  exact prior `method(events)`/`method(events, previous_season)` call
+  shape with zero `Task`/`Scheduler` change. The "blocker" was a
+  misreading of the existing code, not a real limitation.
+
+  All 43 remaining `_TICK_JOBS` entries (42 `_JOB_EVENTS` + 1 `_JOB_
+  EVENTS_SEASON`, `_maybe_schedule_chronicle`) migrated in one batch,
+  same per-job-dedicated-registry shape as every prior migration.
+  `_tick_once`'s dispatch loop now branches on `arg_kind` when a job
+  is runtime-scheduled — `run_tick()`/`run_tick(events)`/`run_tick
+  (events, previous_season)` — the same three-way branch the direct
+  call already had, just routed through each job's own scheduler.
+
+  `scripts/verify_b0_runtime_migrations.py`'s `MIGRATIONS` table now
+  covers all 56 jobs (every real `_TICK_JOBS` entry) with `arg_kind`
+  threaded through every check — 175 checks total, including two new
+  checks proving error propagation for both the one-arg (`_JOB_
+  EVENTS`) and two-arg (`_JOB_EVENTS_SEASON`) shapes specifically, not
+  just the zero-arg shape the earlier batches' checks covered.
+
+  **B0.3 is now fully closed — every one of the ~200 originally-
+  estimated real schedule points inside `engine.py`, precisely all 56
+  entries in `_TICK_JOBS`, runs through the B1/B2 runtime instead of a
+  direct per-tick method call. B0 (the prime invariant) is promoted
+  from PARTIAL to fully SHIPPED** (see this section's own header,
+  updated in step).
+
+  Verified: `scripts/verify_b0_runtime_migrations.py` (175 checks) —
+  all pass, first run, no bug found. `verify_task_graph.py`/`verify_
+  scheduler.py`/`verify_runtime_invariant.py` re-run clean. A real
+  before/after replay-hash check (4000 ticks, seed 777) — MATCH,
+  byte-identical. `scripts/verify_native_soak.py` (3 seeds x 3000
+  ticks) — MATCH. `pyflakes` clean on both touched files (only the
+  six known pre-existing forward-ref findings in `engine.py`).
 
 ## B1 — Task declaration & the work graph [PARTIAL — B1.1-B1.4 shipped v1.34.162, not yet wired into the live tick loop]
 

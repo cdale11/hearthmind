@@ -2298,6 +2298,583 @@ class SimulationEngine:
         ))
         self._runtime_scheduler_voice_dialogue = Scheduler(self._runtime_registry_voice_dialogue)
 
+        # Explicit user directive, same batch: the "blocker" flagged
+        # after the first batch (`_JOB_EVENTS`/`_JOB_EVENTS_SEASON`
+        # jobs need `events`/`previous_season` passed in fresh each
+        # tick) turned out not to be real — `Scheduler.run_tick(*args,
+        # **kwargs)` already forwards positional args straight to
+        # `task.fn(*args, **kwargs)`, and since each migrated job gets
+        # its own dedicated single-task registry, calling `run_tick
+        # (events)`/`run_tick(events, previous_season)` at the real
+        # `_tick_once` call site (below) reproduces the exact prior
+        # `method(events)`/`method(events, previous_season)` call
+        # shape with no `Task`/`Scheduler` change needed at all. Every
+        # remaining `_TICK_JOBS` entry migrated in this same batch.
+        # `reads`/`writes` are declared coarsely (`world.settlements`)
+        # for all of these — real documentation, but not load-bearing:
+        # each job holds its own isolated single-task registry, so no
+        # actual conflict/reordering decision depends on precision
+        # here, unlike a registry holding multiple tasks.
+        self._runtime_registry_chronicle = TaskRegistry()
+        self._runtime_registry_chronicle.register(Task(
+            id="chronicle",
+            subsystem="chronicle",
+            fn=self._maybe_schedule_chronicle,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_chronicle = Scheduler(self._runtime_registry_chronicle)
+
+        self._runtime_registry_documentary = TaskRegistry()
+        self._runtime_registry_documentary.register(Task(
+            id="documentary",
+            subsystem="documentary",
+            fn=self._maybe_schedule_documentary,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_documentary = Scheduler(self._runtime_registry_documentary)
+
+        self._runtime_registry_tradition = TaskRegistry()
+        self._runtime_registry_tradition.register(Task(
+            id="tradition",
+            subsystem="tradition",
+            fn=self._maybe_schedule_tradition,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_tradition = Scheduler(self._runtime_registry_tradition)
+
+        self._runtime_registry_folklore = TaskRegistry()
+        self._runtime_registry_folklore.register(Task(
+            id="folklore",
+            subsystem="folklore",
+            fn=self._maybe_schedule_folklore,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_folklore = Scheduler(self._runtime_registry_folklore)
+
+        self._runtime_registry_legend_detection = TaskRegistry()
+        self._runtime_registry_legend_detection.register(Task(
+            id="legend_detection",
+            subsystem="legend_detection",
+            fn=self._maybe_schedule_legend_detection,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_legend_detection = Scheduler(self._runtime_registry_legend_detection)
+
+        self._runtime_registry_invention = TaskRegistry()
+        self._runtime_registry_invention.register(Task(
+            id="invention",
+            subsystem="invention",
+            fn=self._maybe_schedule_invention,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_invention = Scheduler(self._runtime_registry_invention)
+
+        self._runtime_registry_ontology_proposal = TaskRegistry()
+        self._runtime_registry_ontology_proposal.register(Task(
+            id="ontology_proposal",
+            subsystem="ontology_proposal",
+            fn=self._maybe_schedule_ontology_proposal,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_ontology_proposal = Scheduler(self._runtime_registry_ontology_proposal)
+
+        self._runtime_registry_ontology_evolution = TaskRegistry()
+        self._runtime_registry_ontology_evolution.register(Task(
+            id="ontology_evolution",
+            subsystem="ontology_evolution",
+            fn=self._maybe_schedule_ontology_evolution,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_ontology_evolution = Scheduler(self._runtime_registry_ontology_evolution)
+
+        self._runtime_registry_composite_entity = TaskRegistry()
+        self._runtime_registry_composite_entity.register(Task(
+            id="composite_entity",
+            subsystem="composite_entity",
+            fn=self._maybe_schedule_composite_entity,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_composite_entity = Scheduler(self._runtime_registry_composite_entity)
+
+        self._runtime_registry_nature_mind = TaskRegistry()
+        self._runtime_registry_nature_mind.register(Task(
+            id="nature_mind",
+            subsystem="nature_mind",
+            fn=self._maybe_schedule_nature_mind,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_nature_mind = Scheduler(self._runtime_registry_nature_mind)
+
+        self._runtime_registry_species_variant = TaskRegistry()
+        self._runtime_registry_species_variant.register(Task(
+            id="species_variant",
+            subsystem="species_variant",
+            fn=self._maybe_schedule_species_variant,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_species_variant = Scheduler(self._runtime_registry_species_variant)
+
+        self._runtime_registry_rule_proposal = TaskRegistry()
+        self._runtime_registry_rule_proposal.register(Task(
+            id="rule_proposal",
+            subsystem="rule_proposal",
+            fn=self._maybe_schedule_rule_proposal,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_rule_proposal = Scheduler(self._runtime_registry_rule_proposal)
+
+        self._runtime_registry_composite_reaction_propose = TaskRegistry()
+        self._runtime_registry_composite_reaction_propose.register(Task(
+            id="composite_reaction_propose",
+            subsystem="composite_reaction_propose",
+            fn=self._maybe_schedule_composite_reaction_propose,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_composite_reaction_propose = Scheduler(self._runtime_registry_composite_reaction_propose)
+
+        self._runtime_registry_festival = TaskRegistry()
+        self._runtime_registry_festival.register(Task(
+            id="festival",
+            subsystem="festival",
+            fn=self._maybe_schedule_festival,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_festival = Scheduler(self._runtime_registry_festival)
+
+        self._runtime_registry_religion = TaskRegistry()
+        self._runtime_registry_religion.register(Task(
+            id="religion",
+            subsystem="religion",
+            fn=self._maybe_schedule_religion,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_religion = Scheduler(self._runtime_registry_religion)
+
+        self._runtime_registry_narrative_direction = TaskRegistry()
+        self._runtime_registry_narrative_direction.register(Task(
+            id="narrative_direction",
+            subsystem="narrative_direction",
+            fn=self._maybe_schedule_narrative_direction,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_narrative_direction = Scheduler(self._runtime_registry_narrative_direction)
+
+        self._runtime_registry_culture_digest = TaskRegistry()
+        self._runtime_registry_culture_digest.register(Task(
+            id="culture_digest",
+            subsystem="culture_digest",
+            fn=self._maybe_schedule_culture_digest,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_culture_digest = Scheduler(self._runtime_registry_culture_digest)
+
+        self._runtime_registry_consciousness = TaskRegistry()
+        self._runtime_registry_consciousness.register(Task(
+            id="consciousness",
+            subsystem="consciousness",
+            fn=self._maybe_schedule_consciousness,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_consciousness = Scheduler(self._runtime_registry_consciousness)
+
+        self._runtime_registry_reflection = TaskRegistry()
+        self._runtime_registry_reflection.register(Task(
+            id="reflection",
+            subsystem="reflection",
+            fn=self._maybe_schedule_reflection,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_reflection = Scheduler(self._runtime_registry_reflection)
+
+        self._runtime_registry_self_tuning = TaskRegistry()
+        self._runtime_registry_self_tuning.register(Task(
+            id="self_tuning",
+            subsystem="self_tuning",
+            fn=self._maybe_schedule_self_tuning,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_self_tuning = Scheduler(self._runtime_registry_self_tuning)
+
+        self._runtime_registry_musing = TaskRegistry()
+        self._runtime_registry_musing.register(Task(
+            id="musing",
+            subsystem="musing",
+            fn=self._maybe_schedule_musing,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_musing = Scheduler(self._runtime_registry_musing)
+
+        self._runtime_registry_caravan = TaskRegistry()
+        self._runtime_registry_caravan.register(Task(
+            id="caravan",
+            subsystem="caravan",
+            fn=self._maybe_schedule_caravan,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_caravan = Scheduler(self._runtime_registry_caravan)
+
+        self._runtime_registry_town_brain = TaskRegistry()
+        self._runtime_registry_town_brain.register(Task(
+            id="town_brain",
+            subsystem="town_brain",
+            fn=self._maybe_schedule_town_brain,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_town_brain = Scheduler(self._runtime_registry_town_brain)
+
+        self._runtime_registry_beliefs = TaskRegistry()
+        self._runtime_registry_beliefs.register(Task(
+            id="beliefs",
+            subsystem="beliefs",
+            fn=self._maybe_schedule_beliefs,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_beliefs = Scheduler(self._runtime_registry_beliefs)
+
+        self._runtime_registry_personal_belief = TaskRegistry()
+        self._runtime_registry_personal_belief.register(Task(
+            id="personal_belief",
+            subsystem="personal_belief",
+            fn=self._maybe_schedule_personal_belief,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_personal_belief = Scheduler(self._runtime_registry_personal_belief)
+
+        self._runtime_registry_dream = TaskRegistry()
+        self._runtime_registry_dream.register(Task(
+            id="dream",
+            subsystem="dream",
+            fn=self._maybe_schedule_dream,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_dream = Scheduler(self._runtime_registry_dream)
+
+        self._runtime_registry_memory_drift = TaskRegistry()
+        self._runtime_registry_memory_drift.register(Task(
+            id="memory_drift",
+            subsystem="memory_drift",
+            fn=self._maybe_schedule_memory_drift,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_memory_drift = Scheduler(self._runtime_registry_memory_drift)
+
+        self._runtime_registry_temperament = TaskRegistry()
+        self._runtime_registry_temperament.register(Task(
+            id="temperament",
+            subsystem="temperament",
+            fn=self._maybe_tick_temperament,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_temperament = Scheduler(self._runtime_registry_temperament)
+
+        self._runtime_registry_omen = TaskRegistry()
+        self._runtime_registry_omen.register(Task(
+            id="omen",
+            subsystem="omen",
+            fn=self._maybe_schedule_omen,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_omen = Scheduler(self._runtime_registry_omen)
+
+        self._runtime_registry_market_prices = TaskRegistry()
+        self._runtime_registry_market_prices.register(Task(
+            id="market_prices",
+            subsystem="market_prices",
+            fn=self._maybe_tick_market_prices,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_market_prices = Scheduler(self._runtime_registry_market_prices)
+
+        self._runtime_registry_settlement_trade = TaskRegistry()
+        self._runtime_registry_settlement_trade.register(Task(
+            id="settlement_trade",
+            subsystem="settlement_trade",
+            fn=self._maybe_tick_settlement_trade,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_settlement_trade = Scheduler(self._runtime_registry_settlement_trade)
+
+        self._runtime_registry_pillar_initiates_contact = TaskRegistry()
+        self._runtime_registry_pillar_initiates_contact.register(Task(
+            id="pillar_initiates_contact",
+            subsystem="pillar_initiates_contact",
+            fn=self._maybe_pillar_initiates_contact,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_pillar_initiates_contact = Scheduler(self._runtime_registry_pillar_initiates_contact)
+
+        self._runtime_registry_guild_founding = TaskRegistry()
+        self._runtime_registry_guild_founding.register(Task(
+            id="guild_founding",
+            subsystem="guild_founding",
+            fn=self._maybe_schedule_guild_founding,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_guild_founding = Scheduler(self._runtime_registry_guild_founding)
+
+        self._runtime_registry_faction = TaskRegistry()
+        self._runtime_registry_faction.register(Task(
+            id="faction",
+            subsystem="faction",
+            fn=self._maybe_schedule_faction,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_faction = Scheduler(self._runtime_registry_faction)
+
+        self._runtime_registry_institution_belief = TaskRegistry()
+        self._runtime_registry_institution_belief.register(Task(
+            id="institution_belief",
+            subsystem="institution_belief",
+            fn=self._maybe_schedule_institution_belief,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_institution_belief = Scheduler(self._runtime_registry_institution_belief)
+
+        self._runtime_registry_geography = TaskRegistry()
+        self._runtime_registry_geography.register(Task(
+            id="geography",
+            subsystem="geography",
+            fn=self._maybe_schedule_geography,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_geography = Scheduler(self._runtime_registry_geography)
+
+        self._runtime_registry_fission = TaskRegistry()
+        self._runtime_registry_fission.register(Task(
+            id="fission",
+            subsystem="fission",
+            fn=self._maybe_schedule_fission,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_fission = Scheduler(self._runtime_registry_fission)
+
+        self._runtime_registry_diplomacy = TaskRegistry()
+        self._runtime_registry_diplomacy.register(Task(
+            id="diplomacy",
+            subsystem="diplomacy",
+            fn=self._maybe_schedule_diplomacy,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_diplomacy = Scheduler(self._runtime_registry_diplomacy)
+
+        self._runtime_registry_laws = TaskRegistry()
+        self._runtime_registry_laws.register(Task(
+            id="laws",
+            subsystem="laws",
+            fn=self._maybe_schedule_laws,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_laws = Scheduler(self._runtime_registry_laws)
+
+        self._runtime_registry_noncore_nudge = TaskRegistry()
+        self._runtime_registry_noncore_nudge.register(Task(
+            id="noncore_nudge",
+            subsystem="noncore_nudge",
+            fn=self._maybe_schedule_noncore_nudge,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_noncore_nudge = Scheduler(self._runtime_registry_noncore_nudge)
+
+        self._runtime_registry_letter = TaskRegistry()
+        self._runtime_registry_letter.register(Task(
+            id="letter",
+            subsystem="letter",
+            fn=self._maybe_schedule_letter,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_letter = Scheduler(self._runtime_registry_letter)
+
+        self._runtime_registry_institution_dormancy = TaskRegistry()
+        self._runtime_registry_institution_dormancy.register(Task(
+            id="institution_dormancy",
+            subsystem="institution_dormancy",
+            fn=self._update_institution_dormancy,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_institution_dormancy = Scheduler(self._runtime_registry_institution_dormancy)
+
+        self._runtime_registry_institution_culture = TaskRegistry()
+        self._runtime_registry_institution_culture.register(Task(
+            id="institution_culture",
+            subsystem="institution_culture",
+            fn=self._maybe_schedule_institution_culture,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_institution_culture = Scheduler(self._runtime_registry_institution_culture)
+
+
         if self._broadcaster is not None:
             # Terrain never changes after creation — set once, not part
             # of the per-tick payload. See docs/DECISIONS.md, F2.
@@ -3077,6 +3654,49 @@ class SimulationEngine:
         "_schedule_due_cognition": "_runtime_scheduler_due_cognition",
         "_schedule_due_dialogue": "_runtime_scheduler_due_dialogue",
         "_schedule_voice_dialogue": "_runtime_scheduler_voice_dialogue",
+        "_maybe_schedule_chronicle": "_runtime_scheduler_chronicle",
+        "_maybe_schedule_documentary": "_runtime_scheduler_documentary",
+        "_maybe_schedule_tradition": "_runtime_scheduler_tradition",
+        "_maybe_schedule_folklore": "_runtime_scheduler_folklore",
+        "_maybe_schedule_legend_detection": "_runtime_scheduler_legend_detection",
+        "_maybe_schedule_invention": "_runtime_scheduler_invention",
+        "_maybe_schedule_ontology_proposal": "_runtime_scheduler_ontology_proposal",
+        "_maybe_schedule_ontology_evolution": "_runtime_scheduler_ontology_evolution",
+        "_maybe_schedule_composite_entity": "_runtime_scheduler_composite_entity",
+        "_maybe_schedule_nature_mind": "_runtime_scheduler_nature_mind",
+        "_maybe_schedule_species_variant": "_runtime_scheduler_species_variant",
+        "_maybe_schedule_rule_proposal": "_runtime_scheduler_rule_proposal",
+        "_maybe_schedule_composite_reaction_propose": "_runtime_scheduler_composite_reaction_propose",
+        "_maybe_schedule_festival": "_runtime_scheduler_festival",
+        "_maybe_schedule_religion": "_runtime_scheduler_religion",
+        "_maybe_schedule_narrative_direction": "_runtime_scheduler_narrative_direction",
+        "_maybe_schedule_culture_digest": "_runtime_scheduler_culture_digest",
+        "_maybe_schedule_consciousness": "_runtime_scheduler_consciousness",
+        "_maybe_schedule_reflection": "_runtime_scheduler_reflection",
+        "_maybe_schedule_self_tuning": "_runtime_scheduler_self_tuning",
+        "_maybe_schedule_musing": "_runtime_scheduler_musing",
+        "_maybe_schedule_caravan": "_runtime_scheduler_caravan",
+        "_maybe_schedule_town_brain": "_runtime_scheduler_town_brain",
+        "_maybe_schedule_beliefs": "_runtime_scheduler_beliefs",
+        "_maybe_schedule_personal_belief": "_runtime_scheduler_personal_belief",
+        "_maybe_schedule_dream": "_runtime_scheduler_dream",
+        "_maybe_schedule_memory_drift": "_runtime_scheduler_memory_drift",
+        "_maybe_tick_temperament": "_runtime_scheduler_temperament",
+        "_maybe_schedule_omen": "_runtime_scheduler_omen",
+        "_maybe_tick_market_prices": "_runtime_scheduler_market_prices",
+        "_maybe_tick_settlement_trade": "_runtime_scheduler_settlement_trade",
+        "_maybe_pillar_initiates_contact": "_runtime_scheduler_pillar_initiates_contact",
+        "_maybe_schedule_guild_founding": "_runtime_scheduler_guild_founding",
+        "_maybe_schedule_faction": "_runtime_scheduler_faction",
+        "_maybe_schedule_institution_belief": "_runtime_scheduler_institution_belief",
+        "_maybe_schedule_geography": "_runtime_scheduler_geography",
+        "_maybe_schedule_fission": "_runtime_scheduler_fission",
+        "_maybe_schedule_diplomacy": "_runtime_scheduler_diplomacy",
+        "_maybe_schedule_laws": "_runtime_scheduler_laws",
+        "_maybe_schedule_noncore_nudge": "_runtime_scheduler_noncore_nudge",
+        "_maybe_schedule_letter": "_runtime_scheduler_letter",
+        "_update_institution_dormancy": "_runtime_scheduler_institution_dormancy",
+        "_maybe_schedule_institution_culture": "_runtime_scheduler_institution_culture",
     }
 
     def _tick_once(self) -> None:
@@ -3258,7 +3878,16 @@ class SimulationEngine:
                 # Scheduler pair — see `__init__`'s registration for why
                 # each migrated job gets its own pair and why CRITICAL+
                 # PERIODIC reproduces "always runs, every tick" exactly.
-                report = getattr(self, scheduler_attr).run_tick()
+                # `Scheduler.run_tick(*args, **kwargs)` forwards straight
+                # to `task.fn(*args, **kwargs)`, so an `_JOB_EVENTS`/
+                # `_JOB_EVENTS_SEASON` job's real per-tick arguments pass
+                # through exactly as the pre-migration direct call did.
+                if arg_kind == _JOB_NO_ARGS:
+                    report = getattr(self, scheduler_attr).run_tick()
+                elif arg_kind == _JOB_EVENTS:
+                    report = getattr(self, scheduler_attr).run_tick(events)
+                else:  # _JOB_EVENTS_SEASON
+                    report = getattr(self, scheduler_attr).run_tick(events, previous_season)
                 if report.errors:
                     # Scheduler.run_tick() catches broadly and records a
                     # repr rather than letting an exception propagate

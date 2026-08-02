@@ -742,6 +742,45 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.197)
+
+Explicit user follow-up: "Choose 1" (extend the `Task`/`Scheduler`
+runtime to unblock the `_JOB_EVENTS`/`_JOB_EVENTS_SEASON` majority
+flagged as blocked after v1.34.196).
+
+**Correction to v1.34.196's own claim**: no design change was
+actually needed — `Scheduler.run_tick(*args, **kwargs)` already
+forwards positional args straight through to `task.fn(*args,
+**kwargs)`, and since every migrated job holds its own isolated
+single-task registry, `run_tick(events)`/`run_tick(events,
+previous_season)` reproduces the pre-migration direct call exactly.
+The "blocker" was a misreading; corrected here rather than left
+standing.
+
+All 43 remaining `_TICK_JOBS` entries (42 `_JOB_EVENTS` + 1 `_JOB_
+EVENTS_SEASON`, `_maybe_schedule_chronicle`) migrated in one batch,
+same per-job-dedicated-registry shape as every prior migration.
+`_tick_once`'s dispatch loop now branches on `arg_kind` for a
+runtime-scheduled job, calling `run_tick()`/`run_tick(events)`/
+`run_tick(events, previous_season)` as appropriate.
+
+`scripts/verify_b0_runtime_migrations.py`'s `MIGRATIONS` table now
+covers all 56 jobs (every real `_TICK_JOBS` entry) with `arg_kind`
+threaded through every check — 175 checks total, plus two new checks
+proving error propagation for both the one-arg and two-arg shapes.
+
+**This closes B0.3 in full** — every real schedule point in `_TICK_
+JOBS` now runs through the B1/B2 runtime. B0 (the prime invariant) is
+promoted from PARTIAL to fully SHIPPED.
+
+Verified: `scripts/verify_b0_runtime_migrations.py` (175 checks) —
+all pass, first run, no bug found. `verify_task_graph.py`/`verify_
+scheduler.py`/`verify_runtime_invariant.py` re-run clean. A real
+before/after `World.to_dict()` replay-hash check (4000 ticks, seed
+777) — MATCH, byte-identical. `scripts/verify_native_soak.py` (3
+seeds x 3000 ticks) — MATCH. `pyflakes` clean on both touched files
+(only the six known pre-existing forward-ref findings in `engine.py`).
+
 ## Current state (v1.34.196)
 
 Explicit user instruction: "Don't ever do one at a time. Make this
