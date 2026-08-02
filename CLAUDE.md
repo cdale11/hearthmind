@@ -730,6 +730,60 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.190)
+
+Explicit user instruction: "Start tier 5 part B left items" — the
+remaining Part B items (B0.3, B3.3, B4.2's other four candidates,
+B9.3, B10.2's other flagged sites) are all the same risk class: real
+audits/migrations of live gameplay code needing individual per-site
+judgment and replay-hash/soak verification, not a new standalone
+module. Scoped via `AskUserQuestion` to **B10.2: one more site
+pilot** — a second, bounded proof-of-pattern conversion, same shape
+as v1.34.184's `Population.get(agent_id)` pilot.
+
+New `Settlement.buildings_of_kind(kind)` (`settlement/buildings.py`):
+a `BuildingKind -> [Building]` index, same derived/never-serialized/
+invalidate-on-mutation discipline as the existing `_position_index`
+behind `at()` — replaces a full `for building in settlement.
+buildings: if building.kind is not X: continue` scan at THIRTEEN real
+per-tick call sites in `population.py` (granaries, husbandry,
+workshops, tool/medicine crafting, factories, docks, oil rigs,
+forges, market workers, schools, the university upgrade, and the
+bridge-tile pooling scan) — every one of these runs once per
+settlement, every tick, unconditionally (`Population.tick()`'s own
+per-settlement loop calls all thirteen). Genuinely harder than the
+first B10.2 pilot in one respect: a building's `.kind` CAN change
+without the buildings list changing length (the school->university
+upgrade, `_maybe_upgrade_university`), so unlike `_position_index`
+the new index can't rely on a length check alone — it's invalidated
+explicitly at all three real mutation sites: `start_construction`'s
+append, the ruin-removal `self.buildings = survivors` reassignment,
+and the school->university kind mutation itself (`buildings.py`'s
+own docstring on the new field states this precisely).
+
+Verified: a real before/after replay-hash check (`scripts/verify_
+replay_hash.py --ticks 4000 --seeds 777 --in-process`) — MATCH,
+byte-identical across two independent process runs on the changed
+code; new `scripts/verify_buildings_by_kind_pilot.py` (29 checks,
+standalone, no unittest) proving `buildings_of_kind()` matches a
+direct brute-force scan across construction/removal/kind-mutation
+scenarios — including a deliberate NEGATIVE control that skips
+invalidation after a real mutation to prove the cache genuinely can
+go stale without it (not just asserting the bug is structurally
+absent by construction), then confirms invalidating recovers it.
+Every one of the 20 existing `scripts/verify_*.py` re-run clean
+(unaffected — no native module or runtime-layer code touched);
+`pyflakes` clean on both touched files and the new script.
+`scripts/scan_global_scans.py`'s own flagged-site count fell 87 -> 76
+as a direct, measured consequence (the `.buildings`-scan subset
+specifically: 17 -> 6).
+
+The other 76 `scan_global_scans.py`-flagged sites, plus B0.3/B3.3/
+B4.2's remaining four candidates (forgotten traditions, inactive
+settlements, distant wildlife, unused ideas)/B9.3 in full, remain
+explicitly open — same "proof-of-pattern pilot, not a wider sweep"
+scoping the first B10.2 pilot used.
+
 ## Current state (v1.34.189)
 
 Explicit user directive: "One additional architecture pass before

@@ -3006,6 +3006,13 @@ class Settlement:
         rebuilt lazily whenever `buildings`' length changes (buildings
         are only ever appended or dropped, never moved). See the July
         2026 review's measured scaling costs."""
+        self._buildings_by_kind_index: "dict[BuildingKind, list[Building]] | None" = None
+        """BuildingKind -> [Building] cache behind `buildings_of_kind()`
+        (B10.2, Tier 5) — never serialized, same derived-index discipline
+        as `_position_index` but invalidated EXPLICITLY at every real
+        mutation site rather than length-checked, since a building's
+        `.kind` can change without the buildings list changing length
+        (the school->university upgrade). See `buildings_of_kind()`."""
 
     # --- legacy flat-attribute passthroughs ---------------------------------
     # One property pair per pre-split field. Deliberately mechanical: the
@@ -3699,6 +3706,26 @@ class Settlement:
             self._position_index = {(b.x, b.y): b for b in self.buildings}
         return self._position_index.get((x, y))
 
+    def buildings_of_kind(self, kind: "BuildingKind") -> "list[Building]":
+        """B10.2 (Tier 5, `HEARTHBENCH-RUNTIME-2026-07-23.md`): the real
+        per-tick pattern this exists for is `[b for b in settlement.
+        buildings if b.kind is X and b.stage is STANDING]`, repeated
+        once per building-driven subsystem (granaries, workshops,
+        factories, forges, ...) every tick — O(total buildings) each,
+        when only a handful of buildings ever match a given kind. This
+        returns the pre-bucketed list for one kind in O(1) amortized;
+        callers still filter by `.stage` themselves (stage changes far
+        more often than kind, so indexing by stage too would defeat the
+        cache). Invalidated explicitly at every mutation site — never
+        length-checked like `_position_index`, since a `.kind` change
+        (the school->university upgrade) doesn't move the list length."""
+        if self._buildings_by_kind_index is None:
+            index: "dict[BuildingKind, list[Building]]" = {}
+            for b in self.buildings:
+                index.setdefault(b.kind, []).append(b)
+            self._buildings_by_kind_index = index
+        return self._buildings_by_kind_index.get(kind, [])
+
     def vehicle_at(self, x: int, y: int) -> Vehicle | None:
         for vehicle in self.vehicles:
             if vehicle.x == x and vehicle.y == y:
@@ -3717,6 +3744,7 @@ class Settlement:
         self._next_id += 1
         self.buildings.append(building)
         self._position_index = None  # explicit invalidation, belt-and-braces beyond at()'s length check
+        self._buildings_by_kind_index = None  # B10.2: same explicit invalidation
         return building
 
     def start_vehicle(self, x: int, y: int, kind: VehicleKind = VehicleKind.CART) -> Vehicle:
@@ -3846,6 +3874,7 @@ class Settlement:
 
         if len(survivors) != len(self.buildings):
             self._position_index = None  # a ruin was reclaimed — see at()'s cache
+            self._buildings_by_kind_index = None  # B10.2: same invalidation
         self.buildings = survivors
 
         # Vehicles get the same catalysts as buildings, scaled down —

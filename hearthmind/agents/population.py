@@ -1634,8 +1634,8 @@ def _bridge_tiles_from_settlements(settlements: list[Settlement]) -> frozenset[t
     (bounded by BRIDGE_MAX_SPAN)."""
     tiles: set[tuple[int, int]] = set()
     for settlement in settlements:
-        for building in settlement.buildings:
-            if building.kind is BuildingKind.BRIDGE and building.stage is BuildingStage.STANDING:
+        for building in settlement.buildings_of_kind(BuildingKind.BRIDGE):
+            if building.stage is BuildingStage.STANDING:
                 tiles.update(building.bridge_span)
     return frozenset(tiles)
 
@@ -6025,8 +6025,8 @@ class Population:
         wasting it (D10). v0.87.44: a present BAKER counts as
         `OCCUPATION_STAFF_BONUS` contributors instead of 1 (see
         `occupation_staff_weight`)."""
-        for building in settlement.buildings:
-            if building.kind is not BuildingKind.GRANARY or building.stage is not BuildingStage.STANDING:
+        for building in settlement.buildings_of_kind(BuildingKind.GRANARY):
+            if building.stage is not BuildingStage.STANDING:
                 continue
             contributors = sum(
                 occupation_staff_weight(a, OCCUPATION_BAKER, True)
@@ -6059,15 +6059,15 @@ class Population:
         "presence-driven production" shape `_maybe_run_workshops` uses
         for currency, applied to food instead. One shared loop for both
         kinds since the shape is identical; only the constants differ."""
-        for building in settlement.buildings:
+        for building in itertools.chain(
+            settlement.buildings_of_kind(BuildingKind.PASTURE), settlement.buildings_of_kind(BuildingKind.HATCHERY),
+        ):
             if building.stage is not BuildingStage.STANDING:
                 continue
             if building.kind is BuildingKind.PASTURE:
                 capacity, passive, tended = PASTURE_CAPACITY, PASTURE_PASSIVE_YIELD_PER_TICK, PASTURE_TENDED_YIELD_PER_TICK
-            elif building.kind is BuildingKind.HATCHERY:
-                capacity, passive, tended = HATCHERY_CAPACITY, HATCHERY_PASSIVE_YIELD_PER_TICK, HATCHERY_TENDED_YIELD_PER_TICK
             else:
-                continue
+                capacity, passive, tended = HATCHERY_CAPACITY, HATCHERY_PASSIVE_YIELD_PER_TICK, HATCHERY_TENDED_YIELD_PER_TICK
             if building.stored_food >= capacity:
                 continue
             # FISHERMAN (v0.87.44) staff-weights only at HATCHERY, not
@@ -6090,8 +6090,8 @@ class Population:
         """Staffed presence at a standing workshop generates currency
         directly — a business, distinct from D10's overflow-selling. See
         WORKSHOP_INCOME_PER_TICK, docs/DECISIONS.md, "LLM-as-brain batch.\""""
-        for building in settlement.buildings:
-            if building.kind is not BuildingKind.WORKSHOP or building.stage is not BuildingStage.STANDING:
+        for building in settlement.buildings_of_kind(BuildingKind.WORKSHOP):
+            if building.stage is not BuildingStage.STANDING:
                 continue
             staff = sum(
                 occupation_staff_weight(a, OCCUPATION_BUSINESSMAN, True)
@@ -6116,8 +6116,8 @@ class Population:
         food (communal granary), the tools land directly in the specific
         worker's own `Agent.inventory`. See WORKSHOP_CRAFT_MATERIALS_
         COST_PER_TICK/WORKSHOP_CRAFT_TOOLS_PER_TICK."""
-        for building in settlement.buildings:
-            if building.kind is not BuildingKind.WORKSHOP or building.stage is not BuildingStage.STANDING:
+        for building in settlement.buildings_of_kind(BuildingKind.WORKSHOP):
+            if building.stage is not BuildingStage.STANDING:
                 continue
             workers = [
                 a for a in by_position.get((building.x, building.y), [])
@@ -6200,8 +6200,8 @@ class Population:
         SKILL_MEDICINE_PRACTICE_GAIN each tick they craft, closing what
         was otherwise the only crafted good with no personal-skill
         hook at all."""
-        for building in settlement.buildings:
-            if building.kind is not BuildingKind.HOSPITAL or building.stage is not BuildingStage.STANDING:
+        for building in settlement.buildings_of_kind(BuildingKind.HOSPITAL):
+            if building.stage is not BuildingStage.STANDING:
                 continue
             workers = [
                 a for a in by_position.get((building.x, building.y), [])
@@ -6268,8 +6268,8 @@ class Population:
         (double the rate) — the settlement's industrial-era-or-later
         economic upgrade. See docs/DECISIONS.md, real-calendar/
         genesis-seed follow-up."""
-        for building in settlement.buildings:
-            if building.kind is not BuildingKind.FACTORY or building.stage is not BuildingStage.STANDING:
+        for building in settlement.buildings_of_kind(BuildingKind.FACTORY):
+            if building.stage is not BuildingStage.STANDING:
                 continue
             staff = sum(
                 occupation_staff_weight(a, OCCUPATION_BUSINESSMAN, True)
@@ -6287,8 +6287,8 @@ class Population:
     def _maybe_run_docks(by_position: dict[tuple[int, int], list[Agent]], settlement: Settlement) -> None:
         """Same shape as `_maybe_run_workshops`, at DOCK_INCOME_PER_TICK
         — a water-adjacent trade port. See BuildingKind.DOCK."""
-        for building in settlement.buildings:
-            if building.kind is not BuildingKind.DOCK or building.stage is not BuildingStage.STANDING:
+        for building in settlement.buildings_of_kind(BuildingKind.DOCK):
+            if building.stage is not BuildingStage.STANDING:
                 continue
             staff = sum(
                 occupation_staff_weight(a, OCCUPATION_BUSINESSMAN, True)
@@ -6305,8 +6305,8 @@ class Population:
         """Same shape as `_maybe_run_factories`, at OIL_RIG_INCOME_PER_
         TICK — offshore extraction, the water-infrastructure batch's
         industrial-scale income building. See BuildingKind.OIL_RIG."""
-        for building in settlement.buildings:
-            if building.kind is not BuildingKind.OIL_RIG or building.stage is not BuildingStage.STANDING:
+        for building in settlement.buildings_of_kind(BuildingKind.OIL_RIG):
+            if building.stage is not BuildingStage.STANDING:
                 continue
             staff = sum(
                 occupation_staff_weight(a, OCCUPATION_BUSINESSMAN, True)
@@ -6437,8 +6437,8 @@ class Population:
         — a bronze_age+ smithy, this era's economic building before
         WORKSHOP/FACTORY exist. No POWER_GRID_INDUSTRY_MULTIPLIER (no
         electricity this early). See BuildingKind.FORGE."""
-        for building in settlement.buildings:
-            if building.kind is not BuildingKind.FORGE or building.stage is not BuildingStage.STANDING:
+        for building in settlement.buildings_of_kind(BuildingKind.FORGE):
+            if building.stage is not BuildingStage.STANDING:
                 continue
             staff = sum(
                 occupation_staff_weight(a, OCCUPATION_BLACKSMITH, True)
@@ -6458,8 +6458,8 @@ class Population:
         (see `_maybe_schedule_caravan`'s call site in engine.py, since
         that's a monthly event-time effect, not a per-tick one). Same
         presence-driven shape as `_maybe_run_workshops`."""
-        for building in settlement.buildings:
-            if building.kind is not BuildingKind.MARKET or building.stage is not BuildingStage.STANDING:
+        for building in settlement.buildings_of_kind(BuildingKind.MARKET):
+            if building.stage is not BuildingStage.STANDING:
                 continue
             bankers = sum(
                 1 for a in by_position.get((building.x, building.y), [])
@@ -6479,9 +6479,11 @@ class Population:
         buildings.education_invention_bonus."""
         if settlement.education_level >= EDUCATION_CAPACITY:
             return
-        for building in settlement.buildings:
-            if building.kind not in (BuildingKind.SCHOOL, BuildingKind.UNIVERSITY, BuildingKind.LIBRARY):
-                continue
+        for building in itertools.chain(
+            settlement.buildings_of_kind(BuildingKind.SCHOOL),
+            settlement.buildings_of_kind(BuildingKind.UNIVERSITY),
+            settlement.buildings_of_kind(BuildingKind.LIBRARY),
+        ):
             if building.stage is not BuildingStage.STANDING:
                 continue
             # LIBRARY is staffed preferentially by SCRIBE, SCHOOL/UNIVERSITY
@@ -6510,7 +6512,7 @@ class Population:
         life_events: list[tuple[str, str]] = []
         if settlement.tech_level < UNIVERSITY_TECH_REQUIREMENT or settlement.materials < UNIVERSITY_MATERIALS_COST:
             return life_events
-        schools = [b for b in settlement.buildings if b.kind is BuildingKind.SCHOOL and b.stage is BuildingStage.STANDING]
+        schools = [b for b in settlement.buildings_of_kind(BuildingKind.SCHOOL) if b.stage is BuildingStage.STANDING]
         if not schools:
             return life_events
         for school in schools:
@@ -6520,6 +6522,7 @@ class Population:
                 continue
             settlement.materials -= UNIVERSITY_MATERIALS_COST
             school.kind = BuildingKind.UNIVERSITY
+            settlement._buildings_by_kind_index = None  # B10.2: a kind changed, not the list length
             life_events.append((
                 "building_completed",
                 f"The school at ({school.x}, {school.y}) was upgraded into a university.",

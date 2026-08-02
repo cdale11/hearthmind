@@ -729,6 +729,35 @@ starts on an explicit instruction naming an item.
       this was deliberately scoped as one proof-of-pattern pilot, per
       the user's own chosen option, not a wider sweep.
 
+      **B10.2 second pilot conversion — SHIPPED, v1.34.190.** Explicit
+      user instruction ("start tier 5 part B left items"), scoped via
+      `AskUserQuestion` to "B10.2: one more site pilot." `Settlement.
+      buildings_of_kind(kind)`: a new O(1)-amortized BuildingKind ->
+      `[Building]` index, same derived/never-serialized/invalidate-on-
+      mutation discipline as the existing `_position_index` behind
+      `at()`, replacing a full `for building in settlement.buildings:
+      if building.kind is not X: continue` scan at thirteen real
+      per-tick call sites in `population.py` (granaries, husbandry,
+      workshops, tool/medicine crafting, factories, docks, oil rigs,
+      forges, market workers, schools, the university upgrade, and the
+      bridge-tile pooling scan) — every one of these runs once per
+      settlement, every tick, unconditionally. Genuinely harder than
+      the first pilot in one respect: a building's `.kind` can change
+      WITHOUT the buildings list changing length (the school->
+      university upgrade), so unlike `_position_index` the new index
+      can't rely on a length check alone — it's invalidated explicitly
+      at all three real mutation sites (construction, ruin removal, and
+      the kind mutation itself). Verified via a real before/after
+      `World.to_dict()` replay-hash check (`scripts/verify_replay_
+      hash.py --ticks 4000 --seeds 777 --in-process`, MATCH) plus a
+      dedicated `scripts/verify_buildings_by_kind_pilot.py` (29 checks,
+      including a negative control that deliberately skips
+      invalidation to prove the cache really can go stale without it).
+      `scan_global_scans.py`'s flagged-site count fell 87 -> 76 as a
+      direct, measured consequence. The remaining 76 sites, plus B0.3/
+      B3.3/B4.2's other four candidates/B9.3, stay open — same
+      proof-of-pattern scoping as the first pilot.
+
       **B4.2 pilot ("idle institutions") — SHIPPED, v1.34.187.**
       Explicit user choice via `AskUserQuestion` among B4.2's five named
       candidates, after an investigation found the other four (forgotten

@@ -4,6 +4,33 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.190] — Tier 5 B10.2 second pilot: buildings_of_kind index
+
+Explicit user instruction ("start tier 5 part B left items"), scoped
+via `AskUserQuestion` to "B10.2: one more site pilot" — a second,
+bounded proof-of-pattern conversion, same shape as v1.34.184's
+`Population.get(agent_id)` pilot.
+
+New `Settlement.buildings_of_kind(kind)`: a `BuildingKind -> [Building]`
+index, same derived/never-serialized/invalidate-on-mutation discipline
+as the existing `_position_index` behind `at()`, replacing a full
+per-tick scan of `settlement.buildings` at thirteen real call sites in
+`population.py` (granaries, husbandry, workshops, tool/medicine
+crafting, factories, docks, oil rigs, forges, market workers, schools,
+the university upgrade, and the bridge-tile pooling scan). Unlike
+`_position_index`, a building's `.kind` can change without the
+buildings list changing length (the school->university upgrade), so
+the new index is invalidated explicitly at all three real mutation
+sites rather than relying on a length check.
+
+Verified via a real before/after replay-hash check (MATCH across two
+independent runs, 4000 ticks) and a new `scripts/verify_buildings_by_
+kind_pilot.py` (29 checks, including a negative control proving the
+cache can go stale without its real invalidation sites). `scripts/
+scan_global_scans.py`'s flagged-site count fell 87 -> 76. Every prior
+`verify_*.py` re-run clean; `pyflakes` clean. The remaining 76 flagged
+sites, plus B0.3/B3.3/B4.2's other four candidates/B9.3, stay open.
+
 ## [1.34.189] — HCA amendment: competitive arbitration + cognitive domains
 
 Explicit user directive ("one additional architecture pass before

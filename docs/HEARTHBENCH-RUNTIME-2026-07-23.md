@@ -941,7 +941,7 @@ against a real `TimescaleLadder` anywhere. Real future work, naturally
 paired with B9.3's own still-open audit and the rest of the unwired
 Runtime modules (B2 through B8) once a real migration pass begins.
 
-## B10 — Locality [Hard Rule 11] [PARTIAL — B10.1/B10.3 shipped v1.34.177, B10.2's discovery tool shipped v1.34.177 + one real pilot conversion shipped v1.34.184, 88 of 89 flagged sites still open]
+## B10 — Locality [Hard Rule 11] [PARTIAL — B10.1/B10.3 shipped v1.34.177, B10.2's discovery tool shipped v1.34.177 + two real pilot conversions shipped v1.34.184/v1.34.190, 76 flagged sites still open]
 
 - [x] **B10.1 — Spatial index / region partition — SHIPPED, v1.34.177.**
   New `hearthmind/simulation/locality.py`'s `RegionGrid`: a uniform-
@@ -1001,6 +1001,42 @@ Runtime modules (B2 through B8) once a real migration pass begins.
   yet), multi-candidate ordering, and both early-return cases. The
   other 88 flagged sites remain unconverted — this was deliberately
   scoped as one proof-of-pattern pilot, not a wider sweep.
+  **A second real pilot conversion SHIPPED, v1.34.190** (explicit user
+  instruction "start tier 5 part B left items," scoped via
+  `AskUserQuestion` to "B10.2: one more site pilot"): `Settlement.
+  buildings_of_kind(kind)`, a new O(1)-amortized by-kind index (same
+  derived/never-serialized/invalidate-on-mutation discipline as the
+  existing `_position_index` behind `at()`) replacing a full `for
+  building in settlement.buildings: if building.kind is not X:
+  continue` scan at THIRTEEN real per-tick call sites in `population.
+  py` (granaries, husbandry, workshops, tool/medicine crafting,
+  factories, docks, oil rigs, forges, market workers, schools, the
+  university upgrade, and the bridge-tile pooling scan) — every one of
+  these runs once per settlement, every tick, unconditionally, so this
+  converts O(13 x buildings) per settlement per tick into O(13) plus
+  one O(buildings) index rebuild only when something actually mutates.
+  Genuinely harder than the `Population.get()` pilot in one respect:
+  a building's `.kind` can change WITHOUT the buildings list changing
+  length (the school->university upgrade), so unlike `_position_index`
+  the by-kind index can't rely on a length check alone — it's
+  invalidated explicitly at all three real mutation sites
+  (`start_construction`'s append, the ruin-removal `self.buildings =
+  survivors` reassignment, and the school->university kind mutation).
+  Verified: a real before/after `World.to_dict()` replay-hash check
+  (`scripts/verify_replay_hash.py --ticks 4000 --seeds 777 --in-
+  process`) — MATCH, byte-identical across two independent runs; new
+  `scripts/verify_buildings_by_kind_pilot.py` (29 checks) proving
+  `buildings_of_kind()` matches a direct brute-force scan across
+  construction/removal/kind-mutation scenarios, INCLUDING a negative
+  control that deliberately skips invalidation to prove the cache
+  really can go stale without it (not just asserting the bug is
+  structurally absent); every one of the 20 existing `scripts/
+  verify_*.py` re-run clean (unaffected); `pyflakes` clean on both
+  touched files and the new script. `scripts/scan_global_scans.py`'s
+  own flagged-site count fell 87 -> 76 (the `.buildings`-scan subset
+  specifically: 17 -> 6) as a direct, measured consequence — the
+  remaining 76 sites stay unconverted, same "proof-of-pattern pilot,
+  not a wider sweep" scoping as the first one.
 - [x] **B10.3 — Region-parallel execution — SHIPPED, v1.34.177.**
   `plan_region_parallel_batches`/`find_cross_region_write_conflicts`:
   groups region-tagged tasks by region and VERIFIES (not assumes) the
