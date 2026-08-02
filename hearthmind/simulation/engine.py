@@ -105,7 +105,7 @@ from hearthmind.world.wildlife import (
 from hearthmind.simulation.sandbox import evaluate_concept_dual_fork, run_counterfactual
 from hearthmind.simulation.dormancy import DormancyManager
 from hearthmind.simulation.task_graph import PriorityClass, Task, TaskRegistry, TriggerKind
-from hearthmind.simulation.scheduler import Scheduler
+from hearthmind.simulation.scheduler import Scheduler, SubsystemBudget
 from hearthmind.simulation.tuning import BangBangController, TunableRegistry, register_llm_pacing_tunables
 from hearthmind.llm.client import build_llm_client, fetch_llama_server_metrics
 from hearthmind.llm.review_diagnostics import context_reflects_any
@@ -1125,6 +1125,46 @@ ADAPTIVE_TUNING_LOG_MAX = 200
 """Bounded ring-buffer size for `SimulationEngine._adaptive_tuning_
 log` — same cap-and-append discipline as every other unbounded-growth-
 prone list in this codebase (traditions/inventions/events/etc.)."""
+
+BROADCAST_SUBSYSTEM_BUDGET_SECONDS = 0.015
+"""Tier 5 B2's real control point: `_maybe_broadcast` (the per-tick
+WebSocket payload build — agents/buildings/summary/etc., explicitly
+cosmetic and safe to lag a few ticks under load, unlike every one of
+B0.3's CRITICAL migrations, which all deliberately reproduce "always
+runs, budget or not") now runs through its own dedicated B1/B2
+`TaskRegistry`/`Scheduler` pair as a real `PriorityClass.DEFERRABLE`
+task with a real wall-clock budget, instead of an unconditional direct
+call.
+
+Sized from a direct measurement in this environment, not guessed: a
+60-population, 64x64-tile world's real non-idle `_maybe_broadcast()`
+call (client_count forced >0 to skip the idle-world fast path) showed
+p50 ~9.5ms, max ~40ms over 30 calls. 15ms sits a little above the
+measured p50.
+
+**Verified, not assumed, what this actually exercises**: a direct test
+(`scripts/verify_b2_broadcast_budget.py`) proved that under this
+dedicated-single-task-registry-called-once-per-real-tick pattern —
+the same shape every B0.3 migration uses — `Scheduler.run_tick()`
+resets `SubsystemBudget.consumed_this_tick` to 0 at the END of every
+call, so `remaining()` is always full again by the time the NEXT
+call's due-check runs; a solo task therefore always executes (`ran`,
+never `deferred`) regardless of priority class, since there is no
+sibling task in the same registry+tick to have already spent the
+budget before this one's check. DEFERRABLE is still the semantically
+honest declaration (this job genuinely is safe to lag), but the
+promotion/deferral-bound machinery (`DEFAULT_MAX_DEFERRALS`) has no
+real chance to fire from this wiring alone — a real regression test
+proves this directly rather than silently assuming it. What IS real
+and newly exercised: `SubsystemBudget.debt_seconds` — an overrunning
+broadcast genuinely and permanently accrues real overrun debt every
+tick it runs over budget, surfaced via `all_budgets()`/diagnostics,
+the first live signal of its kind for this job. Making deferral
+itself fire for a real per-tick job would need either a second task
+sharing this subsystem's budget within the same `run_tick()` call, or
+a genuinely different (larger-scope, not attempted here) redesign
+where budget state persists across calls instead of resetting each
+one — flagged as real future work, not silently glossed over."""
 
 LLM_PRESSURE_SLOWDOWN_START_RATIO = 0.5
 LLM_PRESSURE_PAUSE_RATIO = 2.0
@@ -2348,6 +2388,38 @@ class SimulationEngine:
             priority_class=PriorityClass.CRITICAL,
         ))
         self._runtime_scheduler_voice_dialogue = Scheduler(self._runtime_registry_voice_dialogue)
+
+        # Tier 5 B2's real control point (explicit user directive: "wire
+        # B2 to a real control point" — see `BROADCAST_SUBSYSTEM_BUDGET_
+        # SECONDS`'s own docstring for the full design writeup, including
+        # what this wiring does and does NOT actually exercise, verified
+        # not assumed). Deliberately NOT a `_TICK_JOBS` entry/`_RUNTIME_
+        # SCHEDULED_JOB_SCHEDULERS` member — `_maybe_broadcast` has a
+        # SECOND call site (the real-time `run_forever` llama-server-
+        # restart-edge polling loop, outside `_tick_once` entirely) that
+        # must stay a direct call, so this gets its own explicit call
+        # site below rather than going through the generic per-tick
+        # dispatch table built for `_TICK_JOBS` alone. DEFERRABLE (not
+        # CRITICAL, unlike every B0.3 migration) — a lagged broadcast is
+        # genuinely harmless, the client just gets the next available
+        # frame; nothing here touches deterministic `World` state.
+        self._runtime_registry_broadcast = TaskRegistry()
+        self._runtime_registry_broadcast.register(Task(
+            id="broadcast",
+            subsystem="broadcast",
+            fn=self._maybe_broadcast,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.summary", "world.population.agents", "world.settlements.buildings"}),
+            writes=frozenset({"engine.broadcaster.last_payload"}),
+            timescale="tick",
+            priority_class=PriorityClass.DEFERRABLE,
+        ))
+        self._runtime_scheduler_broadcast = Scheduler(
+            self._runtime_registry_broadcast,
+            budgets={"broadcast": SubsystemBudget(
+                subsystem="broadcast", seconds_per_tick=BROADCAST_SUBSYSTEM_BUDGET_SECONDS,
+            )},
+        )
 
         # Explicit user directive, same batch: the "blocker" flagged
         # after the first batch (`_JOB_EVENTS`/`_JOB_EVENTS_SEASON`
@@ -4044,7 +4116,18 @@ class SimulationEngine:
         self.conn.commit()  # one commit for everything this tick logged (see log_event's commit param)
         self._last_tick_duration_ms = (time.perf_counter() - tick_start) * 1000
         self._tick_durations_ms.append(self._last_tick_duration_ms)
-        self._maybe_broadcast()
+        # Tier 5 B2's real control point (see `BROADCAST_SUBSYSTEM_
+        # BUDGET_SECONDS`'s docstring) — routed through its own dedicated
+        # DEFERRABLE-priority scheduler instead of a direct call. Same
+        # exception-propagation preservation as every B0.3 migration:
+        # `Scheduler.run_tick()` catches broadly and records a repr
+        # rather than letting an exception propagate, so a broadcast
+        # failure is re-raised here to keep matching the pre-migration
+        # behavior (an uncaught exception here stopped the tick before,
+        # and still does).
+        broadcast_report = self._runtime_scheduler_broadcast.run_tick()
+        if broadcast_report.errors:
+            raise RuntimeError(f"runtime-scheduled task(s) errored: {broadcast_report.errors}")
 
         self._ticks_since_snapshot += 1
         if self._ticks_since_snapshot >= self.config.snapshot_every_ticks:
@@ -14099,6 +14182,27 @@ class SimulationEngine:
             # spec's item): every real llm_max_concurrent change
             # `_maybe_tune_llm_concurrency` has made, never a no-op.
             "adaptive_tuning_log_recent": list(self._adaptive_tuning_log)[-10:],
+            # Tier 5 B2's real control point (see `BROADCAST_SUBSYSTEM_
+            # BUDGET_SECONDS`'s docstring): real, never-silently-reset
+            # overrun debt for the one job B2 actually schedules today —
+            # a growing `debt_seconds` here is a genuine "broadcasts are
+            # now costing more than their budget, worth investigating"
+            # signal, surfaced rather than only computed internally.
+            "broadcast_scheduler": {
+                "budget_debt_seconds": round(
+                    self._runtime_scheduler_broadcast.budget_for("broadcast").debt_seconds, 6,
+                ),
+                "metrics": {
+                    task_id: {
+                        "ticks_observed": m.ticks_observed,
+                        "call_count": m.call_count,
+                        "error_count": m.error_count,
+                        "deferred_count": m.deferred_count,
+                        "promoted_count": m.promoted_count,
+                    }
+                    for task_id, m in self._runtime_scheduler_broadcast.all_metrics().items()
+                },
+            },
             "llm_stats": self._cognition_runner.stats(),
             "llm_backlog_effective": self._effective_backlog(),
             "llm_backlog_reserved_this_tick": self._reserved_this_tick,

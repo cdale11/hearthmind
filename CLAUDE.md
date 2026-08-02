@@ -742,6 +742,58 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.199)
+
+Explicit user follow-up: "B2" — continuing the same Part B closing
+sequence B6 (v1.34.198) started. B2's own `scheduler.py` machinery was
+already genuinely imported/running (a stale doc claim otherwise was
+wrong) via B0.3's 56 migrated jobs, but every one is `PriorityClass.
+CRITICAL` (deliberate — reproduces "always runs" pre-migration
+behavior), and CRITICAL bypasses budgets/deferral by definition — so
+B2's real distinguishing logic had zero exercise.
+
+Presented two options in text (a genuine new judgment call, not a
+mechanical sweep): downgrade an existing CRITICAL job, or find a new
+non-critical control point. User chose "2." `_maybe_broadcast` (the
+per-tick WebSocket payload build — explicitly cosmetic, safe to lag a
+tick) now runs through its own dedicated `TaskRegistry`/`Scheduler`
+pair as a real `PriorityClass.DEFERRABLE` task with a real
+`SubsystemBudget` (`BROADCAST_SUBSYSTEM_BUDGET_SECONDS = 0.015`, sized
+from a direct measurement — a 60-population/64x64 world's real
+non-idle `_maybe_broadcast()` showed p50 ~9.5ms, max ~40ms over 30
+calls). Declared/called separately from the `_TICK_JOBS` dispatch
+table since `_maybe_broadcast` has a second, real-time call site
+(`run_forever`'s llama-server-restart polling loop, outside
+`_tick_once`) that must stay a direct call — confirmed still
+untouched.
+
+**Verified-not-assumed finding, corrected before shipping**: under the
+dedicated-single-task-registry-per-real-tick pattern every B0.3
+migration uses, `Scheduler.run_tick()` resets `SubsystemBudget.
+consumed_this_tick` to 0 at the END of every call — a solo task's
+budget is therefore always full again by the next call's due-check,
+so it ALWAYS runs (never `deferred`/`promoted`) regardless of priority
+class. A first-draft docstring wrongly claimed deferral would fire
+under load; caught via a direct synthetic test against the real
+`Scheduler`/`SubsystemBudget` classes and rewritten to state the
+verified truth. What IS real: `debt_seconds` genuinely and permanently
+accrues on an overrunning call — the first live signal of its kind for
+this job, surfaced via a new `full_diagnostics()['broadcast_
+scheduler']`. Real deferral for a solo per-tick job would need either
+a sibling task sharing the subsystem budget within one `run_tick()`
+call, or budget state persisting across calls — flagged future work,
+not glossed over.
+
+Verified: `scripts/verify_b2_broadcast_budget.py` (16 checks) — all
+pass, one design correction caught before shipping (see above).
+`verify_task_graph.py`/`verify_scheduler.py`/`verify_runtime_
+invariant.py`/`verify_b0_runtime_migrations.py`/`verify_tuning.py`/
+`verify_b6_adaptive_concurrency.py` re-run clean. A real before/after
+replay-hash check (4000 ticks, seed 777, `--in-process`) — MATCH,
+byte-identical. `scripts/verify_native_soak.py` (3 seeds x 3000
+ticks) — MATCH. `pyflakes` clean on both touched files (only the six
+known pre-existing forward-ref findings in `engine.py`).
+
 ## Current state (v1.34.198)
 
 Explicit user follow-up: "Any other remaining items from part B of

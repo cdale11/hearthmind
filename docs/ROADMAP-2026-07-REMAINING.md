@@ -944,6 +944,36 @@ starts on an explicit instruction naming an item.
       real replay-hash MATCH (4000 ticks, seed 777), and a native-soak
       MATCH (3 seeds x 3000 ticks).
 
+      **B2 (Budgets & scheduling) wired to a real control point —
+      SHIPPED, v1.34.199.** Explicit user follow-up ("B2"), continuing
+      the same closing sequence. `scheduler.py` was already genuinely
+      imported/running via B0.3's 56 migrated jobs, but all of them are
+      `PriorityClass.CRITICAL` (bypasses budgets/deferral by
+      definition) — B2's real logic had zero exercise. Two design
+      options presented in text (a genuine new judgment call, not a
+      sweep): downgrade an existing CRITICAL job, or find a new
+      non-critical control point. User chose the latter:
+      `_maybe_broadcast` (the per-tick WebSocket payload build,
+      explicitly cosmetic/safe-to-lag) now runs through its own
+      dedicated `TaskRegistry`/`Scheduler` pair as a real `PriorityClass.
+      DEFERRABLE` task with a real, measured `SubsystemBudget`
+      (`BROADCAST_SUBSYSTEM_BUDGET_SECONDS = 0.015` — p50 ~9.5ms/max
+      ~40ms measured directly on a 60-population/64x64 world). **A
+      verified, not assumed, honest limit**: a solo task in a
+      dedicated-registry-per-real-tick pattern ALWAYS runs (`Scheduler.
+      run_tick()` resets the budget at the end of every call, so it's
+      always full at the next due-check) — confirmed via a direct
+      synthetic test before a first-draft docstring's false "can defer"
+      claim was caught and corrected. What's real: `debt_seconds`
+      genuinely accrues on overrun, surfaced via `full_diagnostics()
+      ['broadcast_scheduler']`. New `scripts/verify_b2_broadcast_
+      budget.py` (16 checks). See docs/HEARTHBENCH-RUNTIME-2026-07-23.md's
+      B2 section for full detail. Verified via the script, `verify_
+      task_graph.py`/`verify_scheduler.py`/`verify_runtime_invariant.py`/
+      `verify_b0_runtime_migrations.py`/`verify_tuning.py`/`verify_b6_
+      adaptive_concurrency.py`, a real replay-hash MATCH (4000 ticks,
+      seed 777), and a native-soak MATCH (3 seeds x 3000 ticks).
+
       **B4.2 pilot ("idle institutions") — SHIPPED, v1.34.187.**
       Explicit user choice via `AskUserQuestion` among B4.2's five named
       candidates, after an investigation found the other four (forgotten

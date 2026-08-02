@@ -709,7 +709,7 @@ pack.
   — no engine code path was touched); a real per-subsystem migration
   pass must re-run it for real, per B1.4's own instruction.
 
-## B2 — Budgets & scheduling [Hard Rules 2, 9] [PARTIAL — B2.1-B2.5 shipped v1.34.164/v1.34.183, not yet wired into the live tick loop]
+## B2 — Budgets & scheduling [Hard Rules 2, 9] [SHIPPED — B2.1-B2.5 built v1.34.164/v1.34.183, wired to a real production control point v1.34.199]
 
 - [x] **B2.1 — Explicit per-subsystem execution budgets — SHIPPED
   (static form), v1.34.164.** `hearthmind/simulation/scheduler.py`'s
@@ -752,6 +752,31 @@ pack.
   yet due at that same point, only becoming due later, bounded by the
   real ceiling. "Attention follows change" is now a real, verified
   property, not a description.
+- [x] **Wired to a real production control point — SHIPPED, v1.34.199.**
+  Every one of B0.3's 56 migrated `_TICK_JOBS` is `PriorityClass.
+  CRITICAL` (deliberately, to reproduce pre-migration "always runs"
+  behavior), which bypasses B2's budget/deferral machinery entirely —
+  so despite `scheduler.py` genuinely being imported and executing
+  real code since B0.3, its actual distinguishing logic had zero real
+  exercise. `SimulationEngine._maybe_broadcast` (the per-tick
+  WebSocket payload build — explicitly cosmetic, safe to lag a tick)
+  now runs through its own dedicated `TaskRegistry`/`Scheduler` pair
+  as a real `PriorityClass.DEFERRABLE` task with a real `Subsystem
+  Budget` (`BROADCAST_SUBSYSTEM_BUDGET_SECONDS = 0.015`, measured
+  directly — a 60-population/64x64 world's real non-idle call showed
+  p50 ~9.5ms, max ~40ms). **A verified, not assumed, honest limit**:
+  under the dedicated-single-task-registry-per-real-tick pattern every
+  B0.3 migration uses, `Scheduler.run_tick()` resets `consumed_this_
+  tick` to 0 at the end of every call, so a solo task's budget is
+  always full again by the next due-check — it therefore ALWAYS runs,
+  never `deferred`/`promoted`, regardless of priority class (confirmed
+  directly against a synthetic over-budget task run 6 times). What IS
+  real: `debt_seconds` genuinely accrues on an overrunning call,
+  surfaced via `full_diagnostics()['broadcast_scheduler']` — real
+  deferral for a solo per-tick job needs either a sibling task sharing
+  the subsystem budget within one call, or budget state persisting
+  across calls, both flagged future work. Verified: `scripts/verify_
+  b2_broadcast_budget.py` (16 checks).
 - [x] **B2.5 — Work-conserving — SHIPPED, v1.34.164.** `Scheduler.
   run_tick`'s optional `tick_time_budget_seconds` param: once every
   subsystem-budgeted task has run or deferred, genuinely spare overall

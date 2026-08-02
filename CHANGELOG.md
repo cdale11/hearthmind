@@ -4,6 +4,95 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.199] — Part B: B2 (Budgets & scheduling) wired to a real control point
+
+Explicit user follow-up ("B2"), continuing the same Part-B closing
+sequence B6 started (v1.34.198). B2's own machinery (`simulation/
+scheduler.py`) was already genuinely imported and running real code
+via B0.3's 56 migrated jobs — a stale doc claim that no import from
+it existed was wrong — but every one of those jobs is declared
+`PriorityClass.CRITICAL` (deliberately, to reproduce "always runs
+every tick" pre-migration behavior), and CRITICAL bypasses the
+budget/deferral machinery entirely by definition. So B2's actual
+distinguishing logic had zero real exercise anywhere.
+
+Presented two design options in text (a genuinely new judgment call,
+not a mechanical sweep, per the standing "ask when stuck" workflow
+rule): downgrade an existing CRITICAL job (a real behavior change to
+already-shipped scheduling) or find a new, genuinely non-critical
+control point. User chose the latter, approving `_maybe_broadcast`
+(the per-tick WebSocket payload build) as the concrete target.
+`_maybe_broadcast` is explicitly cosmetic (agents/buildings/summary
+for the live UI) and genuinely safe to lag a tick under load — a
+skipped broadcast just means the client gets the next available
+frame — unlike every CRITICAL migration, which all touch state a
+skipped tick would actually change.
+
+New `BROADCAST_SUBSYSTEM_BUDGET_SECONDS = 0.015` (engine.py), sized
+from a direct measurement in this environment, not guessed: a
+60-population, 64x64-tile world's real non-idle `_maybe_broadcast()`
+call (client_count forced >0 to skip the idle-world fast path) showed
+p50 ~9.5ms, max ~40ms over 30 calls. `_maybe_broadcast` now runs
+through its own dedicated `TaskRegistry`/`Scheduler` pair (same
+one-job-per-registry discipline as every B0.3 migration, avoiding the
+double-execution bug class a shared registry would risk) as a real
+`PriorityClass.DEFERRABLE` task with a real `SubsystemBudget`,
+declared and called separately from the `_TICK_JOBS`/`_RUNTIME_
+SCHEDULED_JOB_SCHEDULERS` dispatch table — `_maybe_broadcast` has a
+SECOND call site (the real-time `run_forever` llama-server-restart-
+edge polling loop, outside `_tick_once` entirely) that must stay a
+direct call, confirmed still untouched.
+
+**A real, verified-not-assumed finding, not glossed over**: under the
+dedicated-single-task-registry-called-once-per-real-tick pattern
+every B0.3 migration uses, `Scheduler.run_tick()` resets `Subsystem
+Budget.consumed_this_tick` to 0 at the END of every call — so a solo
+task's budget is always full again by the time the NEXT call's
+due-check runs, and it therefore ALWAYS runs (never `deferred`, never
+`promoted`), regardless of declared priority class. Confirmed via a
+direct synthetic test (an artificially-slow task run 6 times against
+a tight budget, using the real `Scheduler`/`SubsystemBudget` classes)
+before writing any docstring claiming otherwise — a first draft of
+`BROADCAST_SUBSYSTEM_BUDGET_SECONDS`'s docstring wrongly claimed
+deferral would fire under load; caught and rewritten to state the
+verified truth instead. DEFERRABLE is still the semantically honest
+declaration (this job genuinely is safe to lag), and what IS real:
+`SubsystemBudget.debt_seconds` genuinely and permanently accrues
+whenever a call overruns its budget — the first live signal of its
+kind for this job, surfaced via a new `full_diagnostics()`
+`broadcast_scheduler` key (`budget_debt_seconds` + per-task metrics).
+Making deferral itself fire for a real solo per-tick job would need
+either a second task sharing this subsystem's budget within the same
+`run_tick()` call, or a genuinely different redesign where budget
+state persists across calls instead of resetting each one — flagged
+as real future work, not silently glossed over.
+
+New `scripts/verify_b2_broadcast_budget.py` (16 checks): the real
+task's declaration (DEFERRABLE not CRITICAL, PERIODIC, its own
+dedicated registry, the real bound method), the real budget object
+matching the documented constant, a cheap real `_maybe_broadcast`
+call running with zero debt, the honest never-defers finding proven
+directly against the real `Scheduler`/`SubsystemBudget` machinery
+(not a mock), overrun debt genuinely accruing and surfacing via
+`all_budgets()`, the real `_tick_once` re-raise-on-error pattern
+preserved, a real `_tick_once()` call actually routing through the
+new scheduler (metrics increment), and confirmation via source
+inspection that exactly one direct `self._maybe_broadcast()` call
+site remains (the untouched real-time polling one).
+
+Verified: `scripts/verify_b2_broadcast_budget.py` (16 checks) — all
+pass, first run except one design correction caught before shipping
+(the docstring's initial false "can still overrun and defer" claim,
+rewritten after direct measurement disproved it — see above).
+`verify_task_graph.py`/`verify_scheduler.py`/`verify_runtime_
+invariant.py`/`verify_b0_runtime_migrations.py`/`verify_tuning.py`/
+`verify_b6_adaptive_concurrency.py` re-run clean. A real before/after
+replay-hash check (4000 ticks, seed 777, `--in-process`) — MATCH,
+byte-identical (expected: broadcast is wall-clock-driven and never
+touches `World` state). `scripts/verify_native_soak.py` (3 seeds x
+3000 ticks) — MATCH. `pyflakes` clean on both touched files (only the
+six known pre-existing forward-ref findings in `engine.py`).
+
 ## [1.34.198] — Part B: B6 adaptive tuning wired to a real control point
 
 Explicit user follow-up: "Any other remaining items from part B of
