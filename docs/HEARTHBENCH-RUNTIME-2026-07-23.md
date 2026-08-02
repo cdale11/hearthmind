@@ -594,7 +594,7 @@ and both primitives have only ever been exercised against synthetic
 task sets (`scripts/verify_scheduler.py`, extended with 5 new B3
 checks alongside the existing 5 B2 ones).
 
-## B4 — Dormancy [Hard Rule 4] [PARTIAL — B4.1/B4.3/B4.4 shipped v1.34.166 (generic mechanism only, no real candidate migrated)]
+## B4 — Dormancy [Hard Rule 4] [PARTIAL — B4.1/B4.3/B4.4 shipped v1.34.166, one real B4.2 pilot candidate ("idle institutions") shipped v1.34.187]
 
 - [x] **B4.1 — `Dormant` lifecycle — SHIPPED (mechanism only), v1.34.166.**
   New `hearthmind/simulation/dormancy.py`'s `DormancyManager`: real
@@ -608,14 +608,38 @@ checks alongside the existing 5 B2 ones).
   three trigger sources. "State compressed" from the item's own text
   is NOT built — that's B12 (state compression), which doesn't exist
   yet; same honest-placeholder discipline as B2.1's "adaptive (B6)."
-- [ ] **B4.2 — Candidates named in the brief — explicitly NOT
-  attempted.** Forgotten traditions/inactive settlements/distant
-  wildlife/unused ideas/idle institutions each need real, live-tested
-  sleep/wake criteria touching actual `world/`/`agents/`/`settlement/`
-  gameplay code — the same "one subsystem at a time, never big-bang"
-  migration discipline B0.3/B1.4/B3.3 all defer for the same reason.
-  Real future work; `DormancyManager` is ready for the first one to
-  use whenever that migration starts.
+- [x] **B4.2 — "idle institutions" pilot — SHIPPED, v1.34.187.**
+  Explicit user choice (via `AskUserQuestion`, after the same "not just
+  an index-swap" investigation that shaped B10.2's own pilot) among the
+  five named candidates. Real `world`/`agents`/`settlement`-touching
+  behavior change, not a mechanism: `SimulationEngine._update_
+  institution_dormancy` (monthly, `simulation/engine.py`) watches each
+  real `(settlement, institution)` pair's cheap fingerprint (member
+  count, feud count, belief count, objective text); unchanged for
+  `INSTITUTION_DORMANCY_IDLE_CHECKS_THRESHOLD` (3) consecutive checks
+  sleeps it via `DormancyManager`, any real change wakes it immediately.
+  `_institution_job_target`'s existing quarterly round-robin now
+  excludes sleeping institutions (falling back to the full list if
+  every institution happens to be asleep at once), concentrating the
+  `institution_culture` LLM call on institutions something has actually
+  happened to.
+
+  Deliberately picked over the other four named candidates (forgotten
+  traditions, inactive settlements, distant wildlife, unused ideas)
+  because it's the one that's genuinely Constitution-compliant without
+  needing a real catch-up/reconstruction function: B15's `TWO_PART_
+  GUARANTEE` requires the deterministic Body stay replay-identical
+  regardless of ANY runtime/dormancy decision, while explicitly
+  permitting cognition BREADTH to vary. `Institution.culture_digest` is
+  pure Mind-layer narrative content — dormancy here never skips a
+  Body-affecting per-tick computation (unlike wildlife/settlement
+  ticking, which would need a genuinely lossless elapsed-tick
+  reconstruction of stochastic per-tick draws to stay Constitution-
+  compliant, a materially harder problem flagged as real future work
+  for whichever candidate is picked next). All three tracking dicts are
+  runtime scheduling state, never persisted — same "derived, re-
+  baselines cleanly on restart" discipline as this file's own `_prev_
+  population_total`/`_materials_critical_flagged`.
 - [x] **B4.3 — Semantic safety — SHIPPED, v1.34.166.** Baked directly
   into the API rather than left as a discipline to remember: `wake()`
   is the ONLY way to leave DORMANT/ARCHIVED and it ALWAYS returns the

@@ -103,6 +103,7 @@ from hearthmind.world.wildlife import (
     HARDINESS_VARIANT_BUMP, MAX_SPECIES_VARIANTS_STORED, SpeciesVariant, WILDLIFE_SEARCH_RADIUS,
 )
 from hearthmind.simulation.sandbox import evaluate_concept_dual_fork, run_counterfactual
+from hearthmind.simulation.dormancy import DormancyManager
 from hearthmind.llm.client import build_llm_client, fetch_llama_server_metrics
 from hearthmind.llm.review_diagnostics import context_reflects_any
 from hearthmind.llm.json_schemas import schema_for_task
@@ -1567,6 +1568,39 @@ def _generation_config_snapshot(config: Config) -> dict:
     return cfg
 
 
+INSTITUTION_DORMANCY_IDLE_CHECKS_THRESHOLD = 3
+"""Tier 5 B4.2 pilot ("idle institutions"): consecutive monthly
+`_update_institution_dormancy` checks with an unchanged fingerprint
+before an institution goes DORMANT. 3 checks (roughly a quarter, same
+cadence as `institution_culture`'s own `season_end` gate) — a
+reasoned starting point mirroring every other "how patient before
+acting" constant in this file (e.g. `MONTHLY_JOB_RETRY_WINDOW_DAYS`),
+not a live measurement; re-tune from a live `/diagnostics` reading of
+how many institutions sit dormant if the round-robin ever narrows to
+too few awake candidates."""
+
+
+def _institution_dormancy_key(settlement: "Settlement", institution: "Institution") -> str:
+    """`DormancyManager` entity id for one (settlement, institution)
+    pair — a plain string since the manager is generic and knows
+    nothing about real Hearthmind types."""
+    return f"{settlement.id}:{institution.id}"
+
+
+def _institution_fingerprint(institution: "Institution") -> tuple:
+    """A cheap, cheap-to-compute proxy for "has this institution's own
+    state actually moved since we last looked" — membership count, feud
+    count, belief count, and its current objective text. Deliberately
+    NOT `culture_digest` itself (that's the very field this dormancy
+    decision gates the narration OF, so using it as the change signal
+    would be circular) and deliberately NOT a deep content diff (this
+    only needs to answer "idle or not," not "what changed")."""
+    return (
+        len(institution.member_agent_ids), len(institution.feuds),
+        len(institution.beliefs), institution.objective,
+    )
+
+
 class SimulationEngine:
     def __init__(
         self, conn: sqlite3.Connection, config: Config, world: World,
@@ -1933,6 +1967,39 @@ class SimulationEngine:
         not the export's full per-field breakdown — that stays an
         archive-analysis job, this is just the dev-console's canary."""
         self._background_tasks: set[asyncio.Task] = set()
+        self._institution_dormancy = DormancyManager()
+        self._institution_fingerprint: dict[tuple[int, int], tuple] = {}
+        self._institution_idle_checks: dict[tuple[int, int], int] = {}
+        """Tier 5 B4.2 pilot ("idle institutions" — the one candidate
+        picked via explicit `AskUserQuestion` from the item's own five
+        named options). Real B4/`DormancyManager` migration, not a new
+        parallel mechanism — `_update_institution_dormancy` (monthly)
+        watches each (settlement_id, institution_id)'s own cheap
+        fingerprint (member count, feud count, belief count, objective
+        text); a fingerprint unchanged across `INSTITUTION_DORMANCY_
+        IDLE_CHECKS_THRESHOLD` consecutive monthly checks puts it to
+        sleep, any real change wakes it immediately. `_institution_job_
+        target`'s existing round-robin then skips sleeping institutions,
+        concentrating the quarterly `institution_culture` LLM call on
+        institutions something has actually happened to.
+
+        This is a genuine behavior change (which institution gets
+        picked, and when) but a Constitution-compliant one: `docs/
+        HEARTHBENCH-RUNTIME-2026-07-23.md`'s B15 `TWO_PART_GUARANTEE`
+        requires the deterministic Body stay replay-identical regardless
+        of any runtime/dormancy decision, while explicitly permitting
+        cognition BREADTH to vary ("adaptive: cognition breadth may
+        scale... never a degraded world"). `Institution.culture_digest`
+        is pure Mind-layer narrative content, never read by anything
+        Body-deterministic — dormancy here never touches simulated
+        physics/economy/population, only which institution's own
+        digest gets the next quarterly narration pass. All three dicts
+        are runtime scheduling state, never persisted — same "derived,
+        re-baselines cleanly on restart" discipline as `_prev_
+        population_total`/`_materials_critical_flagged` above; losing
+        idle-tracking progress on a restart just means a few institutions
+        take a little longer to be recognized as idle again, never a
+        correctness issue."""
         self._rumor_retellings_recent: list[dict] = []
         """A17's fitness-vs-truth axis (`world.memetics.rumor_fitness`/
         `rumor_truth_score`) — a small capped, transient (not persisted,
@@ -2742,6 +2809,7 @@ class SimulationEngine:
         ("_maybe_schedule_laws", _JOB_EVENTS),
         ("_maybe_schedule_noncore_nudge", _JOB_EVENTS),
         ("_maybe_schedule_letter", _JOB_EVENTS),
+        ("_update_institution_dormancy", _JOB_EVENTS),
         ("_maybe_schedule_institution_culture", _JOB_EVENTS),
         ("_schedule_due_cognition", _JOB_NO_ARGS),
         ("_schedule_due_dialogue", _JOB_NO_ARGS),
@@ -7228,6 +7296,63 @@ class SimulationEngine:
         # Cultural evolution (v1.3.37).
         self._schedule_llm_job("culture_digest", prompt, culture_digest.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True)
 
+    def _update_institution_dormancy(self, events: list[str]) -> None:
+        """Tier 5 B4.2 pilot — the real sleep/wake criterion for "idle
+        institutions," one monthly pass over every real (settlement,
+        institution) pair. Cheap by construction: `_institution_
+        fingerprint` reads already-computed institution fields, no new
+        per-tick tracked state and no scan beyond what `_institution_
+        job_target` already does every month regardless.
+
+        A fresh institution is registered ACTIVE (never starts asleep).
+        A fingerprint change (a new member, a fresh feud, a new belief,
+        a revised objective — the institution's own real activity) both
+        resets the idle-check counter AND wakes it if it was dormant,
+        via `DormancyManager.wake` — B4.3's real elapsed-tick gap is
+        read but deliberately not "caught up" against anything (this
+        pilot's dormancy never skips any Body-affecting per-tick work,
+        only Mind-layer LLM-scheduling attention — see this module's
+        own docstring for the Constitution B15 `TWO_PART_GUARANTEE`
+        reasoning). An unchanged fingerprint for `INSTITUTION_DORMANCY_
+        IDLE_CHECKS_THRESHOLD` consecutive monthly checks puts it to
+        sleep."""
+        if "month_end" not in events:
+            return
+        seen: set[tuple[int, int]] = set()
+        for settlement in self.world.settlements:
+            if not settlement.name:
+                continue
+            for institution in settlement.institutions:
+                if not institution.member_agent_ids:
+                    continue
+                key = _institution_dormancy_key(settlement, institution)
+                dict_key = (settlement.id, institution.id)
+                seen.add(dict_key)
+                fingerprint = _institution_fingerprint(institution)
+                if dict_key not in self._institution_fingerprint:
+                    self._institution_dormancy.register(key, self.world.clock.tick_count)
+                    self._institution_fingerprint[dict_key] = fingerprint
+                    self._institution_idle_checks[dict_key] = 0
+                    continue
+                if fingerprint != self._institution_fingerprint[dict_key]:
+                    self._institution_fingerprint[dict_key] = fingerprint
+                    self._institution_idle_checks[dict_key] = 0
+                    self._institution_dormancy.wake(key, self.world.clock.tick_count)
+                    continue
+                idle = self._institution_idle_checks.get(dict_key, 0) + 1
+                self._institution_idle_checks[dict_key] = idle
+                if idle >= INSTITUTION_DORMANCY_IDLE_CHECKS_THRESHOLD:
+                    self._institution_dormancy.sleep(key, self.world.clock.tick_count)
+        # An institution that's gone (settlement/institution pruned)
+        # leaves no trace to clean up beyond its own small dict entries
+        # — bounded by the same INSTITUTION_LIST_MAX_STORED cap
+        # `Settlement.institutions` itself already holds, never
+        # unbounded growth.
+        stale = set(self._institution_fingerprint) - seen
+        for dict_key in stale:
+            del self._institution_fingerprint[dict_key]
+            del self._institution_idle_checks[dict_key]
+
     def _institution_job_target(self) -> "tuple[Settlement, object] | None":
         """§9 "institutions get their own persistent memory" (docs/IDEAS-
         2026-07-EMERGENCE.md): a month-indexed round-robin over every
@@ -7236,13 +7361,29 @@ class SimulationEngine:
         target`/`_diplomacy_pair_target` already give settlement-scoped
         jobs, generalized one level deeper since institutions can
         genuinely outnumber settlements. `None` once no settlement has
-        any institution yet (a fresh/small world)."""
+        any institution yet (a fresh/small world).
+
+        Tier 5 B4.2 pilot: sleeping institutions (see `_update_
+        institution_dormancy`) are excluded from the rotation, so the
+        quarterly `institution_culture` call concentrates on
+        institutions something has actually happened to lately — real
+        cognition-breadth adaptation (permitted by B15's `TWO_PART_
+        GUARANTEE`), never a Body-affecting change. Falls back to the
+        FULL pair list if every institution happens to be asleep at
+        once (a small/quiet world) — dormancy narrows attention, it
+        never silently disables the job."""
         pairs = [
             (s, i) for s in self.world.settlements if s.name
             for i in s.institutions if i.member_agent_ids
         ]
         if not pairs:
             return None
+        awake = [
+            pair for pair in pairs
+            if self._institution_dormancy.is_scheduled(_institution_dormancy_key(*pair))
+        ]
+        if awake:
+            pairs = awake
         clock = self.world.clock
         month_ordinal = clock.year * len(self.world.config.days_per_month) + clock.month_index
         return pairs[month_ordinal % len(pairs)]

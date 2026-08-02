@@ -640,6 +640,61 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.187)
+
+Explicit user instruction ("continue part B of tier 5"), resolved via
+`AskUserQuestion` after an investigation found the remaining Part B
+items (B0.3/B3.3/B4.2/B9.3, plus B10.2's other 88 flagged sites) are a
+different risk class than the v1.34.184 pilot — real behavior changes,
+not safe index-swaps. Chose **B4.2, one dormancy candidate**.
+
+Of B4.2's five named candidates (forgotten traditions/inactive
+settlements/distant wildlife/unused ideas/idle institutions), picked
+**"idle institutions"** — the only one that's genuinely compliant with
+B15's `TWO_PART_GUARANTEE` ("the deterministic Body is replay-identical
+regardless of any runtime decision — budgets, dormancy, batching,
+parallelism, host") without needing a real lossless elapsed-tick
+reconstruction of stochastic per-tick draws. The other four all touch
+Body-deterministic per-tick simulation (wildlife reproduction/movement,
+settlement building decay); idle institutions only gates Mind-layer
+LLM-scheduling attention (`Institution.culture_digest`, pure narrative
+text, never read by anything Body-deterministic) — real cognition-
+breadth adaptation, explicitly permitted by the same guarantee's
+"adaptive" clause.
+
+New `SimulationEngine._update_institution_dormancy` (monthly): tracks
+each real `(settlement, institution)` pair's cheap fingerprint (member/
+feud/belief counts, objective text) via a new `Population`-sibling
+pattern — `self._institution_dormancy` (a `DormancyManager` instance),
+`self._institution_fingerprint`, `self._institution_idle_checks`, all
+runtime-only, never persisted (same "derived, re-baselines on restart"
+discipline as `_prev_population_total`). No change for `INSTITUTION_
+DORMANCY_IDLE_CHECKS_THRESHOLD` (3) consecutive monthly checks sleeps
+an institution; any real change wakes it immediately. `_institution_
+job_target`'s existing quarterly round-robin now excludes sleeping
+institutions (falling back to the full list if every institution is
+asleep at once — dormancy narrows attention, never silently disables
+the job).
+
+Verified: direct production-path tests against a real `SimulationEngine`
+(fresh institution registers active; sustained no-change sleeps it
+after exactly the threshold; a real membership change wakes it
+immediately; a non-`month_end` call is a genuine no-op; the round-robin
+falls back to the full list when everything is dormant; with one
+dormant + one kept-active institution the round-robin only ever selects
+the active one across 20 real ticks) — all pass, first run, no bug
+found. Full `scripts/verify_*.py` sweep (20 scripts) re-run clean. A
+4000-tick LLM-disabled soak with a clean `World.to_dict()`/
+`from_dict()` round-trip (dormancy state correctly never touches
+persisted `World`/`Settlement` state — it lives entirely on
+`SimulationEngine`). `pyflakes` clean (only the now-six known
+pre-existing forward-ref findings — Agent/Building/Institution×4 — the
+same accepted class this file's own version history already documents,
+my two new `Institution` string annotations added no new pattern).
+
+The other four B4.2 candidates remain open, each needing its own
+lossless-reconstruction design before attempting the same way.
+
 ## Current state (v1.34.186)
 
 Explicit user instruction: "Fix them and continue part B of tier 5" —

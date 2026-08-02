@@ -4,6 +4,31 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.187] — Tier 5 B4.2 pilot: "idle institutions" dormancy
+
+Explicit user instruction ("continue part B of tier 5"), resolved via
+`AskUserQuestion` into "B4.2 pilot: one dormancy candidate," then a
+second `AskUserQuestion` choosing "idle institutions" among B4.2's five
+named candidates — the only one compliant with B15's `TWO_PART_
+GUARANTEE` without a real lossless elapsed-tick reconstruction, since
+it gates Mind-layer LLM scheduling attention rather than any Body-
+deterministic per-tick simulation.
+
+New `SimulationEngine._update_institution_dormancy` (monthly): tracks
+each real `(settlement, institution)` pair's cheap fingerprint and
+sleeps/wakes it via the existing `DormancyManager` (B4.1/B4.3/B4.4,
+v1.34.166). `_institution_job_target`'s quarterly round-robin now
+excludes sleeping institutions, concentrating the `institution_culture`
+LLM call on institutions something has actually happened to.
+
+Verified: direct production-path tests against a real
+`SimulationEngine` covering registration, sleep-after-threshold,
+wake-on-change, non-`month_end` no-op, the all-dormant fallback, and a
+two-institution round-robin selecting only the active one; the full
+`scripts/verify_*.py` sweep; a 4000-tick LLM-disabled soak with a
+clean round-trip (dormancy state correctly never touches persisted
+World/Settlement state).
+
 ## [1.34.186] — Tier 7 preflight P1/P2: two real bug fixes
 
 Explicit user instruction: fix the two bugs found in the prior

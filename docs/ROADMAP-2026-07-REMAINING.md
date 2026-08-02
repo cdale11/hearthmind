@@ -729,6 +729,39 @@ starts on an explicit instruction naming an item.
       this was deliberately scoped as one proof-of-pattern pilot, per
       the user's own chosen option, not a wider sweep.
 
+      **B4.2 pilot ("idle institutions") — SHIPPED, v1.34.187.**
+      Explicit user choice via `AskUserQuestion` among B4.2's five named
+      candidates, after an investigation found the other four (forgotten
+      traditions, inactive settlements, distant wildlife, unused ideas)
+      all touch Body-deterministic per-tick simulation and would need a
+      genuinely lossless elapsed-tick reconstruction to stay compliant
+      with B15's `TWO_PART_GUARANTEE` ("the deterministic Body is
+      replay-identical regardless of any runtime decision — budgets,
+      dormancy, batching, parallelism, host"). Idle institutions sidestep
+      that entirely: `SimulationEngine._update_institution_dormancy`
+      (monthly) tracks each real institution's cheap fingerprint
+      (member/feud/belief counts, objective text); no change for 3
+      consecutive checks sleeps it via the existing `DormancyManager`,
+      any real change wakes it immediately. `_institution_job_target`'s
+      quarterly round-robin now skips sleeping institutions (falling
+      back to the full list if everything happens to be asleep),
+      concentrating the `institution_culture` LLM call on institutions
+      something has actually happened to — real cognition-breadth
+      adaptation, explicitly permitted by the same guarantee's
+      "adaptive" clause, never a Body-affecting change (`culture_digest`
+      is pure Mind-layer narrative text, never read by anything
+      deterministic). Verified via direct production-path tests (a
+      fresh institution registers active not asleep; sustained
+      no-change sleeps it; a real membership change wakes it
+      immediately; a non-`month_end` call is a genuine no-op; the
+      round-robin falls back to the full list when everything is
+      asleep; with one dormant + one kept-active institution the
+      round-robin only ever selects the active one across 20 real
+      ticks) plus the full `scripts/verify_*.py` sweep and a 4000-tick
+      LLM-disabled soak with a clean round-trip. The other four named
+      B4.2 candidates remain open, each needing its own lossless-
+      reconstruction design before it can be attempted the same way.
+
 ### Tier 6 — Learned models (AI/ML where an LLM isn't required)
 
 Filed v1.34.169 on explicit user instruction to audit every current and
