@@ -2084,6 +2084,20 @@ class SimulationEngine:
         # for how a `_TICK_JOBS` entry can now be runtime-scheduled
         # instead of directly invoked while keeping its exact ordering
         # slot in the table.
+        # Each migrated job gets its OWN registry+scheduler pair rather
+        # than sharing one — deliberately, not an oversight. A shared
+        # registry's `topological_order()` picks a single, fixed
+        # relative order between ALL of its tasks (lexicographic
+        # tiebreak, since these two share no real read/write overlap),
+        # and `_tick_once`'s loop would call `run_tick()` once per
+        # `_RUNTIME_SCHEDULED_JOB_NAMES` slot it hits in `_TICK_JOBS` —
+        # with one shared registry, EVERY task in it would run again at
+        # EACH slot, silently double-executing every migrated job the
+        # moment a second one exists. Per-job registries make each
+        # `_TICK_JOBS` slot's `run_tick()` call run exactly the one task
+        # that belongs there, preserving the table's own declared order
+        # exactly, with zero cross-job coupling to reason about as more
+        # jobs migrate.
         self._runtime_registry = TaskRegistry()
         self._runtime_registry.register(Task(
             id="naming",
@@ -2096,6 +2110,27 @@ class SimulationEngine:
             priority_class=PriorityClass.CRITICAL,
         ))
         self._runtime_scheduler = Scheduler(self._runtime_registry)
+
+        # Second B0.3 migration: `_maybe_retry_mind_authoring` — same
+        # pilot criteria as naming (small, self-contained, already
+        # unconditional every tick). Also CRITICAL+PERIODIC: the
+        # original direct call always ran every tick regardless of
+        # budget (its own internal backpressure/queue gate is a
+        # DIFFERENT mechanism from the scheduler's budget system), so
+        # anything less than CRITICAL priority could let the scheduler
+        # defer a tick the direct call never would have.
+        self._runtime_registry_mind_authoring = TaskRegistry()
+        self._runtime_registry_mind_authoring.register(Task(
+            id="retry_mind_authoring",
+            subsystem="mind_authoring",
+            fn=self._maybe_retry_mind_authoring,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"engine.pending_mind_agent_ids", "world.population.core_agent_ids"}),
+            writes=frozenset({"engine.pending_mind_agent_ids"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_mind_authoring = Scheduler(self._runtime_registry_mind_authoring)
 
         if self._broadcaster is not None:
             # Terrain never changes after creation — set once, not part
@@ -2852,14 +2887,20 @@ class SimulationEngine:
         ("_schedule_voice_dialogue", _JOB_NO_ARGS),
     )
 
-    # B0.3's first real migration: `_TICK_JOBS` entries named here are
-    # NOT called directly in `_tick_once`'s loop below — they run
-    # through `self._runtime_scheduler` (a real B1 TaskRegistry + B2
-    # Scheduler, built in `__init__`) instead. Kept as a separate,
-    # explicit set rather than inferred from the registry so the table
-    # above stays the single readable source of ordering, and adding a
-    # job here is a one-line, deliberate opt-in.
-    _RUNTIME_SCHEDULED_JOB_NAMES: frozenset[str] = frozenset({"_maybe_schedule_naming"})
+    # B0.3's real migrations: `_TICK_JOBS` entries named here are NOT
+    # called directly in `_tick_once`'s loop below — they run through
+    # their own dedicated `Scheduler` instance (a real B1 TaskRegistry +
+    # B2 Scheduler pair, built in `__init__`; see its own comment for
+    # why each migrated job gets its OWN pair rather than sharing one)
+    # instead. Maps method name -> the instance attribute name of that
+    # job's scheduler. Kept as a separate, explicit mapping rather than
+    # inferred from the registries so the table above stays the single
+    # readable source of ordering, and adding a job here is a one-line,
+    # deliberate opt-in.
+    _RUNTIME_SCHEDULED_JOB_SCHEDULERS: dict[str, str] = {
+        "_maybe_schedule_naming": "_runtime_scheduler",
+        "_maybe_retry_mind_authoring": "_runtime_scheduler_mind_authoring",
+    }
 
     def _tick_once(self) -> None:
         tick_start = time.perf_counter()
@@ -3031,15 +3072,16 @@ class SimulationEngine:
         # before omen, cognition before dialogue) — lives in exactly one
         # place. The job methods themselves are unchanged.
         for method_name, arg_kind in self._TICK_JOBS:
-            if method_name in self._RUNTIME_SCHEDULED_JOB_NAMES:
-                # B0.3's first real migration: this job's entry stays in
-                # its exact ordering slot in the table above (order is
+            scheduler_attr = self._RUNTIME_SCHEDULED_JOB_SCHEDULERS.get(method_name)
+            if scheduler_attr is not None:
+                # B0.3's real migrations: this job's entry stays in its
+                # exact ordering slot in the table above (order is
                 # load-bearing), but instead of a direct call it now
-                # runs through the real B1/B2 TaskRegistry+Scheduler —
-                # see `__init__`'s registration for why naming was
-                # picked as the pilot and why CRITICAL+PERIODIC
-                # reproduces "always runs, every tick" exactly.
-                report = self._runtime_scheduler.run_tick()
+                # runs through its own dedicated B1/B2 TaskRegistry+
+                # Scheduler pair — see `__init__`'s registration for why
+                # each migrated job gets its own pair and why CRITICAL+
+                # PERIODIC reproduces "always runs, every tick" exactly.
+                report = getattr(self, scheduler_attr).run_tick()
                 if report.errors:
                     # Scheduler.run_tick() catches broadly and records a
                     # repr rather than letting an exception propagate
@@ -8616,7 +8658,10 @@ class SimulationEngine:
                 self.world.config.seed, self.world.clock.tick_count, "caravan_rumor_roll",
             ) < caravan.CARAVAN_RUMOR_CHANCE:
                 listener_rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "caravan_rumor")
-                self.world.population.spread_rumor(rumor, caravan.CARAVAN_RUMOR_LISTENER_COUNT, listener_rng)
+                self.world.population.spread_rumor(
+                    rumor, caravan.CARAVAN_RUMOR_LISTENER_COUNT, listener_rng,
+                    humans_lean=lambda a: self.world.humans_pillar.subject_confidence(a.name),
+                )
 
         self._schedule_llm_job(
             "caravan", prompt, caravan.SYSTEM_PROMPT, fallback, apply, settlement=settlement.name,
@@ -11109,6 +11154,7 @@ class SimulationEngine:
                     rumor_rng = _namespaced_rng(self.world.config.seed, tick, "letter_rumor")
                     self.world.population.spread_rumor(
                         f"word from {letter['from_settlement']}: {letter['text']}", 2, rumor_rng,
+                        humans_lean=lambda a: self.world.humans_pillar.subject_confidence(a.name),
                     )
             stl.pending_letters = remaining
 

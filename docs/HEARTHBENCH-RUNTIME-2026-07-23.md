@@ -426,7 +426,7 @@ pack.
 
 # PART B — THE ADAPTIVE RUNTIME
 
-## B0 — The prime invariant [PARTIAL — B0.1/B0.2 shipped v1.34.161, B0.3's first real migration shipped v1.34.193]
+## B0 — The prime invariant [PARTIAL — B0.1/B0.2 shipped v1.34.161, B0.3's first two real migrations shipped v1.34.193/v1.34.194]
 
 > **Gameplay systems declare *what* work exists. The runtime decides
 > *when*, *where*, and *how* it executes. Gameplay never makes
@@ -517,8 +517,49 @@ pack.
   set. What this pass actually proves is that the wiring works end to
   end against a real, live subsystem with zero behavior change — the
   next migration can follow the same shape (declare, register, route
-  through `_RUNTIME_SCHEDULED_JOB_NAMES`, verify replay-hash) with the
-  plumbing risk already retired.
+  through the scheduler mapping, verify replay-hash) with the plumbing
+  risk already retired.
+
+  **Second real migration — SHIPPED, v1.34.194.** Explicit user
+  instruction ("Continue tier 0" / "Continue B" in one message).
+  `SimulationEngine._maybe_retry_mind_authoring` migrated as the
+  second pilot, same criteria as naming: small, self-contained,
+  already unconditional every tick, CRITICAL+PERIODIC.
+
+  **A real design bug was caught and fixed during implementation, not
+  by the user**: the first attempt registered both tasks into the
+  SAME `TaskRegistry`/`Scheduler` pair. Since `_tick_once`'s loop calls
+  `run_tick()` once per `_TICK_JOBS` slot mapped to a runtime
+  scheduler, and naming/retry_mind_authoring sit at TWO DIFFERENT
+  slots in the table, a shared registry's `run_tick()` — which runs
+  every task the registry holds — would fire at EACH slot, silently
+  DOUBLE-EXECUTING both migrated jobs every tick the moment a second
+  one existed. This is exactly the kind of subtle correctness bug the
+  "never big-bang" discipline exists to catch before it ships. Fixed
+  by giving each migrated job its own dedicated `TaskRegistry`/
+  `Scheduler` pair (`self._runtime_registry_mind_authoring`/`self.
+  _runtime_scheduler_mind_authoring`, alongside naming's existing
+  pair) — a real `_RUNTIME_SCHEDULED_JOB_SCHEDULERS` dict (method name
+  -> scheduler instance attribute name) replaces the old flat
+  `_RUNTIME_SCHEDULED_JOB_NAMES` set, so each `_TICK_JOBS` slot's
+  `run_tick()` call runs exactly the one task that belongs there,
+  preserving the table's own declared order exactly with zero
+  cross-job coupling as more jobs migrate.
+
+  Verified: `scripts/verify_b0_runtime_migrations.py` (renamed/
+  rewritten from `verify_b0_naming_migration.py`, 10 checks) — both
+  tasks correctly declared in their own registries, the job->scheduler
+  mapping resolves both to real distinct scheduler attributes, each
+  scheduler's `run_tick()` genuinely invokes its own bound method with
+  real side effects, neither skipped/deferred across 50 real ticks,
+  and — the load-bearing check this pass exists to prove — each
+  migrated job's fn runs EXACTLY ONCE per real `_tick_once()` call
+  (verified by wrapping each job's real registered fn with a call
+  counter and driving one real tick, not a synthetic scenario). A real
+  before/after replay-hash check (4000 ticks, seed 777) — MATCH,
+  byte-identical. `scripts/verify_native_soak.py` (3 seeds x 3000
+  ticks) — MATCH. `verify_task_graph.py`/`verify_scheduler.py`/
+  `verify_runtime_invariant.py` re-run clean. `pyflakes` clean.
 
 ## B1 — Task declaration & the work graph [PARTIAL — B1.1-B1.4 shipped v1.34.162, not yet wired into the live tick loop]
 

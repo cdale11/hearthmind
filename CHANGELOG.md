@@ -4,6 +4,58 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.194] — Tier 0 rumor-first-listener lean + B0.3 second migration
+
+Explicit user instruction: "Continue tier 0" / "Continue B" in one
+message.
+
+**Tier 0**: `Population.spread_rumor`'s FIRST listener (a caravan's/
+letter's/deathbed-secret's real point of contact) was a genuine
+uniform `rng.choice` with zero signal — the "real primary signal,
+pillar lean only where there's no signal to override" shape used
+across ~30 prior Tier 0 sites, just with the primary signal being
+"none." New `RUMOR_FIRST_LISTENER_HUMANS_LEAN_MAX = 0.4`;
+`spread_rumor` gained an optional `humans_lean` callable (`None`
+reproduces the exact prior `rng.choice` byte-for-byte) weighing the
+first draw toward whoever `humans_pillar` already has real standing
+attention on. Threaded through all three real call sites: the caravan
+rumor (engine.py), the letter rumor (engine.py), and the deathbed-
+secret rumor (`_apply_inheritance`'s already-existing `humans_lean`
+parameter, population.py). Verified via a 20,000-trial statistical
+test (uniform baseline confirmed; a seeded lean toward one agent
+measurably raised their draw rate ~3900->~5160 of 20000) and a
+production-path smoke test through the real engine tick loop.
+
+**Part B (B0.3)**: a second real job migrated onto the B1/B2 runtime,
+following the same shape v1.34.193 established —
+`SimulationEngine._maybe_retry_mind_authoring` (small, self-contained,
+already unconditional every tick, CRITICAL+PERIODIC). A real design
+bug was caught and fixed during implementation, not by the user:
+sharing one `TaskRegistry`/`Scheduler` between two migrated jobs would
+silently DOUBLE-EXECUTE both of them, since `_tick_once`'s loop calls
+`run_tick()` once per migrated `_TICK_JOBS` slot and a shared
+registry's `run_tick()` re-runs every task in it at each call. Fixed
+by giving each migrated job its own dedicated registry+scheduler pair
+(`self._runtime_registry_mind_authoring`/`self._runtime_scheduler_
+mind_authoring`, alongside naming's existing pair) and a new
+`_RUNTIME_SCHEDULED_JOB_SCHEDULERS` dict (method name -> scheduler
+attribute name) replacing the old flat `_RUNTIME_SCHEDULED_JOB_NAMES`
+set.
+
+Verified: `scripts/verify_b0_runtime_migrations.py` (renamed/rewritten
+from `verify_b0_naming_migration.py`, 10 checks) — both tasks
+correctly declared in their own registries, `run_tick()` genuinely
+invoking each bound method with real side effects, neither
+skipped/deferred across 50 real ticks, and — the load-bearing check
+for the per-job-registry fix — each migrated job's fn runs EXACTLY
+ONCE per real `_tick_once()` call, not twice. A real before/after
+`World.to_dict()` replay-hash check (4000 ticks, seed 777,
+`--in-process`) — MATCH, byte-identical. `scripts/verify_native_
+soak.py` (3 seeds x 3000 ticks) — MATCH. `scripts/verify_task_graph.py`/
+`verify_scheduler.py`/`verify_runtime_invariant.py` re-run clean.
+`pyflakes` clean on all touched/new files (only the six known
+pre-existing forward-ref findings in `engine.py`).
+
 ## [1.34.193] — Tier 5 B0.3: first real subsystem migration onto the runtime
 
 Explicit user instruction ("continue part B"). B10.2's kind-index

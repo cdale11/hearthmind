@@ -501,6 +501,18 @@ algorithms.bfs_distances`) to the point of contact at all — matching
 closed social circle" discipline, so a stranger can still occasionally
 hear it, just far less often than someone genuinely socially close."""
 
+RUMOR_FIRST_LISTENER_HUMANS_LEAN_MAX = 0.4
+"""Tier 0 site: `Population.spread_rumor`'s FIRST listener (the
+caravan/letter/deathbed-rumor's real point of contact) was a genuine
+uniform `rng.choice` with zero signal — the same "real primary signal,
+pillar lean only where there's no real signal to override" shape as
+every other Humans-lean site, just with the primary signal being
+"none" instead of a tiebreak. A person Humans' own attention already
+returns to is now measurably more likely to be who outside news
+happens to reach first. `humans_lean=None` (the default, and every
+call site that doesn't thread one) reproduces the exact prior
+`rng.choice` behavior byte-for-byte."""
+
 SOCIALIZE_RELATIONSHIP_RADIUS = 12
 SOCIALIZE_DISTANCE_PENALTY = 0.02
 """Audit follow-up (v1.3.38 cognition-architecture audit, "relationship-
@@ -6883,7 +6895,7 @@ class Population:
             if rng.random() < DEATHBED_SECRET_RUMOR_CHANCE:
                 self.spread_rumor(
                     f"On their deathbed, {agent.name} spoke of something long kept quiet.",
-                    DEATHBED_SECRET_RUMOR_LISTENER_COUNT, rng,
+                    DEATHBED_SECRET_RUMOR_LISTENER_COUNT, rng, humans_lean=humans_lean,
                 )
 
         # v0.87.15 "knowledge lifecycle: diffusion, loss, rediscovery"
@@ -8539,7 +8551,10 @@ class Population:
                 affected += 1
         return affected
 
-    def spread_rumor(self, text: str, count: int, rng: random.Random) -> list[str]:
+    def spread_rumor(
+        self, text: str, count: int, rng: random.Random,
+        humans_lean: "Callable[[Agent], float] | None" = None,
+    ) -> list[str]:
         """Integration milestone: seed a piece of news (currently only
         a caravan's outside rumor, see llm/caravan.py) into up to
         `count` living agents' own memories — the same `_remember`
@@ -8549,22 +8564,38 @@ class Population:
         who heard it firsthand, for event logging.
 
         A16 "information-propagation-as-graph-algorithm": the FIRST
-        listener is still a genuine uniform draw (the caravan's point
-        of contact could be anyone) — but every listener after that is
-        now chosen via `graph_algorithms.bfs_distances` from the first,
-        weighted toward whoever's socially CLOSER (fewer hops) to that
-        point of contact, not independently uniform over the whole
-        population. Previously a caravan's news reaching four total
-        strangers with no connection to each other was exactly as
+        listener is still a genuine near-uniform draw (the caravan's
+        point of contact could be anyone) — but every listener after
+        that is now chosen via `graph_algorithms.bfs_distances` from
+        the first, weighted toward whoever's socially CLOSER (fewer
+        hops) to that point of contact, not independently uniform over
+        the whole population. Previously a caravan's news reaching four
+        total strangers with no connection to each other was exactly as
         likely as it rippling outward through one person's actual
         friends — a real gap for a mechanism whose own docstring
         already claimed the news "propagates further through the
         existing... gossip contagion." Listeners still need not end up
         colocated with each other; this only biases WHO among the
-        living population is more likely to be one, never requires it."""
+        living population is more likely to be one, never requires it.
+
+        Tier 0 site: `humans_lean` (optional, `None` reproduces the
+        exact prior uniform `rng.choice` for the first listener) weighs
+        that first draw toward whoever `humans_pillar` already has
+        real standing attention on — see `RUMOR_FIRST_LISTENER_HUMANS_
+        LEAN_MAX`'s own docstring. Same documented RNG-consumption-
+        pattern change as every other `rng.choice`->weighted-`rng.
+        choices` Tier 0 conversion (this project doesn't require
+        determinism, only that the underlying distribution holds)."""
         if not self.agents:
             return []
-        first = rng.choice(self.agents)
+        if humans_lean is not None:
+            weights = [
+                1.0 + humans_lean(a) * RUMOR_FIRST_LISTENER_HUMANS_LEAN_MAX
+                for a in self.agents
+            ]
+            first = rng.choices(self.agents, weights=weights, k=1)[0]
+        else:
+            first = rng.choice(self.agents)
         listeners = [first]
         remaining = min(count, len(self.agents)) - 1
         if remaining > 0:

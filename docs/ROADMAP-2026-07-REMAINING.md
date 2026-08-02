@@ -841,6 +841,32 @@ starts on an explicit instruction naming an item.
       a future migration can follow the same shape with the plumbing
       risk already retired.
 
+      **Tier 0 rumor-first-listener lean + B0.3 second migration —
+      SHIPPED, v1.34.194.** Explicit user instruction ("Continue tier
+      0" / "Continue B" in one message). Tier 0: `Population.spread_
+      rumor`'s FIRST listener was a genuine uniform `rng.choice` with
+      zero signal — new `humans_lean` param (`None` reproduces the
+      exact prior behavior) weighs it toward whoever `humans_pillar`
+      already has real attention on, threaded through all three real
+      call sites (caravan rumor, letter rumor, deathbed-secret rumor).
+      Verified via a 20,000-trial statistical test and a production-
+      path smoke test.
+
+      B0.3: `_maybe_retry_mind_authoring` migrated as a second pilot,
+      same criteria as naming. A real design bug was caught and fixed
+      during implementation: sharing one registry/scheduler between
+      two migrated jobs would silently DOUBLE-EXECUTE both, since
+      `_tick_once`'s loop calls `run_tick()` once per migrated slot in
+      `_TICK_JOBS` and a shared registry re-runs every task it holds
+      at each call. Fixed by giving each migrated job its own
+      dedicated registry+scheduler pair, with a new `_RUNTIME_
+      SCHEDULED_JOB_SCHEDULERS` dict (method name -> scheduler
+      attribute) replacing the old flat name set. Verified via
+      `scripts/verify_b0_runtime_migrations.py` (renamed/rewritten
+      from `verify_b0_naming_migration.py`, 10 checks, including the
+      load-bearing "each job's fn runs exactly once per real tick, not
+      twice" proof), a real replay-hash MATCH, and a native-soak MATCH.
+
       **B4.2 pilot ("idle institutions") — SHIPPED, v1.34.187.**
       Explicit user choice via `AskUserQuestion` among B4.2's five named
       candidates, after an investigation found the other four (forgotten
