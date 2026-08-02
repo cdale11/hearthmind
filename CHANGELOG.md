@@ -4,6 +4,35 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.186] — Tier 7 preflight P1/P2: two real bug fixes
+
+Explicit user instruction: fix the two bugs found in the prior
+diagnostic pass, then continue Tier 5 Part B.
+
+**P1**: new `LARGE_SCHEMA_REASONING_NUM_PREDICT_MULT = 1.75`
+(`simulation/engine.py`) generalises `PERSONAL_BELIEF_NUM_PREDICT_
+MULT`'s v1.6.0 fix — extra token headroom for a `deep_reasoning=True`
+job whose large output schema can exhaust the shared flat budget before
+JSON is ever written — to `ontology_proposal`, `beliefs`,
+`institution_belief`, and `narrative_direction`. The soak's own
+`ontology_proposal` call had returned `raw_model_output: ""`.
+
+**P2**: `llm/laws.py`'s `SYSTEM_PROMPT` rewritten. It previously told
+the model "Most of the time it is NOT yet settled, and that is the
+correct answer" unconditionally — biasing toward `forms: false`
+regardless of how many times the hardship had recurred. The soak's own
+prompt cited 590 occurrences and still refused to form a rule. Now
+explicit that a handful of occurrences is still "too soon" (unchanged
+epistemic humility) but dozens-to-hundreds with no rule in place is
+itself evidence worth weighing honestly.
+
+Verified: a direct end-to-end test with a fake `CognitionRunner.client`
+confirming the real request `num_predict` scales correctly for all
+four P1 call sites, and that an unrelated reasoning job with no
+override is unaffected; a direct check of the new prompt wording; the
+full existing `scripts/verify_*.py` sweep (20 scripts) re-run clean;
+a 4000-tick LLM-disabled soak with a clean round-trip.
+
 ## [1.34.185] — The Hearthmind Cognitive Architecture (HCA), docs-only
 
 Explicit user directive reframing the project's own primary goal:

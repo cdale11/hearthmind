@@ -640,6 +640,36 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.186)
+
+Explicit user instruction: "Fix them and continue part B of tier 5" —
+fixes Tier 7's two preflight bugs (P1/P2, filed docs-only in v1.34.185)
+before any architecture work, then continues Part B.
+
+**P1**: new `LARGE_SCHEMA_REASONING_NUM_PREDICT_MULT = 1.75`
+generalises `PERSONAL_BELIEF_NUM_PREDICT_MULT`'s v1.6.0 fix (extra
+token headroom for a `deep_reasoning=True` job whose large output
+schema can exhaust the shared flat budget before any JSON is written)
+to `ontology_proposal`/`beliefs`/`institution_belief`/`narrative_
+direction` — the live soak's own `ontology_proposal` call had returned
+`raw_model_output: ""`. One shared constant, not four, same "reasoned
+starting point" discipline as `RULE_PROPOSE_NUM_PREDICT_MULT`.
+
+**P2**: `llm/laws.py`'s `SYSTEM_PROMPT` no longer defaults to "not yet"
+regardless of scale — the soak's own prompt cited 590 real occurrences
+of the same hardship and still (correctly, per the OLD prompt) refused
+to form a rule. Rewritten to keep the original epistemic humility for a
+handful of occurrences while explicitly weighing dozens-to-hundreds of
+repetitions as real evidence a rule is overdue.
+
+Verified: a direct end-to-end test with a fake `CognitionRunner.client`
+confirming the real `num_predict_override` scales correctly for all
+four P1 call sites, and that an unrelated `deep_reasoning=True` job
+with no override is unaffected (additive, not global); a direct check
+of the new `laws.SYSTEM_PROMPT` wording; every prior `scripts/verify_
+*.py` (20 scripts incl. `verify_core_migration_candidates_pilot.py`)
+re-run clean; a 4000-tick LLM-disabled soak with clean round-trip.
+
 ## Current state (v1.34.185)
 
 Explicit user directive reframing the project's own primary goal

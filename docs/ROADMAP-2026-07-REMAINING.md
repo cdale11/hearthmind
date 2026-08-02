@@ -1108,14 +1108,37 @@ their existing scope and priority.
 guard against renaming existing systems in new vocabulary. An item that
 cannot state one does not ship.
 
-- [ ] **P1** — generalise `PERSONAL_BELIEF_NUM_PREDICT_MULT` to every
-  large-schema reasoning job. *Ordinary bug, not architecture:* the
-  soak's one `ontology_proposal` call returned `raw_model_output: ""`
-  — the v1.6.0 fix was never extended to `ontology_proposal`/`beliefs`/
-  `institution_belief`/`narrative_direction`. *Test:* fallback rate
-  falls from 100%.
-- [ ] **P2** — re-frame the `laws` prompt (biased toward "not yet"; 0
-  rules in 64k ticks against 590 occurrences). *Test:* a law forms.
+- [x] **P1 — SHIPPED, v1.34.186.** New `LARGE_SCHEMA_REASONING_NUM_
+  PREDICT_MULT = 1.75` (`simulation/engine.py`) generalises `PERSONAL_
+  BELIEF_NUM_PREDICT_MULT`'s v1.6.0 fix to the other three large-schema
+  `deep_reasoning=True` jobs sharing the same failure class —
+  `ontology_proposal` (7 fields, plus by far the longest reasoning
+  prompt recorded, avg 743 tokens), `beliefs`/`institution_belief` (5
+  fields each), `narrative_direction` (3 fields, not observed failing
+  but structurally identical). One shared constant rather than four
+  separately-tuned ones, same "reasoned starting point, not a live
+  measurement" discipline as `RULE_PROPOSE_NUM_PREDICT_MULT`. Verified
+  end-to-end with a fake `CognitionRunner.client` confirming the real
+  `num_predict_override` scales by the new multiplier for all four call
+  sites, and that an unrelated `deep_reasoning=True` job with no
+  `num_predict_mult` still gets the unaffected flat default (additive,
+  not global) — plus the existing full `verify_*.py` sweep and a
+  4000-tick LLM-disabled soak with clean round-trip.
+- [x] **P2 — SHIPPED, v1.34.186.** `llm/laws.py`'s `SYSTEM_PROMPT`
+  rewritten: the old blanket "Most of the time it is NOT yet settled,
+  and that is the correct answer" instruction biased every call toward
+  `forms: false` regardless of scale — the live soak's own `laws`
+  prompt cited 590 real occurrences of the same hardship and still
+  correctly-per-the-old-prompt refused to form a rule. Now explicitly
+  scale-aware: a handful of occurrences still reads as "too soon"
+  (preserves the original epistemic humility for weak evidence), but
+  dozens-to-hundreds of repetitions with no rule in place is now framed
+  as evidence of a real persistent gap worth weighing honestly, not a
+  case to keep defaulting away from. `build_prompt`'s own occurrence-
+  count/`remembered` framing is unchanged — only the system-level bias
+  moved. Verified directly (old phrase absent, new scale-aware language
+  present, `build_prompt` still reports the real count) plus the same
+  `verify_*.py` sweep and soak.
 - [ ] **A1** — `predict()`/`error()` on specialists; precision-weighted
   surprise. *Test:* on the soak's own event stream, "content agent
   socialises" scores < 0.1 and family-extinction-during-prosperity

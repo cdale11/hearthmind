@@ -586,6 +586,28 @@ reasoned starting point, re-tune from a live `/diagnostics` reading of
 `last_llm_calls.rule_propose.fallback_reason` the same way every other
 constant here is tuned."""
 
+LARGE_SCHEMA_REASONING_NUM_PREDICT_MULT = 1.75
+"""Tier 7 preflight P1 (docs/COGNITIVE-ARCHITECTURE-2026-08-02.md): a
+live 64,453-tick soak showed `ontology_proposal` failing its one and
+only real call with `raw_model_output: ""` — the exact same failure
+class `PERSONAL_BELIEF_NUM_PREDICT_MULT` fixed above (a `deep_
+reasoning=True` job with no `json_schema`, per v1.3.37's "reasoning and
+schema-constraint don't compose" rule, sharing the flat 1.5x `DEEP_
+REASONING_NUM_PREDICT_MULT` budget with every simple 2-4-field job),
+just never generalised past `personal_belief`/`rule_propose` to every
+job in the class. `ontology_proposal` (name/description/hypothesis/
+category/hook_type/hook_target/magnitude, 7 fields plus by far the
+longest prompt of any reasoning task recorded — avg 743 tokens),
+`beliefs`/`institution_belief` (subject/belief/confidence/revises/
+digest-or-objective_reason, 5 fields each) and `narrative_direction`
+(summary/coined_term/coined_meaning, 3 fields, not observed failing in
+that soak but sharing the identical structural shape) all get this one
+shared headroom multiplier rather than four separately-tuned ones —
+same "reasoned starting point, not a live measurement" discipline as
+`RULE_PROPOSE_NUM_PREDICT_MULT`; re-tune per-task from a live `/
+diagnostics` reading of `last_llm_calls.<task>.fallback_reason` if any
+of the four still falls back."""
+
 _PILLAR_MESSAGE_MAGNITUDE = {
     "disagreement": 0.9, "warning": 0.8, "discovery": 0.6, "theory": 0.55,
     "hypothesis": 0.5, "observation": 0.45, "question": 0.5, "request": 0.5,
@@ -5222,7 +5244,7 @@ class SimulationEngine:
 
         self._schedule_llm_job(
             "ontology_proposal", prompt, ontology_llm.SYSTEM_PROMPT_PROPOSE, fallback, apply,
-            deep_reasoning=True,
+            deep_reasoning=True, num_predict_mult=LARGE_SCHEMA_REASONING_NUM_PREDICT_MULT,
         )
 
     def _confirm_concept_retirement(self, concept_id: int) -> None:
@@ -7156,7 +7178,10 @@ class SimulationEngine:
 
         # Cultural evolution: naming the emergent theme is interpretation
         # over a real computed mood signal (v1.3.37).
-        self._schedule_llm_job("narrative_direction", prompt, narrative_direction.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True)
+        self._schedule_llm_job(
+            "narrative_direction", prompt, narrative_direction.SYSTEM_PROMPT, fallback, apply,
+            deep_reasoning=True, num_predict_mult=LARGE_SCHEMA_REASONING_NUM_PREDICT_MULT,
+        )
 
     def _maybe_schedule_culture_digest(self, events: list[str]) -> None:
         """Quarterly (season_end, same cadence as narrative_direction —
@@ -8744,6 +8769,7 @@ class SimulationEngine:
         self._schedule_llm_job(
             "beliefs", prompt, beliefs.SYSTEM_PROMPT, fallback, apply, critical=True,
             settlement=settlement.name, deep_reasoning=True,
+            num_predict_mult=LARGE_SCHEMA_REASONING_NUM_PREDICT_MULT,
         )
 
     def _maybe_schedule_personal_belief(self, events: list[str]) -> None:
@@ -10384,7 +10410,10 @@ class SimulationEngine:
         # Council deliberation (and FAMILY/GUILD's own equivalent):
         # institutional belief formation is genuine collective judgment
         # (v1.3.37).
-        self._schedule_llm_job("institution_belief", prompt, beliefs.INSTITUTION_SYSTEM_PROMPT, fallback, apply, deep_reasoning=True)
+        self._schedule_llm_job(
+            "institution_belief", prompt, beliefs.INSTITUTION_SYSTEM_PROMPT, fallback, apply,
+            deep_reasoning=True, num_predict_mult=LARGE_SCHEMA_REASONING_NUM_PREDICT_MULT,
+        )
 
     # --- item 8b: inter-settlement diplomacy ------------------------------------
 

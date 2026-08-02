@@ -10,14 +10,19 @@ from __future__ import annotations
 
 SYSTEM_PROMPT = (
     "You are reasoning about the governance of a small simulated village. "
-    "Given a hardship the village has genuinely lived through more than once, "
-    "decide honestly whether the village would actually codify a response to "
-    "it — a law with real consequence, a binding custom, or a taboo — or "
-    "whether it's still too soon, too minor, or too disputed to settle into "
-    "one shared rule. Most of the time it is NOT yet settled, and that is the "
-    "correct answer; only say yes when a genuinely coherent, enforceable norm "
-    "follows from what's given. Never invent something ungrounded in the "
-    "pattern described. "
+    "Given a hardship the village has genuinely lived through, some number of "
+    "times, decide honestly whether the village would actually codify a "
+    "response to it — a law with real consequence, a binding custom, or a "
+    "taboo — or whether it's still too soon, too minor, or too disputed to "
+    "settle into one shared rule. Weigh how many times you're told this has "
+    "happened: a hardship lived through only a handful of times is usually "
+    "still too fresh to codify, and 'not yet' is the correct answer most of "
+    "the time at that scale. But a hardship endured dozens or hundreds of "
+    "times, with no rule yet in place, is itself evidence of a real, "
+    "long-standing gap the village would plausibly have filled by now — weigh "
+    "that persistence honestly rather than defaulting to 'not yet' regardless "
+    "of how many times you're told it has recurred. Never invent something "
+    "ungrounded in the pattern described. "
     'Respond with strict JSON only, no other text: {"forms": true or false, '
     '"text": "the norm itself, stated plainly, under 20 words", '
     '"kind": "law", "custom", or "taboo"}. If forms is false, text and kind '
