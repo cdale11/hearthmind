@@ -108,6 +108,7 @@ from hearthmind.simulation.task_graph import PriorityClass, Task, TaskRegistry, 
 from hearthmind.simulation.scheduler import Scheduler, SubsystemBudget
 from hearthmind.simulation.tuning import BangBangController, TunableRegistry, register_llm_pacing_tunables
 from hearthmind.simulation.runtime_diagnostics import runtime_diagnostics_report
+from hearthmind.simulation.hardware_profile import GoodCitizenPolicy, HostProbe
 from hearthmind.llm.client import build_llm_client, fetch_llama_server_metrics
 from hearthmind.llm.review_diagnostics import context_reflects_any
 from hearthmind.llm.json_schemas import schema_for_task
@@ -1742,6 +1743,18 @@ class SimulationEngine:
             hysteresis=ADAPTIVE_CONCURRENCY_HYSTERESIS_MS,
             increases_measurement=True,
         )
+        # Tier 5 B7's real control point (explicit user directive: "B7"):
+        # `GoodCitizenPolicy.should_back_off` is B7.4's own named input
+        # signal for "a real scheduler would consult this" — B6's daily
+        # concurrency controller (just above) is exactly that scheduler,
+        # now that it's real. BALANCED, not configurable per-run yet
+        # (a future CLI flag is real follow-up, not attempted here —
+        # every prior B7 module was a pure function with zero call
+        # sites, so even one fixed aggressiveness is new real wiring).
+        self._hardware_citizen_policy = GoodCitizenPolicy()
+        self._last_host_probe: HostProbe | None = None
+        self._last_host_probe_back_off: bool = False
+        self._last_host_probe_tick: int | None = None
         self._adaptive_tuning_log: deque[dict] = deque(maxlen=ADAPTIVE_TUNING_LOG_MAX)
         """Bounded, append-only record of every real `_maybe_tune_llm_
         concurrency` change (never a no-op check — those aren't
@@ -3203,7 +3216,15 @@ class SimulationEngine:
         limit` in step so admission math stays consistent with the
         live value, not the frozen startup one. Every real change is
         appended to `self._adaptive_tuning_log` — a no-op check is
-        never logged, only what actually happened."""
+        never logged, only what actually happened.
+
+        Also Tier 5 B7's real control point: `self._hardware_citizen_
+        policy.should_back_off` (a real `HostProbe.sample()` reading)
+        is consulted every call this method doesn't skip, as a
+        downward-only veto on top of the latency-driven decision above
+        — real memory pressure/swap/load/thermal state can force a
+        step down that latency alone wouldn't have taken, logged with
+        `host_pressure_veto: True`."""
         if not self._cognition_runner.enabled:
             return
         stats = self._cognition_runner.stats()
@@ -3211,6 +3232,39 @@ class SimulationEngine:
             return
         before = self._tuning_registry.get("llm_max_concurrent").value
         after = self._llm_concurrency_controller.step(self._tuning_registry, stats["latency_ms_p95"])
+        # Tier 5 B7's real control point (explicit user directive: "B7"):
+        # `GoodCitizenPolicy.should_back_off` is B7.4's own named input
+        # signal, consulted here for the first time by a real scheduler
+        # — B6's own daily concurrency controller, exactly the "real
+        # scheduler" B7.4's docstring says this signal was always meant
+        # to feed. Host pressure is a DOWNWARD-ONLY veto: it can force
+        # a step down that latency alone wouldn't have taken, but it
+        # never blocks or reverses a latency-driven step already
+        # decided above — a struggling host and a struggling LLM are
+        # two independent reasons to ease off, not one overriding the
+        # other. Storage micro-benchmark skipped (`run_storage_bench=
+        # False`) — irrelevant to `should_back_off` and needless disk
+        # I/O on a check that already runs at most once a day.
+        #
+        # Sampled unconditionally (not only when a veto might apply) so
+        # `full_diagnostics()['host_probe']` always has a fresh real
+        # reading rather than a stale one from whichever day a veto last
+        # fired — cheap "next tier intel," same batch: cost is a few
+        # /proc reads and syscalls at most once a day, not a new
+        # per-tick burden.
+        probe = HostProbe.sample(run_storage_bench=False)
+        back_off = self._hardware_citizen_policy.should_back_off(probe)
+        self._last_host_probe = probe
+        self._last_host_probe_back_off = back_off
+        self._last_host_probe_tick = self.world.clock.tick_count
+        host_pressure_veto = False
+        if after >= before and back_off:
+            vetoed = self._tuning_registry.adjust(
+                "llm_max_concurrent", -self._tuning_registry.get("llm_max_concurrent").step,
+            )
+            if vetoed != after:
+                after = vetoed
+                host_pressure_veto = True
         if after == before:
             return
         new_limit = int(after)
@@ -3223,6 +3277,7 @@ class SimulationEngine:
             "after": after,
             "measured_p95_ms": stats["latency_ms_p95"],
             "target_ms": ADAPTIVE_CONCURRENCY_TARGET_MS,
+            "host_pressure_veto": host_pressure_veto,
         })
 
     def llm_pressure_ratio(self) -> float:
@@ -14400,6 +14455,28 @@ class SimulationEngine:
                     self._runtime_scheduler_institution_dormancy,
                 ),
             },
+            # Tier 5 B7's real control point, cheap "next tier intel"
+            # bonus (same batch): the real `HostProbe` reading
+            # `_maybe_tune_llm_concurrency` samples at most once a day,
+            # cached rather than re-sampled here (an on-demand full_
+            # diagnostics() call is not the place for a fresh syscall
+            # burst) — `None` fields are honest ("not yet sampled this
+            # process" / genuinely unreadable on this platform), never
+            # fabricated.
+            "host_probe": (
+                {
+                    "logical_cores": self._last_host_probe.logical_cores,
+                    "usable_cores": self._last_host_probe.usable_cores,
+                    "mem_total_mb": self._last_host_probe.mem_total_mb,
+                    "mem_available_mb": self._last_host_probe.mem_available_mb,
+                    "swap_used_mb": self._last_host_probe.swap_used_mb,
+                    "load_avg_1m": self._last_host_probe.load_avg_1m,
+                    "thermal_state": self._last_host_probe.thermal_state,
+                    "should_back_off": self._last_host_probe_back_off,
+                    "sampled_at_tick": self._last_host_probe_tick,
+                }
+                if self._last_host_probe is not None else None
+            ),
             "peak_memory_rss_mb": peak_rss_mb,
             "system_memory": system_memory_report(),
             "db_size_mb": db_size_mb,

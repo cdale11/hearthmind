@@ -1100,7 +1100,7 @@ migration itself.
   touched files (only the six known pre-existing forward-ref findings
   in `engine.py`).
 
-## B7 — Hardware model [Hard Rule 7] [PARTIAL — B7.1-B7.4 shipped v1.34.173, not wired into any real control point]
+## B7 — Hardware model [Hard Rule 7] [SHIPPED — B7.1-B7.4 built v1.34.173, wired to a real control point v1.34.201]
 
 - [x] **B7.1 — Host probe — SHIPPED, v1.34.173.** New
   `hearthmind/simulation/hardware_profile.py`'s `HostProbe.sample()`:
@@ -1154,14 +1154,39 @@ migration itself.
   IN — that's B2's job, not this module's; `should_back_off` is the
   input signal such a scheduler would consult, not the mechanism.
 
-**Not wired into any real control point** — same "never big-bang"
-discipline as every prior B-item: no import from `hardware_profile.py`
-exists in `simulation/engine.py` or `server.py`, `select_strategy`'s
-output isn't consulted by any real LLM-concurrency/scheduling code
-yet, and no `MachineProfile` is ever actually persisted/loaded across
-a real server run. Real future work, naturally paired with B6.3's own
-already-registered `llm_pressure_*`/`llm_max_concurrent` tunables once
-a real migration pass wires either.
+- [x] **Wired to a real control point — SHIPPED, v1.34.201.** Explicit
+  user directive ("B7"), continuing the Part B closing sequence.
+  `GoodCitizenPolicy.should_back_off` is now consulted by a real
+  scheduler for the first time — B6's `_maybe_tune_llm_concurrency`
+  (already wired v1.34.198), the exact "real scheduler" B7.4's own
+  text above says this signal was always meant to feed. A real
+  `HostProbe.sample(run_storage_bench=False)` reading (storage
+  benchmark skipped — irrelevant to citizenship, needless disk I/O on
+  a check that runs at most once a day) is taken every call the method
+  doesn't skip; `should_back_off` (BALANCED aggressiveness) then acts
+  as a DOWNWARD-ONLY veto layered on top of the existing latency-driven
+  `BangBangController` decision — it can force a step down (or cancel
+  an unwanted step up) that latency alone wouldn't have produced, but
+  never blocks or reverses a decrease latency itself already decided.
+  Verified directly: a healthy host + latency inside the hysteresis
+  dead zone stays a genuine no-op; a pressured host under otherwise-
+  identical conditions forces a real, logged one-step decrease
+  (`host_pressure_veto: True`); a pressured host doesn't double-step a
+  latency-driven decrease already in progress; a pressured host
+  cancels (not amplifies) an unwanted latency-driven increase, landing
+  back at the start with no logged change (a real design choice, not a
+  bug — "only log real changes" holds here too); the LLM-disabled path
+  never samples `HostProbe` at all. **Bonus, same batch ("cheap next
+  tier intel")**: the real `HostProbe` reading is now cached and
+  surfaced via `full_diagnostics()['host_probe']` (fields + `should_
+  back_off` + the tick it was sampled at, honestly `None` before any
+  real sample has happened) — sampling was restructured to run
+  unconditionally (not only when a veto might apply) so this diagnostic
+  always reflects a fresh reading, still at most once a day. `Machine
+  Profile` persistence/`select_strategy`'s output still have no real
+  call site — flagged, real future work, naturally paired with B8's
+  own forecasting once that gets wired. Verified: `scripts/verify_b7_
+  hardware_citizenship.py` (14 checks).
 
 ## B8 — Predictive scheduling [Hard Rule 8] [PARTIAL — B8.1-B8.4 shipped v1.34.174, not wired into any real control point]
 

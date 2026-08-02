@@ -4,6 +4,74 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.201] — Part B: B7 (Hardware model) wired to a real control point + host-probe diagnostics
+
+Explicit user follow-up ("B7 and cheap next tier item"), continuing
+the Part-B closing sequence (B6 v1.34.198, B2 v1.34.199, B3 v1.34.200).
+B7.1-B7.4 (`simulation/hardware_profile.py`: `HostProbe`/
+`MachineProfile`/`select_strategy`/`GoodCitizenPolicy`) were real,
+verified pure functions since v1.34.173, but had zero real call sites
+— B7.4's own docstring named exactly this gap: "'lower priority for
+background work' itself needs a real scheduler to lower priority IN
+— that's B2's job... `should_back_off` is the input signal such a
+scheduler would consult, not the mechanism."
+
+Now that B6's `_maybe_tune_llm_concurrency` is a real, live scheduler,
+it is exactly that consumer. A real `HostProbe.sample(run_storage_
+bench=False)` reading (storage micro-benchmark skipped — irrelevant to
+citizenship, needless disk I/O on a check that runs at most once a
+day) is taken every call the method doesn't skip; `GoodCitizenPolicy.
+should_back_off` (BALANCED aggressiveness) acts as a DOWNWARD-ONLY
+veto layered on top of the existing latency-driven `BangBangController`
+decision — it can force a step down (or cancel an unwanted step up)
+that latency alone wouldn't have produced, but never blocks or
+reverses a decrease latency itself already decided (a struggling host
+and a struggling LLM are two independent reasons to ease off, neither
+overrides the other's own decrease).
+
+Verified via direct scenario tests using the real `Scheduler`/
+`GoodCitizenPolicy`/`HostProbe` classes (a mocked `HostProbe.sample`,
+not a mocked policy or controller): a healthy host + latency inside
+the hysteresis dead zone stays a genuine no-op, nothing logged; a
+pressured host under otherwise-identical conditions forces a real,
+logged one-step decrease (`host_pressure_veto: True`); a pressured
+host doesn't double-step a latency-driven decrease already in
+progress; a pressured host cancels (not amplifies) an unwanted
+latency-driven increase, landing back at the starting value with no
+logged change (a real, deliberate design choice — "only log real
+changes" holds here too, not a bug); the LLM-disabled path never
+samples `HostProbe` at all.
+
+**Bonus, same batch ("cheap next tier intel")**: the real `HostProbe`
+reading is now cached and surfaced via `full_diagnostics()
+['host_probe']` (every field + the real `should_back_off` verdict +
+the tick it was sampled at — honestly `None` before any real sample
+has happened, never a fabricated placeholder). Sampling was
+restructured to run unconditionally whenever the method isn't skipped
+(not only when a veto might apply), so this diagnostic always reflects
+a fresh reading — still at most once a day, no new per-tick cost.
+
+New `scripts/verify_b7_hardware_citizenship.py` (14 checks).
+
+Verified: `scripts/verify_b7_hardware_citizenship.py` (14 checks) —
+all pass, first run, no bug found (one test-design bug caught and
+fixed in the SCRIPT itself, not the module under test: two scenarios
+had the BangBangController's increase/decrease polarity backwards —
+raising `llm_max_concurrent` plausibly RAISES measured latency toward
+target, so latency far ABOVE target drives a decrease and latency far
+BELOW target drives an increase, the opposite of the first draft's
+assumption). `verify_task_graph.py`/`verify_scheduler.py`/`verify_
+runtime_invariant.py`/`verify_b0_runtime_migrations.py`/`verify_
+tuning.py`/`verify_b6_adaptive_concurrency.py`/`verify_b2_broadcast_
+budget.py`/`verify_b3_dirty_events.py`/`verify_dormancy.py`/`verify_
+runtime_diagnostics.py`/`verify_hardware_profile.py` re-run clean. A
+real before/after replay-hash check (4000 ticks, seed 777,
+`--in-process`) — MATCH, byte-identical (expected: every touched code
+path is inert while the LLM is disabled). `scripts/verify_native_
+soak.py` (3 seeds x 3000 ticks) — MATCH. `pyflakes` clean on all
+touched files (only the six known pre-existing forward-ref findings
+in `engine.py`).
+
 ## [1.34.200] — Part B: B3 (Event-driven execution) wired to a real control point + B5.3 diagnostics wiring
 
 Explicit user follow-up ("B3 and build some cheap next tier intel as

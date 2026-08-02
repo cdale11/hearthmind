@@ -742,6 +742,61 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.201)
+
+Explicit user follow-up: "B7 and cheap next tier item" — continuing
+the Part B closing sequence (B6 v1.34.198, B2 v1.34.199, B3 v1.34.200).
+B7.1-B7.4 (`HostProbe`/`MachineProfile`/`select_strategy`/`GoodCitizen
+Policy`, `simulation/hardware_profile.py`) were real, verified pure
+functions since v1.34.173, but had zero real call sites — B7.4's own
+docstring named the exact gap: "'lower priority for background work'
+needs a real scheduler to lower priority IN... `should_back_off` is
+the input signal such a scheduler would consult, not the mechanism."
+
+Now that B6's `_maybe_tune_llm_concurrency` is a real, live scheduler,
+it's exactly that consumer. A real `HostProbe.sample(run_storage_
+bench=False)` reading is taken every non-skipped call; `GoodCitizen
+Policy.should_back_off` (BALANCED) acts as a DOWNWARD-ONLY veto on top
+of the existing latency-driven `BangBangController` decision — forces
+a step down (or cancels an unwanted step up) latency alone wouldn't
+have produced, but never blocks/reverses a latency-driven decrease
+already happening (two independent reasons to ease off, neither
+overrides the other).
+
+Verified via direct scenario tests against the real `Scheduler`/
+`GoodCitizenPolicy`/`HostProbe` classes: healthy host + dead-zone
+latency = true no-op; pressured host + dead-zone latency = real logged
+one-step decrease (`host_pressure_veto: True`); pressured host doesn't
+double-step an already-in-progress latency-driven decrease; pressured
+host cancels (doesn't amplify) an unwanted latency-driven increase,
+landing back at start with nothing logged (deliberate — "only log
+real changes" holds here too); LLM-disabled path never samples
+`HostProbe`.
+
+**Bonus ("cheap next tier item"), same batch**: the real `HostProbe`
+reading is now cached and surfaced via `full_diagnostics()
+['host_probe']` — every field + `should_back_off` + the sampled tick,
+honestly `None` before any real sample. Sampling restructured to run
+unconditionally whenever the method isn't skipped (not just when a
+veto might apply), so the diagnostic always reflects a fresh reading.
+
+New `scripts/verify_b7_hardware_citizenship.py` (14 checks) — one
+test-design bug caught and fixed in the script itself before shipping
+(two scenarios had the BangBangController's increase/decrease
+polarity backwards).
+
+Verified: `scripts/verify_b7_hardware_citizenship.py` (14 checks) —
+all pass. `verify_task_graph.py`/`verify_scheduler.py`/`verify_
+runtime_invariant.py`/`verify_b0_runtime_migrations.py`/`verify_
+tuning.py`/`verify_b6_adaptive_concurrency.py`/`verify_b2_broadcast_
+budget.py`/`verify_b3_dirty_events.py`/`verify_dormancy.py`/`verify_
+runtime_diagnostics.py`/`verify_hardware_profile.py` re-run clean. A
+real before/after replay-hash check (4000 ticks, seed 777,
+`--in-process`) — MATCH, byte-identical (expected: inert while LLM
+disabled). `scripts/verify_native_soak.py` (3 seeds x 3000 ticks) —
+MATCH. `pyflakes` clean on all touched files (only the six known
+pre-existing forward-ref findings in `engine.py`).
+
 ## Current state (v1.34.200)
 
 Explicit user follow-up: "B3 and build some cheap next tier intel as

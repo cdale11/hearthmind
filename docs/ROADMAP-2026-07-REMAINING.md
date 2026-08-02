@@ -1003,6 +1003,38 @@ starts on an explicit instruction naming an item.
       runtime_diagnostics.py`, a real replay-hash MATCH (4000 ticks,
       seed 777), and a native-soak MATCH (3 seeds x 3000 ticks).
 
+      **B7 (Hardware model) wired to a real control point + host-probe
+      diagnostics — SHIPPED, v1.34.201.** Explicit user follow-up ("B7
+      and cheap next tier item"). `GoodCitizenPolicy.should_back_off`
+      is now consulted by a real scheduler for the first time — B6's
+      already-wired `_maybe_tune_llm_concurrency`, exactly the "real
+      scheduler" B7.4's own text names. A real `HostProbe.sample
+      (run_storage_bench=False)` reading is taken every non-skipped
+      call; `should_back_off` (BALANCED) acts as a DOWNWARD-ONLY veto
+      on top of the existing latency-driven decision — forces a step
+      down (or cancels an unwanted step up) latency alone wouldn't have
+      produced, never blocks/reverses a latency-driven decrease already
+      happening. Verified via direct scenario tests: healthy host +
+      dead-zone latency = true no-op; pressured host + dead-zone
+      latency = real logged one-step decrease (`host_pressure_veto:
+      True`); no double-step on an already-in-progress decrease;
+      cancels (doesn't amplify) an unwanted increase, landing back at
+      start with nothing logged; LLM-disabled path never samples
+      `HostProbe`. Bonus, same batch: the real reading is cached and
+      surfaced via `full_diagnostics()['host_probe']`. New `scripts/
+      verify_b7_hardware_citizenship.py` (14 checks) — one test-design
+      bug (BangBangController polarity backwards in two scenarios)
+      caught and fixed in the script itself before shipping. See
+      docs/HEARTHBENCH-RUNTIME-2026-07-23.md's B7 section for full
+      detail. Verified via the script, `verify_task_graph.py`/`verify_
+      scheduler.py`/`verify_runtime_invariant.py`/`verify_b0_runtime_
+      migrations.py`/`verify_tuning.py`/`verify_b6_adaptive_
+      concurrency.py`/`verify_b2_broadcast_budget.py`/`verify_b3_
+      dirty_events.py`/`verify_dormancy.py`/`verify_runtime_
+      diagnostics.py`/`verify_hardware_profile.py`, a real replay-hash
+      MATCH (4000 ticks, seed 777), and a native-soak MATCH (3 seeds x
+      3000 ticks).
+
       **B4.2 pilot ("idle institutions") — SHIPPED, v1.34.187.**
       Explicit user choice via `AskUserQuestion` among B4.2's five named
       candidates, after an investigation found the other four (forgotten
