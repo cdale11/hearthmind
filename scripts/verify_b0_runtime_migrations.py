@@ -1,29 +1,33 @@
 #!/usr/bin/env python3
 """Tier 5 B0.3 — real subsystem migrations onto the B1/B2 runtime.
 
-Three `_TICK_JOBS` entries now run through their own dedicated
+Thirteen `_TICK_JOBS` entries now run through their own dedicated
 `task_graph.TaskRegistry` + `scheduler.Scheduler` pair instead of a
 direct per-tick method call — each built once in `SimulationEngine.
-__init__`:
-
-- `_maybe_schedule_naming` (the first migration, `self._runtime_
-  registry`/`self._runtime_scheduler`)
-- `_maybe_retry_mind_authoring` (the second, `self._runtime_registry_
-  mind_authoring`/`self._runtime_scheduler_mind_authoring`)
-- `_maybe_tick_trigger_state_edges` (the third, `self._runtime_
-  registry_trigger_edges`/`self._runtime_scheduler_trigger_edges`)
+__init__`, one pair per job (see the `MIGRATIONS` table below for the
+full method-name/task-id/attribute mapping). The first three
+(`_maybe_schedule_naming`, `_maybe_retry_mind_authoring`,
+`_maybe_tick_trigger_state_edges`) were migrated one at a time across
+v1.34.193-.195; the remaining ten (every other real `_JOB_NO_ARGS`
+`_TICK_JOBS` entry — `_JOB_EVENTS`/`_JOB_EVENTS_SEASON` jobs need
+`events`/`previous_season` passed in fresh each tick, which `Task.fn`'s
+declared-once zero-arg shape can't express without a design change,
+so they're out of scope for this mechanism) were migrated together in
+one batch per explicit user directive: "Don't ever do one at a time...
+do as many as possible in one turn."
 
 This is the actual "gameplay declares WHAT, the runtime decides WHEN/
-HOW" invariant (B0) applied to three real schedule points instead of
+HOW" invariant (B0) applied to real schedule points instead of
 infrastructure nothing consumes.
 
-All three were chosen as pilots for the same reason: small, self-
-contained (no cross-job read/write coupling to get wrong), and already
-unconditional every tick — declared `PriorityClass.CRITICAL` +
-`TriggerKind.PERIODIC` so the scheduler reproduces that exact "always
-runs, regardless of budget" behavior rather than risking a real
-behavior change (any lower priority class could let budget pressure
-defer a job the original direct call never deferred).
+Every migrated job was chosen for the same reason: small, self-
+contained (no cross-job read/write coupling to get wrong within its
+OWN isolated registry), and already unconditional every tick —
+declared `PriorityClass.CRITICAL` + `TriggerKind.PERIODIC` so the
+scheduler reproduces that exact "always runs, regardless of budget"
+behavior rather than risking a real behavior change (any lower
+priority class could let budget pressure defer a job the original
+direct call never deferred).
 
 Each migrated job gets its OWN registry+scheduler pair rather than
 sharing one — a real bug caught and fixed while building the SECOND
@@ -33,12 +37,12 @@ picks one fixed relative order between ALL of its tasks, and since
 mapped to a scheduler, a shared registry would run EVERY task in it
 again at EACH mapped slot — silently double-executing every migrated
 job the moment a second one exists. Check 5 below proves per-job
-registries avoid this for all three jobs at once: each runs exactly
-once per real tick, not once per migrated slot.
+registries avoid this for every job at once: each runs exactly once
+per real tick, not once per migrated slot.
 
 This script proves, standalone (no unittest, same convention as every
-other `verify_*.py` here), generically over all three migrated jobs:
-each is correctly declared (CRITICAL + PERIODIC, in its own registry);
+other `verify_*.py` here), generically over every migrated job: each
+is correctly declared (CRITICAL + PERIODIC, in its own registry);
 `run_tick()` genuinely invokes the bound method with real side effects
 on real engine state, not a sandboxed copy; the scheduler's own
 `TickReport` reflects each task running every tick (never skipped/
@@ -75,6 +79,40 @@ MIGRATIONS = [
     (
         "_maybe_tick_trigger_state_edges", "trigger_state_edges",
         "_runtime_registry_trigger_edges", "_runtime_scheduler_trigger_edges",
+    ),
+    (
+        "_maybe_spread_concepts", "spread_concepts",
+        "_runtime_registry_spread_concepts", "_runtime_scheduler_spread_concepts",
+    ),
+    (
+        "_maybe_spread_tradition_keeping", "spread_tradition_keeping",
+        "_runtime_registry_spread_tradition_keeping", "_runtime_scheduler_spread_tradition_keeping",
+    ),
+    (
+        "_apply_trigger_rules_from_life_events", "trigger_rules_life_events",
+        "_runtime_registry_trigger_rules_life_events", "_runtime_scheduler_trigger_rules_life_events",
+    ),
+    (
+        "_maybe_tick_composite_reactions", "composite_reactions",
+        "_runtime_registry_composite_reactions", "_runtime_scheduler_composite_reactions",
+    ),
+    ("_maybe_schedule_record", "record", "_runtime_registry_record", "_runtime_scheduler_record"),
+    ("_maybe_schedule_dispute", "dispute", "_runtime_registry_dispute", "_runtime_scheduler_dispute"),
+    (
+        "_maybe_schedule_migration_decision", "migration_decision",
+        "_runtime_registry_migration_decision", "_runtime_scheduler_migration_decision",
+    ),
+    (
+        "_schedule_due_cognition", "due_cognition",
+        "_runtime_registry_due_cognition", "_runtime_scheduler_due_cognition",
+    ),
+    (
+        "_schedule_due_dialogue", "due_dialogue",
+        "_runtime_registry_due_dialogue", "_runtime_scheduler_due_dialogue",
+    ),
+    (
+        "_schedule_voice_dialogue", "voice_dialogue",
+        "_runtime_registry_voice_dialogue", "_runtime_scheduler_voice_dialogue",
     ),
 ]
 

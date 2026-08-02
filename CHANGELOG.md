@@ -4,6 +4,51 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.196] — Part B: B0.3 batch migration (ten more real jobs)
+
+Explicit user instruction: "Don't ever do one at a time. Make this
+your new principle, do as many as possible in one turn and ask
+questions whenever stuck." New standing workflow rule recorded in
+CLAUDE.md.
+
+Migrated every remaining un-migrated `_TICK_JOBS` entry whose method
+takes zero arguments (`_JOB_NO_ARGS`) onto the B1/B2 runtime in one
+batch: `_maybe_spread_concepts`, `_maybe_spread_tradition_keeping`,
+`_apply_trigger_rules_from_life_events`, `_maybe_tick_composite_
+reactions`, `_maybe_schedule_record`, `_maybe_schedule_dispute`,
+`_maybe_schedule_migration_decision`, `_schedule_due_cognition`,
+`_schedule_due_dialogue`, `_schedule_voice_dialogue` — ten real jobs,
+same shape as the first three migrations (own dedicated `TaskRegistry`/
+`Scheduler` pair, CRITICAL+PERIODIC). `_JOB_EVENTS`/`_JOB_EVENTS_
+SEASON` jobs (the majority of `_TICK_JOBS`) are explicitly out of
+scope for this mechanism — they need `events`/`previous_season`
+passed in fresh each tick, which `Task.fn`'s declared-once zero-arg
+shape can't express without a real design change to `Task`/
+`Scheduler` itself; flagged as real future work, not silently
+dropped.
+
+`scripts/verify_b0_runtime_migrations.py`'s `MIGRATIONS` table
+extended to all 13 migrated jobs — the same generic 3-check-per-job
+suite (declaration, job->scheduler resolution) plus the 6 shared
+whole-batch checks (real invocation, clean-run report, 50-tick
+persistence, exactly-once-per-tick, error capture, error propagation)
+now covers 39 checks total.
+
+Verified: `scripts/verify_b0_runtime_migrations.py` (39 checks) — all
+pass, first run, no bug found. `verify_task_graph.py`/`verify_
+scheduler.py`/`verify_runtime_invariant.py` re-run clean. A real
+before/after `World.to_dict()` replay-hash check (`scripts/verify_
+replay_hash.py --ticks 4000 --seeds 777 --in-process`) — MATCH,
+byte-identical. `scripts/verify_native_soak.py` (3 seeds x 3000
+ticks) — MATCH. `pyflakes` clean on both touched files (only the six
+known pre-existing forward-ref findings in `engine.py`).
+
+Scope: this migrates 13 of the ~200 real schedule points still living
+directly inside `engine.py` — the `_JOB_EVENTS`/`_JOB_EVENTS_SEASON`
+majority remain ordinary direct calls, blocked on a real `Task`/
+`Scheduler` design extension to carry per-tick arguments, not on
+willingness to migrate them.
+
 ## [1.34.195] — Part B: B0.3 third migration (`_maybe_tick_trigger_state_edges`)
 
 Explicit user instruction: "Continue doing part B."

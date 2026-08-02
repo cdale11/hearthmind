@@ -426,7 +426,7 @@ pack.
 
 # PART B — THE ADAPTIVE RUNTIME
 
-## B0 — The prime invariant [PARTIAL — B0.1/B0.2 shipped v1.34.161, B0.3's first three real migrations shipped v1.34.193/v1.34.194/v1.34.195]
+## B0 — The prime invariant [PARTIAL — B0.1/B0.2 shipped v1.34.161, B0.3's first 13 real migrations shipped v1.34.193-v1.34.196]
 
 > **Gameplay systems declare *what* work exists. The runtime decides
 > *when*, *where*, and *how* it executes. Gameplay never makes
@@ -586,6 +586,45 @@ pack.
   task_graph.py`/`verify_scheduler.py`/`verify_runtime_invariant.py`
   re-run clean. `pyflakes` clean on both touched files (only the six
   known pre-existing forward-ref findings in `engine.py`).
+
+  **Batch migration (10 more jobs) — SHIPPED, v1.34.196.** Explicit
+  user directive changing standing workflow going forward: "Don't
+  ever do one at a time. Make this your new principle, do as many as
+  possible in one turn and ask questions whenever stuck." (Recorded
+  as a new standing rule in CLAUDE.md's Workflow rules.) Every
+  remaining real `_TICK_JOBS` entry whose method takes zero arguments
+  (`_JOB_NO_ARGS`) migrated in one batch, same dedicated-registry-per-
+  job shape as the first three: `_maybe_spread_concepts`, `_maybe_
+  spread_tradition_keeping`, `_apply_trigger_rules_from_life_events`,
+  `_maybe_tick_composite_reactions`, `_maybe_schedule_record`,
+  `_maybe_schedule_dispute`, `_maybe_schedule_migration_decision`,
+  `_schedule_due_cognition`, `_schedule_due_dialogue`, `_schedule_
+  voice_dialogue`.
+
+  `_JOB_EVENTS`/`_JOB_EVENTS_SEASON` jobs (the majority of `_TICK_
+  JOBS`) stay explicitly out of scope for this mechanism — they need
+  `events`/`previous_season` passed in fresh each tick, which `Task.
+  fn`'s declared-once zero-arg shape can't express without a real
+  design change to `Task`/`Scheduler` (e.g. a per-call argument
+  binding). Flagged as genuine future work, not worked around with a
+  guess or silently dropped.
+
+  `scripts/verify_b0_runtime_migrations.py`'s `MIGRATIONS` table
+  extended to all 13 migrated jobs — 39 checks total (3 per-job checks
+  x 13 jobs + 6 shared whole-batch checks). Verified: all 39 pass,
+  first run, no bug found. `verify_task_graph.py`/`verify_scheduler.
+  py`/`verify_runtime_invariant.py` re-run clean. A real before/after
+  replay-hash check (4000 ticks, seed 777) — MATCH, byte-identical.
+  `scripts/verify_native_soak.py` (3 seeds x 3000 ticks) — MATCH.
+  `pyflakes` clean on both touched files (only the six known
+  pre-existing forward-ref findings in `engine.py`).
+
+  **Scope, stated plainly**: 13 of the ~200 real schedule points
+  still living directly inside `engine.py` are now migrated — the
+  `_JOB_EVENTS`/`_JOB_EVENTS_SEASON` majority remain ordinary direct
+  calls, blocked on a real `Task`/`Scheduler` argument-passing
+  extension, not on migration willingness. That extension is the
+  natural next step for a future pass to consider.
 
 ## B1 — Task declaration & the work graph [PARTIAL — B1.1-B1.4 shipped v1.34.162, not yet wired into the live tick loop]
 

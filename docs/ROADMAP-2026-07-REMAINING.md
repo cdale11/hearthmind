@@ -882,6 +882,27 @@ starts on an explicit instruction naming an item.
       rewritten script, a real replay-hash MATCH (4000 ticks, seed
       777), and a native-soak MATCH (3 seeds x 3000 ticks).
 
+      **B0.3 batch migration (10 more jobs) — SHIPPED, v1.34.196.**
+      Explicit user directive changing standing workflow: "Don't ever
+      do one at a time... do as many as possible in one turn and ask
+      questions whenever stuck." Migrated every remaining real
+      `_JOB_NO_ARGS` `_TICK_JOBS` entry in one batch: `_maybe_spread_
+      concepts`, `_maybe_spread_tradition_keeping`, `_apply_trigger_
+      rules_from_life_events`, `_maybe_tick_composite_reactions`,
+      `_maybe_schedule_record`, `_maybe_schedule_dispute`, `_maybe_
+      schedule_migration_decision`, `_schedule_due_cognition`,
+      `_schedule_due_dialogue`, `_schedule_voice_dialogue` — same
+      dedicated-registry-per-job shape as the first three. `_JOB_
+      EVENTS`/`_JOB_EVENTS_SEASON` jobs (the majority) stay explicitly
+      out of scope — `Task.fn`'s zero-arg declared-once shape can't
+      carry the `events`/`previous_season` args those jobs need each
+      tick without a real `Task`/`Scheduler` design change, flagged as
+      real future work rather than guessed at. `scripts/verify_b0_
+      runtime_migrations.py`'s `MIGRATIONS` table now covers all 13
+      migrated jobs (39 checks total). Verified via the script, a real
+      replay-hash MATCH (4000 ticks, seed 777), and a native-soak
+      MATCH (3 seeds x 3000 ticks).
+
       **B4.2 pilot ("idle institutions") — SHIPPED, v1.34.187.**
       Explicit user choice via `AskUserQuestion` among B4.2's five named
       candidates, after an investigation found the other four (forgotten

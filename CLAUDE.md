@@ -640,6 +640,18 @@ unnoticed for dozens of versions.
 
 ## Workflow rules
 
+- **Never migrate/convert/audit one at a time (explicit standing user
+  instruction, 2026-08-02): "do as many as possible in one turn and
+  ask questions whenever stuck."** Applies to any "N similar sites"
+  class of work (B0.3 runtime migrations, Tier 0 mirror-write
+  conversions, B10.2 kind-index pilots, etc.) — once a pattern is
+  proven safe on a first instance, sweep every remaining same-shaped
+  site in the same batch rather than doling them out one pass at a
+  time. Still ask via `AskUserQuestion` when a genuinely new judgment
+  call is needed (a site that doesn't fit the proven pattern, or a
+  design decision the pattern itself doesn't resolve) — this replaces
+  the old "one pilot, then re-ask" cadence, not the discipline of
+  asking when actually stuck.
 - Batch commits: multiple systems per session/commit unless the user
   asks for a narrow fix. No half-finished pieces within a batch — every
   landed system must be mechanically real, not a stub.
@@ -729,6 +741,49 @@ substrate code; migrating the existing ~200 onto a real B1 task graph
 is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
+
+## Current state (v1.34.196)
+
+Explicit user instruction: "Don't ever do one at a time. Make this
+your new principle, do as many as possible in one turn and ask
+questions whenever stuck." New standing workflow rule recorded above
+("Never migrate/convert/audit one at a time").
+
+Migrated every remaining real `_TICK_JOBS` entry whose method takes
+zero arguments (`_JOB_NO_ARGS`) onto the B1/B2 runtime in one batch —
+ten more real jobs, following the exact per-job-dedicated-registry
+shape the first three migrations established: `_maybe_spread_concepts`,
+`_maybe_spread_tradition_keeping`, `_apply_trigger_rules_from_life_
+events`, `_maybe_tick_composite_reactions`, `_maybe_schedule_record`,
+`_maybe_schedule_dispute`, `_maybe_schedule_migration_decision`,
+`_schedule_due_cognition`, `_schedule_due_dialogue`, `_schedule_voice_
+dialogue`. `_JOB_EVENTS`/`_JOB_EVENTS_SEASON` jobs (the majority of
+`_TICK_JOBS`) stay explicitly out of scope for this mechanism — they
+need `events`/`previous_season` passed in fresh each tick, which
+`Task.fn`'s declared-once zero-arg shape can't express without a real
+design change to `Task`/`Scheduler` — flagged as genuine future work,
+not silently dropped or worked around with a guess.
+
+`scripts/verify_b0_runtime_migrations.py`'s `MIGRATIONS` table
+extended to all 13 migrated jobs — 39 checks total (3 per-job checks
+x 13 jobs + 6 shared whole-batch checks, incl. the load-bearing
+exactly-once-per-tick no-double-execution proof across all 13 at
+once).
+
+Verified: `scripts/verify_b0_runtime_migrations.py` (39 checks) — all
+pass, first run, no bug found. `verify_task_graph.py`/`verify_
+scheduler.py`/`verify_runtime_invariant.py` re-run clean. A real
+before/after `World.to_dict()` replay-hash check (`scripts/verify_
+replay_hash.py --ticks 4000 --seeds 777 --in-process`) — MATCH,
+byte-identical. `scripts/verify_native_soak.py` (3 seeds x 3000
+ticks) — MATCH. `pyflakes` clean on both touched files (only the six
+known pre-existing forward-ref findings in `engine.py`).
+
+Scope: 13 of the ~200 real schedule points still living directly
+inside `engine.py` are now migrated — the `_JOB_EVENTS`/`_JOB_EVENTS_
+SEASON` majority remain ordinary direct calls, blocked on a real
+`Task`/`Scheduler` argument-passing extension, not on migration
+willingness.
 
 ## Current state (v1.34.195)
 

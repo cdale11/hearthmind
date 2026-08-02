@@ -2154,6 +2154,150 @@ class SimulationEngine:
         ))
         self._runtime_scheduler_trigger_edges = Scheduler(self._runtime_registry_trigger_edges)
 
+        # Explicit user directive: stop migrating one job at a time —
+        # do as many real _JOB_NO_ARGS schedule points as possible in
+        # one batch, asking only when genuinely stuck. Every remaining
+        # `_TICK_JOBS` entry whose method takes zero arguments (the
+        # `_JOB_EVENTS`/`_JOB_EVENTS_SEASON` jobs need `events`/
+        # `previous_season` passed in fresh each tick, which `Task.fn`'s
+        # zero-arg declared-once shape can't express without a design
+        # change — out of scope for this batch, flagged below) gets its
+        # own dedicated registry+scheduler pair, same CRITICAL+PERIODIC
+        # shape as the first three migrations.
+        self._runtime_registry_spread_concepts = TaskRegistry()
+        self._runtime_registry_spread_concepts.register(Task(
+            id="spread_concepts",
+            subsystem="spread_concepts",
+            fn=self._maybe_spread_concepts,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.invented_concepts", "world.population.core_agent_ids"}),
+            writes=frozenset({"world.invented_concepts"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_spread_concepts = Scheduler(self._runtime_registry_spread_concepts)
+
+        self._runtime_registry_spread_tradition_keeping = TaskRegistry()
+        self._runtime_registry_spread_tradition_keeping.register(Task(
+            id="spread_tradition_keeping",
+            subsystem="spread_tradition_keeping",
+            fn=self._maybe_spread_tradition_keeping,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements.traditions", "world.village_pillar"}),
+            writes=frozenset({"agent.kept_traditions"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_spread_tradition_keeping = Scheduler(
+            self._runtime_registry_spread_tradition_keeping,
+        )
+
+        self._runtime_registry_trigger_rules_life_events = TaskRegistry()
+        self._runtime_registry_trigger_rules_life_events.register(Task(
+            id="trigger_rules_life_events",
+            subsystem="trigger_rules_life_events",
+            fn=self._apply_trigger_rules_from_life_events,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.trigger_rules", "world.last_life_events"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_trigger_rules_life_events = Scheduler(
+            self._runtime_registry_trigger_rules_life_events,
+        )
+
+        self._runtime_registry_composite_reactions = TaskRegistry()
+        self._runtime_registry_composite_reactions.register(Task(
+            id="composite_reactions",
+            subsystem="composite_reactions",
+            fn=self._maybe_tick_composite_reactions,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.settlements", "world.disasters.heat_pressure"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_composite_reactions = Scheduler(self._runtime_registry_composite_reactions)
+
+        self._runtime_registry_record = TaskRegistry()
+        self._runtime_registry_record.register(Task(
+            id="record",
+            subsystem="record",
+            fn=self._maybe_schedule_record,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.population.last_written_records"}),
+            writes=frozenset({"world.settlements.records"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_record = Scheduler(self._runtime_registry_record)
+
+        self._runtime_registry_dispute = TaskRegistry()
+        self._runtime_registry_dispute.register(Task(
+            id="dispute",
+            subsystem="dispute",
+            fn=self._maybe_schedule_dispute,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.population.agents", "world.humans_pillar"}),
+            writes=frozenset({"agent.relationships"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_dispute = Scheduler(self._runtime_registry_dispute)
+
+        self._runtime_registry_migration_decision = TaskRegistry()
+        self._runtime_registry_migration_decision.register(Task(
+            id="migration_decision",
+            subsystem="migration_decision",
+            fn=self._maybe_schedule_migration_decision,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.population.core_agent_ids", "world.humans_pillar"}),
+            writes=frozenset({"world.population.agents"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_migration_decision = Scheduler(self._runtime_registry_migration_decision)
+
+        self._runtime_registry_due_cognition = TaskRegistry()
+        self._runtime_registry_due_cognition.register(Task(
+            id="due_cognition",
+            subsystem="due_cognition",
+            fn=self._schedule_due_cognition,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.population.agents"}),
+            writes=frozenset({"engine.pending_cognition_results"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_due_cognition = Scheduler(self._runtime_registry_due_cognition)
+
+        self._runtime_registry_due_dialogue = TaskRegistry()
+        self._runtime_registry_due_dialogue.register(Task(
+            id="due_dialogue",
+            subsystem="due_dialogue",
+            fn=self._schedule_due_dialogue,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.population.agents"}),
+            writes=frozenset({"engine.pending_dialogue_results"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_due_dialogue = Scheduler(self._runtime_registry_due_dialogue)
+
+        self._runtime_registry_voice_dialogue = TaskRegistry()
+        self._runtime_registry_voice_dialogue.register(Task(
+            id="voice_dialogue",
+            subsystem="voice_dialogue",
+            fn=self._schedule_voice_dialogue,
+            trigger=TriggerKind.PERIODIC,
+            reads=frozenset({"world.population.voice_pair_ids"}),
+            writes=frozenset({"engine.pending_dialogue_results"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_voice_dialogue = Scheduler(self._runtime_registry_voice_dialogue)
+
         if self._broadcaster is not None:
             # Terrain never changes after creation — set once, not part
             # of the per-tick payload. See docs/DECISIONS.md, F2.
@@ -2923,6 +3067,16 @@ class SimulationEngine:
         "_maybe_schedule_naming": "_runtime_scheduler",
         "_maybe_retry_mind_authoring": "_runtime_scheduler_mind_authoring",
         "_maybe_tick_trigger_state_edges": "_runtime_scheduler_trigger_edges",
+        "_maybe_spread_concepts": "_runtime_scheduler_spread_concepts",
+        "_maybe_spread_tradition_keeping": "_runtime_scheduler_spread_tradition_keeping",
+        "_apply_trigger_rules_from_life_events": "_runtime_scheduler_trigger_rules_life_events",
+        "_maybe_tick_composite_reactions": "_runtime_scheduler_composite_reactions",
+        "_maybe_schedule_record": "_runtime_scheduler_record",
+        "_maybe_schedule_dispute": "_runtime_scheduler_dispute",
+        "_maybe_schedule_migration_decision": "_runtime_scheduler_migration_decision",
+        "_schedule_due_cognition": "_runtime_scheduler_due_cognition",
+        "_schedule_due_dialogue": "_runtime_scheduler_due_dialogue",
+        "_schedule_voice_dialogue": "_runtime_scheduler_voice_dialogue",
     }
 
     def _tick_once(self) -> None:
