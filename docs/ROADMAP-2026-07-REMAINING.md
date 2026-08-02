@@ -758,6 +758,30 @@ starts on an explicit instruction naming an item.
       B3.3/B4.2's other four candidates/B9.3, stay open — same
       proof-of-pattern scoping as the first pilot.
 
+      **B10.2 third pilot conversion — SHIPPED, v1.34.191.** Explicit
+      user instruction ("continue part B"), scoped via `AskUserQuestion`
+      to another B10.2 site pilot. `Settlement.vehicles_of_kind(kind)`:
+      the vehicle-side sibling of `buildings_of_kind()`, replacing a
+      full `settlement.vehicles` scan at seven real call sites (`_haul_
+      factor`, `_raft_factor`, `_agent_mount`, `_maybe_assign_mounts`,
+      `_wear_carts`, `_wear_rafts`, `Settlement._vehicle_summary()` —
+      itself called from `Settlement.summary()`, whose measured
+      per-tick cost is directly recorded in a `simulation/engine.py`
+      comment on a nearby call site: "summary() ... is expensive
+      enough that calling it every tick for every settlement measurably
+      slowed the tick loop"). `summary()`'s own building-kind filters
+      were also converted to reuse `buildings_of_kind()` in the same
+      pass. Genuinely simpler than the buildings-side index: `Vehicle.
+      kind` never mutates in place anywhere in this codebase and
+      `Settlement.vehicles` is append-only (no removal path exists), so
+      `start_vehicle`'s own explicit invalidation is the only real
+      mutation site. Verified via a real before/after replay-hash
+      check (MATCH, 4000 ticks) plus a dedicated `scripts/verify_
+      vehicles_by_kind_pilot.py` (14 checks, same negative-control
+      discipline as the buildings pilot). `scan_global_scans.py`'s
+      flagged-site count fell 76 -> 75. The remaining 75 sites, plus
+      B0.3/B3.3/B4.2's other four candidates/B9.3, stay open.
+
       **B4.2 pilot ("idle institutions") — SHIPPED, v1.34.187.**
       Explicit user choice via `AskUserQuestion` among B4.2's five named
       candidates, after an investigation found the other four (forgotten

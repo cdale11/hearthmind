@@ -4,6 +4,38 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.191] — Tier 5 B10.2 third pilot: vehicles_of_kind index
+
+Explicit user instruction ("continue part B"), scoped via
+`AskUserQuestion` to another B10.2 site pilot — same shape as the two
+prior pilots (`Population.get`, `Settlement.buildings_of_kind`).
+
+New `Settlement.vehicles_of_kind(kind)`: the vehicle-side sibling of
+`buildings_of_kind()`, replacing a full per-tick/per-gather-event scan
+of `settlement.vehicles` at seven real call sites (`_haul_factor`,
+`_raft_factor`, `_agent_mount`, `_maybe_assign_mounts`, `_wear_carts`,
+`_wear_rafts`, and `Settlement._vehicle_summary()` — itself called
+from `Settlement.summary()`, whose per-tick cost is directly recorded
+in a `simulation/engine.py` comment on a nearby call site: "summary()
+... is expensive enough that calling it every tick for every
+settlement measurably slowed the tick loop"). `summary()`'s own
+building-kind filters (granaries/pastures/hatcheries/huts_standing/
+the 13-kind `kind_counts` dict) were also converted to reuse
+`buildings_of_kind()`, closing a gap the first buildings pilot hadn't
+reached.
+
+Simpler than the buildings-side index: `Vehicle.kind` never mutates in
+place anywhere in this codebase and `Settlement.vehicles` is
+append-only (no removal path exists), so `start_vehicle`'s own
+explicit invalidation is the only real mutation site.
+
+Verified via a real before/after replay-hash check (MATCH, 4000 ticks,
+two independent process runs) and a new `scripts/verify_vehicles_by_
+kind_pilot.py` (14 checks, including the same negative-control
+discipline as the buildings pilot). Every one of the 19 pre-existing
+`verify_*.py` scripts plus both prior B10.2 pilot scripts re-run
+clean; `pyflakes` clean.
+
 ## [1.34.190] — Tier 5 B10.2 second pilot: buildings_of_kind index
 
 Explicit user instruction ("start tier 5 part B left items"), scoped

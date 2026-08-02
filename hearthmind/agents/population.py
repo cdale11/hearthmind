@@ -1261,7 +1261,7 @@ def _haul_factor(settlement: Settlement) -> float:
     """Multiplicative bonus from ready carts on gathered-material yield —
     see CART_HAUL_BONUS_PER_CART/CART_BONUS_CAP, docs/DECISIONS.md,
     vehicles pass."""
-    ready_carts = sum(1 for v in settlement.vehicles if v.kind is VehicleKind.CART and v.stage is VehicleStage.READY)
+    ready_carts = sum(1 for v in settlement.vehicles_of_kind(VehicleKind.CART) if v.stage is VehicleStage.READY)
     return 1.0 + CART_HAUL_BONUS_PER_CART * min(ready_carts, CART_BONUS_CAP)
 
 
@@ -1269,7 +1269,7 @@ def _raft_factor(settlement: Settlement) -> float:
     """Multiplicative bonus from ready rafts on a fish catch's hunger
     relief — same shape as `_haul_factor`, see RAFT_FISH_BONUS_PER_RAFT/
     RAFT_BONUS_CAP."""
-    ready_rafts = sum(1 for v in settlement.vehicles if v.kind is VehicleKind.RAFT and v.stage is VehicleStage.READY)
+    ready_rafts = sum(1 for v in settlement.vehicles_of_kind(VehicleKind.RAFT) if v.stage is VehicleStage.READY)
     return 1.0 + RAFT_FISH_BONUS_PER_RAFT * min(ready_rafts, RAFT_BONUS_CAP)
 
 
@@ -1277,11 +1277,8 @@ def _agent_mount(settlement: Settlement, agent_id: int) -> Vehicle | None:
     """Either personal-vehicle kind (MOUNT or the era-gated AUTOMOBILE
     upgrade) an agent currently has claimed and ready — see
     PERSONAL_VEHICLE_KINDS."""
-    for vehicle in settlement.vehicles:
-        if (
-            vehicle.kind in PERSONAL_VEHICLE_KINDS and vehicle.stage is VehicleStage.READY
-            and vehicle.assigned_agent_id == agent_id
-        ):
+    for vehicle in itertools.chain.from_iterable(settlement.vehicles_of_kind(k) for k in PERSONAL_VEHICLE_KINDS):
+        if vehicle.stage is VehicleStage.READY and vehicle.assigned_agent_id == agent_id:
             return vehicle
     return None
 
@@ -6590,15 +6587,14 @@ class Population:
         vehicle (mount or the era-gated automobile upgrade) and not
         already riding one claims it — first-come, presence-driven like
         everything else here, not a deliberate goal/cognition decision."""
+        personal_vehicles = list(
+            itertools.chain.from_iterable(settlement.vehicles_of_kind(k) for k in PERSONAL_VEHICLE_KINDS)
+        )
         mounted_ids = {
-            v.assigned_agent_id for v in settlement.vehicles
-            if v.kind in PERSONAL_VEHICLE_KINDS and v.assigned_agent_id is not None
+            v.assigned_agent_id for v in personal_vehicles if v.assigned_agent_id is not None
         }
-        for vehicle in settlement.vehicles:
-            if (
-                vehicle.kind not in PERSONAL_VEHICLE_KINDS or vehicle.stage is not VehicleStage.READY
-                or vehicle.assigned_agent_id is not None
-            ):
+        for vehicle in personal_vehicles:
+            if vehicle.stage is not VehicleStage.READY or vehicle.assigned_agent_id is not None:
                 continue
             for agent in by_position.get((vehicle.x, vehicle.y), []):
                 if agent.state is AgentState.AWAKE and agent.id not in mounted_ids:
@@ -6608,7 +6604,7 @@ class Population:
 
     @staticmethod
     def _wear_carts(settlement: Settlement) -> None:
-        ready_carts = [v for v in settlement.vehicles if v.kind is VehicleKind.CART and v.stage is VehicleStage.READY]
+        ready_carts = [v for v in settlement.vehicles_of_kind(VehicleKind.CART) if v.stage is VehicleStage.READY]
         if not ready_carts:
             return
         wear = CART_USE_DECAY / len(ready_carts)
@@ -6625,7 +6621,7 @@ class Population:
     def _wear_rafts(settlement: Settlement) -> None:
         """Same shape as `_wear_carts`, triggered per fish catch instead
         of per gather tick — see RAFT_USE_DECAY."""
-        ready_rafts = [v for v in settlement.vehicles if v.kind is VehicleKind.RAFT and v.stage is VehicleStage.READY]
+        ready_rafts = [v for v in settlement.vehicles_of_kind(VehicleKind.RAFT) if v.stage is VehicleStage.READY]
         if not ready_rafts:
             return
         wear = RAFT_USE_DECAY / len(ready_rafts)

@@ -730,6 +730,57 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.191)
+
+Explicit user instruction ("continue part B"), scoped via
+`AskUserQuestion` to a third B10.2 site pilot — same shape as the
+two prior pilots (`Population.get`, `Settlement.buildings_of_kind`).
+
+New `Settlement.vehicles_of_kind(kind)`: the vehicle-side sibling of
+`buildings_of_kind()` (`settlement/buildings.py`), replacing a full
+`for v in settlement.vehicles: if v.kind is not X: continue` scan at
+SEVEN real call sites (`_haul_factor`, `_raft_factor`, `_agent_mount`,
+`_maybe_assign_mounts`, `_wear_carts`, `_wear_rafts`, and `Settlement.
+_vehicle_summary()`). `_vehicle_summary()` is itself called from
+`Settlement.summary()` — the same method whose measured per-tick cost
+is directly recorded in an existing `simulation/engine.py` comment on
+a nearby call site: "summary() ... is expensive enough that calling
+it every tick for every settlement measurably slowed the tick loop."
+`summary()`'s own building-kind filters (granaries/pastures/
+hatcheries/huts_standing/the 13-kind `kind_counts` dict) were also
+converted to reuse `buildings_of_kind()` in the same pass — a real
+gap the first buildings pilot's own scope hadn't reached, since
+`summary()` wasn't among its thirteen converted call sites.
+
+Genuinely SIMPLER than the buildings-side index: `Vehicle.kind` never
+mutates in place anywhere in this codebase (confirmed by direct grep
+before starting) and `Settlement.vehicles` is append-only — no
+removal path exists anywhere in the codebase. So `start_vehicle`'s
+own explicit invalidation is the ONLY real mutation site, unlike
+buildings' three (construction, ruin removal, the school->university
+kind mutation).
+
+Verified: a real before/after replay-hash check (`scripts/verify_
+replay_hash.py --ticks 4000 --seeds 777 --in-process`) — MATCH,
+byte-identical across two independent process runs; new `scripts/
+verify_vehicles_by_kind_pilot.py` (14 checks, standalone, no
+unittest) — same negative-control discipline as the buildings pilot
+(a deliberate skip-invalidation case proving the cache genuinely can
+go stale, then confirming invalidating recovers it), plus a real
+`PERSONAL_VEHICLE_KINDS`-chain consumer proof matching `_agent_
+mount`'s/`_maybe_assign_mounts`'s own real usage shape. Every one of
+the 19 pre-existing `scripts/verify_*.py` scripts plus both prior
+B10.2 pilot scripts (`verify_core_migration_candidates_pilot.py`,
+`verify_buildings_by_kind_pilot.py`) re-run clean; `pyflakes` clean
+on all touched/new files. `scripts/scan_global_scans.py`'s own
+flagged-site count fell 76 -> 75.
+
+The remaining 75 `scan_global_scans.py`-flagged sites, plus B0.3/
+B3.3/B4.2's remaining four candidates (forgotten traditions, inactive
+settlements, distant wildlife, unused ideas)/B9.3 in full, remain
+explicitly open — same "proof-of-pattern pilot, not a wider sweep"
+scoping every prior B10.2 pilot used.
+
 ## Current state (v1.34.190)
 
 Explicit user instruction: "Start tier 5 part B left items" — the

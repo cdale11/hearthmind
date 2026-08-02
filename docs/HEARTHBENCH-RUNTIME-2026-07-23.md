@@ -941,7 +941,7 @@ against a real `TimescaleLadder` anywhere. Real future work, naturally
 paired with B9.3's own still-open audit and the rest of the unwired
 Runtime modules (B2 through B8) once a real migration pass begins.
 
-## B10 — Locality [Hard Rule 11] [PARTIAL — B10.1/B10.3 shipped v1.34.177, B10.2's discovery tool shipped v1.34.177 + two real pilot conversions shipped v1.34.184/v1.34.190, 76 flagged sites still open]
+## B10 — Locality [Hard Rule 11] [PARTIAL — B10.1/B10.3 shipped v1.34.177, B10.2's discovery tool shipped v1.34.177 + three real pilot conversions shipped v1.34.184/v1.34.190/v1.34.191, 75 flagged sites still open]
 
 - [x] **B10.1 — Spatial index / region partition — SHIPPED, v1.34.177.**
   New `hearthmind/simulation/locality.py`'s `RegionGrid`: a uniform-
@@ -1037,6 +1037,34 @@ Runtime modules (B2 through B8) once a real migration pass begins.
   specifically: 17 -> 6) as a direct, measured consequence — the
   remaining 76 sites stay unconverted, same "proof-of-pattern pilot,
   not a wider sweep" scoping as the first one.
+  **A third real pilot conversion SHIPPED, v1.34.191** (explicit user
+  instruction "continue part B," scoped via `AskUserQuestion` to
+  "another B10.2 site pilot"): `Settlement.vehicles_of_kind(kind)`,
+  the vehicle-side sibling of `buildings_of_kind()`, replacing a full
+  scan of `settlement.vehicles` at SEVEN real call sites (`_haul_
+  factor`, `_raft_factor`, `_agent_mount`, `_maybe_assign_mounts`,
+  `_wear_carts`, `_wear_rafts`, `Settlement._vehicle_summary()` —
+  itself called from `Settlement.summary()`, whose measured per-tick
+  cost is directly recorded in a `simulation/engine.py` comment on a
+  nearby call site: "summary() ... is expensive enough that calling
+  it every tick for every settlement measurably slowed the tick
+  loop"). `summary()`'s own building-kind filters (granaries/
+  pastures/hatcheries/huts_standing/the 13-kind `kind_counts` dict)
+  were also converted to reuse `buildings_of_kind()` in the same pass,
+  closing a gap the first buildings pilot hadn't reached. Genuinely
+  SIMPLER than the buildings-side index: `Vehicle.kind` never mutates
+  in place anywhere in this codebase (confirmed by direct grep) and
+  `Settlement.vehicles` is append-only (no removal path exists
+  anywhere), so `start_vehicle`'s own explicit invalidation is the
+  ONLY real mutation site. Verified: a real before/after replay-hash
+  check (MATCH, 4000 ticks, two independent process runs); new
+  `scripts/verify_vehicles_by_kind_pilot.py` (14 checks, same
+  negative-control discipline as the buildings pilot, plus a real
+  `PERSONAL_VEHICLE_KINDS`-chain consumer proof); every one of the 19
+  pre-existing `verify_*.py` scripts plus both prior B10.2 pilot
+  scripts re-run clean; `pyflakes` clean. `scan_global_scans.py`'s
+  flagged-site count fell 76 -> 75. The remaining 75 sites stay
+  unconverted, same scoping as both prior pilots.
 - [x] **B10.3 — Region-parallel execution — SHIPPED, v1.34.177.**
   `plan_region_parallel_batches`/`find_cross_region_write_conflicts`:
   groups region-tagged tasks by region and VERIFIES (not assumes) the

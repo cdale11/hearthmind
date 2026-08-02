@@ -3013,6 +3013,13 @@ class Settlement:
         mutation site rather than length-checked, since a building's
         `.kind` can change without the buildings list changing length
         (the school->university upgrade). See `buildings_of_kind()`."""
+        self._vehicles_by_kind_index: "dict[VehicleKind, list[Vehicle]] | None" = None
+        """VehicleKind -> [Vehicle] cache behind `vehicles_of_kind()`
+        (B10.2, Tier 5) — same discipline as `_buildings_by_kind_index`,
+        but simpler: `Vehicle.kind` never mutates in place anywhere in
+        this codebase (confirmed by direct grep) and `self.vehicles` is
+        append-only (no removal path exists), so `start_vehicle`'s
+        explicit invalidation is the ONLY site that ever needs one."""
 
     # --- legacy flat-attribute passthroughs ---------------------------------
     # One property pair per pre-split field. Deliberately mechanical: the
@@ -3732,6 +3739,18 @@ class Settlement:
                 return vehicle
         return None
 
+    def vehicles_of_kind(self, kind: "VehicleKind") -> "list[Vehicle]":
+        """B10.2 sibling of `buildings_of_kind()` — same O(1)-amortized
+        by-kind bucketing, over `self.vehicles` instead. Callers still
+        filter by `.stage`/`.assigned_agent_id` themselves (both change
+        far more often than kind)."""
+        if self._vehicles_by_kind_index is None:
+            index: "dict[VehicleKind, list[Vehicle]]" = {}
+            for v in self.vehicles:
+                index.setdefault(v.kind, []).append(v)
+            self._vehicles_by_kind_index = index
+        return self._vehicles_by_kind_index.get(kind, [])
+
     # --- construction ------------------------------------------------------
 
     def start_construction(
@@ -3751,6 +3770,7 @@ class Settlement:
         vehicle = Vehicle(id=self._next_vehicle_id, x=x, y=y, kind=kind)
         self._next_vehicle_id += 1
         self.vehicles.append(vehicle)
+        self._vehicles_by_kind_index = None  # B10.2: explicit invalidation, the only mutation site
         return vehicle
 
     # --- tick: weathering, ruin, reclamation ----------------------------------
@@ -3938,12 +3958,12 @@ class Settlement:
         standing = [b for b in self.buildings if b.stage is BuildingStage.STANDING]
         ruined = sum(1 for b in self.buildings if b.stage is BuildingStage.RUINED)
         avg_condition = sum(b.condition for b in standing) / len(standing) if standing else 0.0
-        granaries = [b for b in standing if b.kind is BuildingKind.GRANARY]
-        pastures = [b for b in standing if b.kind is BuildingKind.PASTURE]
-        hatcheries = [b for b in standing if b.kind is BuildingKind.HATCHERY]
-        huts_standing = sum(1 for b in standing if b.kind is BuildingKind.HUT)
+        granaries = [b for b in self.buildings_of_kind(BuildingKind.GRANARY) if b.stage is BuildingStage.STANDING]
+        pastures = [b for b in self.buildings_of_kind(BuildingKind.PASTURE) if b.stage is BuildingStage.STANDING]
+        hatcheries = [b for b in self.buildings_of_kind(BuildingKind.HATCHERY) if b.stage is BuildingStage.STANDING]
+        huts_standing = sum(1 for b in self.buildings_of_kind(BuildingKind.HUT) if b.stage is BuildingStage.STANDING)
         kind_counts = {
-            kind.value: sum(1 for b in standing if b.kind is kind)
+            kind.value: sum(1 for b in self.buildings_of_kind(kind) if b.stage is BuildingStage.STANDING)
             for kind in (
                 BuildingKind.WORKSHOP, BuildingKind.SCHOOL, BuildingKind.HOSPITAL,
                 BuildingKind.UNIVERSITY, BuildingKind.FACTORY, BuildingKind.SHRINE,
@@ -4110,11 +4130,11 @@ class Settlement:
         return rows
 
     def _vehicle_summary(self) -> dict:
-        carts = [v for v in self.vehicles if v.kind is VehicleKind.CART]
-        mounts = [v for v in self.vehicles if v.kind is VehicleKind.MOUNT]
-        automobiles = [v for v in self.vehicles if v.kind is VehicleKind.AUTOMOBILE]
-        rafts = [v for v in self.vehicles if v.kind is VehicleKind.RAFT]
-        boats = [v for v in self.vehicles if v.kind is VehicleKind.BOAT]
+        carts = self.vehicles_of_kind(VehicleKind.CART)
+        mounts = self.vehicles_of_kind(VehicleKind.MOUNT)
+        automobiles = self.vehicles_of_kind(VehicleKind.AUTOMOBILE)
+        rafts = self.vehicles_of_kind(VehicleKind.RAFT)
+        boats = self.vehicles_of_kind(VehicleKind.BOAT)
         ready_carts = [v for v in carts if v.stage is VehicleStage.READY]
         ready_mounts = [v for v in mounts if v.stage is VehicleStage.READY]
         ready_automobiles = [v for v in automobiles if v.stage is VehicleStage.READY]
