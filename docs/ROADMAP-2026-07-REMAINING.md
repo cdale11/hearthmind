@@ -925,6 +925,25 @@ starts on an explicit instruction naming an item.
       script, a real replay-hash MATCH (4000 ticks, seed 777), and a
       native-soak MATCH (3 seeds x 3000 ticks).
 
+      **B6 adaptive tuning wired to a real control point — SHIPPED,
+      v1.34.198.** Explicit user follow-up ("any other remaining items
+      from part B... close them too"), `AskUserQuestion` chose B6 among
+      several "shipped standalone, not wired into a real control point"
+      candidates (B2/B3/B5.3/B6/B7/B8/B9.3/B10.2/B11/B12/B13/B14/B15).
+      `SimulationEngine._maybe_tune_llm_concurrency` runs a real
+      `BangBangController` against the already-built `TunableRegistry`
+      once daily, driven by measured p95 LLM latency — the same real
+      signal `llm_max_concurrent`'s own long documented manual-retune
+      history (4 -> 2 -> 1 -> 2 -> 1 -> 2) was always driven by. A
+      genuine change live-resizes the ACTUAL concurrency semaphore via
+      a new `_ResizableSemaphore` (`llm/jobs.py`) that never disrupts
+      an in-flight call. New `scripts/verify_b6_adaptive_concurrency.py`
+      (21 checks). See docs/HEARTHBENCH-RUNTIME-2026-07-23.md's B6
+      section for full detail. Verified via the script, `verify_
+      tuning.py`, the B0.3/scheduler/task-graph/invariant scripts, a
+      real replay-hash MATCH (4000 ticks, seed 777), and a native-soak
+      MATCH (3 seeds x 3000 ticks).
+
       **B4.2 pilot ("idle institutions") — SHIPPED, v1.34.187.**
       Explicit user choice via `AskUserQuestion` among B4.2's five named
       candidates, after an investigation found the other four (forgotten

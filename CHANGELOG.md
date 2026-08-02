@@ -4,6 +4,71 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.198] — Part B: B6 adaptive tuning wired to a real control point
+
+Explicit user follow-up: "Any other remaining items from part B of
+tier 5? If so, close them too" -> `AskUserQuestion` chose **B6
+adaptive tuning** among several flagged "shipped as a standalone
+module, not wired into any real control point" items.
+
+`Config.llm_max_concurrent` — the constant CLAUDE.md's own long
+documented history shows being manually re-tuned from live diagnostic
+reads across many deployments (4 -> 2 -> 1 -> 2 -> 1 -> 2) — is now
+adaptively steered from the same real signal (measured p95 call
+latency) via a real `BangBangController` against a real
+`TunableRegistry` (`simulation/tuning.py`, both already built at
+v1.34.168 but never wired). `SimulationEngine._maybe_tune_llm_
+concurrency` (engine.py) runs once a day (staggered with every other
+`day_end` check), gated on the LLM being enabled and a minimum
+evidence floor, and — once genuinely due — calls a new `Cognition
+Runner.resize_concurrency()` (llm/jobs.py) that live-resizes the
+ACTUAL concurrency gate in-flight LLM calls run through via a new
+`_ResizableSemaphore`: growing releases new permits immediately,
+shrinking swallows that many future releases instead of forcibly
+reclaiming a permit already held, so an in-flight call is never
+interrupted.
+
+Deliberately scoped narrower than a full B13-sandboxed change:
+`llm_max_concurrent` only changes LLM call timing/scheduling, never
+deterministic `World` state — determinism/reproducibility is
+explicitly not a project requirement for LLM-related paths, and every
+past manual retune of this exact constant was likewise never gated
+behind a replay-hash check. Anti-chatter discipline: `BangBang
+Controller`'s own hysteresis dead-zone (target = `ADAPTIVE_LATENCY_
+ELEVATED_MS`, the same "healthy ceiling" `_current_backpressure_
+limit` already uses — one shared definition of "comfortable," not
+two independently-tuned numbers), a once-a-day cadence, a minimum-
+evidence floor, and the registered `Tunable`'s own bounded ±1 step
+together bound how much and how often this can move. Every real
+change (never a no-op) is logged to a new bounded `SimulationEngine.
+_adaptive_tuning_log`, surfaced via `full_diagnostics()`'s new
+`adaptive_tuning_log_recent`; `_diagnostics_snapshot()`'s `llm_max_
+concurrent` now reports the LIVE value (a new `llm_max_concurrent_
+static_default` key keeps the frozen startup default visible too).
+
+New `scripts/verify_b6_adaptive_concurrency.py` (21 checks): the
+resizable semaphore's grow/shrink correctness under real concurrent
+`asyncio` tasks (incl. the load-bearing case — shrinking while
+permits are held never disrupts the holder), `_maybe_tune_llm_
+concurrency`'s real gates (disabled/insufficient-evidence -> no-op),
+a genuine severe-latency reading lowering live concurrency and
+actually resizing the real semaphore, a healthy reading raising it
+back, the hysteresis dead-zone as a genuine no-op, the bounded floor
+holding under repeated severe readings, diagnostics surfacing, and a
+CLI-overridden `config.llm_max_concurrent` being respected as the
+controller's real starting point (not `tuning.py`'s own hardcoded
+default of 2).
+
+Verified: `scripts/verify_b6_adaptive_concurrency.py` (21 checks) —
+all pass, first run, no bug found. `scripts/verify_tuning.py` (6
+checks) re-run clean. `scripts/verify_b0_runtime_migrations.py` (175
+checks)/`verify_task_graph.py`/`verify_scheduler.py`/`verify_
+runtime_invariant.py` re-run clean (unaffected). A real before/after
+`World.to_dict()` replay-hash check (4000 ticks, seed 777) — MATCH,
+byte-identical. `scripts/verify_native_soak.py` (3 seeds x 3000
+ticks) — MATCH. `pyflakes` clean on all three touched files (only
+the six known pre-existing forward-ref findings in `engine.py`).
+
 ## [1.34.197] — Part B: B0.3 closed — every remaining job migrated
 
 Explicit user follow-up: "Choose 1" (extend the Task/Scheduler runtime

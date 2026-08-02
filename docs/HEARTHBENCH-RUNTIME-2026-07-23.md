@@ -954,7 +954,7 @@ checks alongside the existing 5 B2 ones).
   causal-chain metric) is out of scope — no causal-chain metric exists
   in this runtime yet.
 
-## B6 — Adaptive tuning [Hard Rule 6] [PARTIAL — B6.1/B6.2/B6.3 shipped v1.34.168, not wired into any real control point]
+## B6 — Adaptive tuning [Hard Rule 6] [SHIPPED — B6.1/B6.2/B6.3 shipped v1.34.168, wired to a real control point v1.34.198]
 
 - [x] **B6.1 — Tunables registry — SHIPPED, v1.34.168.** New
   `hearthmind/simulation/tuning.py`'s `Tunable`/`TunableRegistry`: a
@@ -984,6 +984,56 @@ checks alongside the existing 5 B2 ones).
   retune of these exact constants has needed, not something to flip
   blind in this pass (same "one subsystem at a time" discipline as
   every prior B-item's real migration work).
+
+  **Wired to a real control point — SHIPPED, v1.34.198.** Explicit
+  user follow-up after B0.3 closed ("any other remaining items... close
+  them too"), `AskUserQuestion` chose B6 among several flagged
+  candidates. `SimulationEngine._maybe_tune_llm_concurrency` now runs
+  a real `BangBangController` against the registered `llm_max_
+  concurrent` `Tunable` once a day (staggered with every other `day_
+  end` check), driven by `CognitionRunner.stats()`'s own already-
+  tracked rolling p95 latency — the exact real signal this constant's
+  long documented manual-retune history was always driven by. A
+  genuine change calls a new `CognitionRunner.resize_concurrency()`
+  (`llm/jobs.py`), backed by a new `_ResizableSemaphore` that live-
+  resizes the ACTUAL concurrency gate in-flight LLM calls run through:
+  growing releases new permits immediately, shrinking swallows that
+  many future releases instead of forcibly reclaiming a permit already
+  held, so an in-flight call is never interrupted.
+
+  Deliberately scoped narrower than a full B13-sandboxed change — this
+  constant only affects LLM call timing/scheduling, never deterministic
+  `World` state (determinism/reproducibility is explicitly not a
+  project requirement for LLM-related paths, and every past manual
+  retune of this exact constant was likewise never gated behind a
+  replay-hash check). Anti-chatter discipline: `BangBangController`'s
+  own hysteresis dead-zone (target = the same `ADAPTIVE_LATENCY_
+  ELEVATED_MS` `_current_backpressure_limit` already treats as
+  "healthy"), a once-a-day cadence, a minimum-evidence floor, and the
+  registered `Tunable`'s own bounded ±1 step together bound how much
+  and how often this can move. Every real change (never a no-op) is
+  logged to a new bounded `SimulationEngine._adaptive_tuning_log`,
+  surfaced via `full_diagnostics()`'s `adaptive_tuning_log_recent`;
+  `_diagnostics_snapshot()`'s `llm_max_concurrent` now reports the
+  LIVE value, with a new `llm_max_concurrent_static_default` key
+  keeping the frozen startup default visible too.
+
+  New `scripts/verify_b6_adaptive_concurrency.py` (21 checks): the
+  resizable semaphore's grow/shrink correctness under real concurrent
+  `asyncio` tasks (incl. the load-bearing shrink-while-held case), the
+  real method's gates (disabled/insufficient-evidence -> no-op), a
+  genuine severe-latency reading lowering live concurrency and
+  actually resizing the real semaphore, a healthy reading raising it
+  back, the hysteresis dead-zone as a genuine no-op, the bounded floor
+  under repeated severe readings, diagnostics surfacing, and CLI-
+  override respect. Verified: all 21 pass, first run, no bug found.
+  `verify_tuning.py`/`verify_b0_runtime_migrations.py`/`verify_task_
+  graph.py`/`verify_scheduler.py`/`verify_runtime_invariant.py`
+  re-run clean. A real before/after replay-hash check (4000 ticks,
+  seed 777) — MATCH, byte-identical. `scripts/verify_native_soak.py`
+  (3 seeds x 3000 ticks) — MATCH. `pyflakes` clean on all three
+  touched files (only the six known pre-existing forward-ref findings
+  in `engine.py`).
 
 ## B7 — Hardware model [Hard Rule 7] [PARTIAL — B7.1-B7.4 shipped v1.34.173, not wired into any real control point]
 

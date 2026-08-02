@@ -73,11 +73,57 @@ def _diagnose_raw_output(raw: str | None) -> tuple[dict | None, list[str]]:
         return None, [f"raw completion is not valid JSON: {exc}"]
 
 
+class _ResizableSemaphore:
+    """A concurrency gate whose limit can change at runtime (Tier 5 B6
+    "adaptive tuning" wired to a real control point — `simulation/
+    tuning.py`'s `BangBangController` nudges `CognitionRunner.max_
+    concurrent` from measured latency, and this is what actually makes
+    that change take effect on in-flight scheduling). Used exactly like
+    `asyncio.Semaphore` via `async with`.
+
+    Growing the limit releases new permits immediately. Shrinking it
+    never forcibly reclaims a permit already held by an in-flight call
+    — it instead swallows that many future `release()` calls, so the
+    effective limit only actually drops once enough in-flight calls
+    finish naturally. A call already running is never interrupted."""
+
+    def __init__(self, limit: int):
+        self.limit = max(1, limit)
+        self._sem = asyncio.Semaphore(self.limit)
+        self._pending_shrink = 0
+
+    async def acquire(self) -> None:
+        await self._sem.acquire()
+
+    def release(self) -> None:
+        if self._pending_shrink > 0:
+            self._pending_shrink -= 1
+            return
+        self._sem.release()
+
+    async def __aenter__(self) -> "_ResizableSemaphore":
+        await self.acquire()
+        return self
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        self.release()
+
+    def resize(self, new_limit: int) -> None:
+        new_limit = max(1, new_limit)
+        delta = new_limit - self.limit
+        self.limit = new_limit
+        if delta > 0:
+            for _ in range(delta):
+                self._sem.release()
+        elif delta < 0:
+            self._pending_shrink += -delta
+
+
 class CognitionRunner:
     def __init__(self, client: LLMAdapter | None, max_concurrent: int):
         self.client = client
         self.max_concurrent = max(1, max_concurrent)
-        self._semaphore = asyncio.Semaphore(self.max_concurrent)
+        self._semaphore = _ResizableSemaphore(self.max_concurrent)
         self.backlog = 0
         """Jobs currently inside `run()` — in flight *or* waiting on the
         semaphore. The engine reads this to apply backpressure: on the
@@ -164,6 +210,17 @@ class CognitionRunner:
     @property
     def enabled(self) -> bool:
         return self.client is not None
+
+    def resize_concurrency(self, new_limit: int) -> None:
+        """Tier 5 B6's real control point: change how many LLM calls
+        may run concurrently without disrupting any call already in
+        flight (see `_ResizableSemaphore`). `self.max_concurrent` is
+        updated in step so backlog/backpressure math elsewhere (which
+        reads it, e.g. `SimulationEngine._backpressure_limit`) stays
+        consistent with the live value, not the frozen startup one."""
+        new_limit = max(1, new_limit)
+        self._semaphore.resize(new_limit)
+        self.max_concurrent = new_limit
 
     def stats(self) -> dict:
         """Snapshot of call outcomes and latency percentiles for the

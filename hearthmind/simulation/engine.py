@@ -106,6 +106,7 @@ from hearthmind.simulation.sandbox import evaluate_concept_dual_fork, run_counte
 from hearthmind.simulation.dormancy import DormancyManager
 from hearthmind.simulation.task_graph import PriorityClass, Task, TaskRegistry, TriggerKind
 from hearthmind.simulation.scheduler import Scheduler
+from hearthmind.simulation.tuning import BangBangController, TunableRegistry, register_llm_pacing_tunables
 from hearthmind.llm.client import build_llm_client, fetch_llama_server_metrics
 from hearthmind.llm.review_diagnostics import context_reflects_any
 from hearthmind.llm.json_schemas import schema_for_task
@@ -1101,6 +1102,30 @@ observed p95, SEVERE sits just under the observed max, so a genuinely
 struggling server (not just ordinary load) is what triggers the
 tightest tier."""
 
+ADAPTIVE_CONCURRENCY_TARGET_MS = ADAPTIVE_LATENCY_ELEVATED_MS
+ADAPTIVE_CONCURRENCY_HYSTERESIS_MS = 15_000
+"""Tier 5 B6 adaptive tuning's real control point (`_maybe_tune_llm_
+concurrency`): the `BangBangController` steering `Config.llm_max_
+concurrent`'s live value targets the SAME `ADAPTIVE_LATENCY_ELEVATED_
+MS` reading `_current_backpressure_limit` already treats as "healthy
+ceiling" — one shared definition of "comfortable" latency, not two
+independently-tuned numbers that could drift apart. Hysteresis 15s
+wide gives a no-op dead zone of roughly [30s, 60s] around the 45s
+target, so a single noisy reading can't flip the verdict — matches
+`BangBangController`'s own stated anti-chatter purpose."""
+
+ADAPTIVE_CONCURRENCY_MIN_EVIDENCE = 20
+"""`_maybe_tune_llm_concurrency` skips its daily check entirely below
+this many total attempted calls — a p95 reading over a handful of
+calls is noise, not evidence; this mirrors the same "don't act on a
+near-empty sample" discipline `ForecastAccuracyTracker`'s cold-start
+default (simulation/forecasting.py) already uses elsewhere in Tier 5."""
+
+ADAPTIVE_TUNING_LOG_MAX = 200
+"""Bounded ring-buffer size for `SimulationEngine._adaptive_tuning_
+log` — same cap-and-append discipline as every other unbounded-growth-
+prone list in this codebase (traditions/inventions/events/etc.)."""
+
 LLM_PRESSURE_SLOWDOWN_START_RATIO = 0.5
 LLM_PRESSURE_PAUSE_RATIO = 2.0
 
@@ -1657,6 +1682,32 @@ class SimulationEngine:
         through `_record_llm_debug`, which is the recorder's one call
         site — see that method's docstring."""
         self._backpressure_limit = config.llm_max_concurrent * BACKPRESSURE_BACKLOG_PER_SLOT
+
+        # Tier 5 B6 adaptive tuning, wired to its real control point:
+        # a real TunableRegistry + BangBangController pair (simulation/
+        # tuning.py), seeded from the live `config.llm_max_concurrent`
+        # (not the module's own hardcoded default of 2) so a CLI
+        # override is respected as the controller's real starting
+        # point. `_maybe_tune_llm_concurrency` (called daily) is what
+        # actually steps this and applies a real change via `Cognition
+        # Runner.resize_concurrency`. See tuning.py's own module
+        # docstring for the full design.
+        self._tuning_registry = TunableRegistry()
+        register_llm_pacing_tunables(self._tuning_registry)
+        self._tuning_registry.set_value("llm_max_concurrent", config.llm_max_concurrent)
+        self._llm_concurrency_controller = BangBangController(
+            tunable_name="llm_max_concurrent",
+            target=ADAPTIVE_CONCURRENCY_TARGET_MS,
+            hysteresis=ADAPTIVE_CONCURRENCY_HYSTERESIS_MS,
+            increases_measurement=True,
+        )
+        self._adaptive_tuning_log: deque[dict] = deque(maxlen=ADAPTIVE_TUNING_LOG_MAX)
+        """Bounded, append-only record of every real `_maybe_tune_llm_
+        concurrency` change (never a no-op check — those aren't
+        logged, same "only what actually happened" discipline as
+        `World.self_tuning_actions`) — dev-console-visible via `full_
+        diagnostics()`'s `adaptive_tuning_log_recent`."""
+
         self._reserved_this_tick = 0
         """Jobs actually scheduled (a task created) so far THIS tick,
         reset to 0 at the top of every `_tick_once`. `CognitionRunner.
@@ -3025,6 +3076,64 @@ class SimulationEngine:
             return "elevated"
         return "healthy"
 
+    def _maybe_tune_llm_concurrency(self) -> None:
+        """Tier 5 B6 "adaptive tuning," wired to a real control point
+        (explicit user directive, choosing this among several flagged
+        Part B "not wired into any real control point" items): once a
+        day, nudges the ACTUAL live LLM concurrency gate toward a
+        target latency band, using the real `TunableRegistry`/
+        `BangBangController` machinery (`simulation/tuning.py`) instead
+        of a parallel ad-hoc formula.
+
+        This replaces (for the day-to-day case) the "re-tune `llm_max_
+        concurrent` by hand from a live `/diagnostics` reading" cycle
+        CLAUDE.md's own long documented history shows this exact
+        constant went through (4 -> 2 -> 1 -> 2 -> 1 -> 2 across many
+        real deployments) — same real signal (measured p95 latency)
+        driving a bounded, hysteresis-damped step instead of a person
+        reading a dashboard and picking a new number. A human retune
+        (CLI flag, live intervention) still always wins going forward —
+        this only ever nudges from whatever the current live value is.
+
+        Skipped entirely while the LLM is disabled (nothing to
+        measure) or while the rolling latency window is too sparse to
+        trust (`ADAPTIVE_CONCURRENCY_MIN_EVIDENCE`) — a controller
+        that acts on 2 data points is worse than one that waits.
+        `BangBangController.step`'s own hysteresis dead-zone is the
+        rest of the anti-chatter discipline; combined with this
+        method's own daily cadence and the registered `Tunable`'s
+        bounded ±1 step, `llm_max_concurrent` can move by at most one
+        notch per real day, never more.
+
+        A genuine change resizes the REAL semaphore in-flight LLM
+        calls run through (`CognitionRunner.resize_concurrency` ->
+        `llm/jobs.py`'s `_ResizableSemaphore` — never yanks a permit
+        already held by a running call) and keeps `_backpressure_
+        limit` in step so admission math stays consistent with the
+        live value, not the frozen startup one. Every real change is
+        appended to `self._adaptive_tuning_log` — a no-op check is
+        never logged, only what actually happened."""
+        if not self._cognition_runner.enabled:
+            return
+        stats = self._cognition_runner.stats()
+        if stats["calls_attempted"] < ADAPTIVE_CONCURRENCY_MIN_EVIDENCE:
+            return
+        before = self._tuning_registry.get("llm_max_concurrent").value
+        after = self._llm_concurrency_controller.step(self._tuning_registry, stats["latency_ms_p95"])
+        if after == before:
+            return
+        new_limit = int(after)
+        self._cognition_runner.resize_concurrency(new_limit)
+        self._backpressure_limit = new_limit * BACKPRESSURE_BACKLOG_PER_SLOT
+        self._adaptive_tuning_log.append({
+            "tick": self.world.clock.tick_count,
+            "tunable": "llm_max_concurrent",
+            "before": before,
+            "after": after,
+            "measured_p95_ms": stats["latency_ms_p95"],
+            "target_ms": ADAPTIVE_CONCURRENCY_TARGET_MS,
+        })
+
     def llm_pressure_ratio(self) -> float:
         """`_effective_backlog() / _current_backpressure_limit()` — 1.0
         means the queue is exactly at the (already-adaptive) limit, 2.0
@@ -3806,6 +3915,10 @@ class SimulationEngine:
             # LETTER_TRAVEL_TICKS' multi-day delay.
             self._deliver_letters()
             self._tick_districts()
+            # Tier 5 B6 adaptive tuning: same daily cadence as every
+            # other day_end check above, zero LLM cost (reads already-
+            # tracked stats, never issues a call of its own).
+            self._maybe_tune_llm_concurrency()
         if events:
             logger.info(
                 "Tick %s: %s | %s | %s",
@@ -13809,7 +13922,13 @@ class SimulationEngine:
             "inflight_cognition": len(self._inflight_cognition_agent_ids),
             "connected_clients": self._broadcaster.client_count() if self._broadcaster else 0,
             "llm_enabled": self._cognition_runner.enabled,
-            "llm_max_concurrent": self.config.llm_max_concurrent,
+            # B6 adaptive tuning (v1.34.198): the LIVE value, which can
+            # now differ from `config.llm_max_concurrent` (the frozen
+            # startup default a fresh process boots from) once `_maybe_
+            # tune_llm_concurrency` has made a real adaptive change —
+            # see `llm_max_concurrent_static_default` for the original.
+            "llm_max_concurrent": self._cognition_runner.max_concurrent,
+            "llm_max_concurrent_static_default": self.config.llm_max_concurrent,
             "llm_model": _resolve_llm_model_label(self.config),
             "llm_adapter_name": self.config.llm_adapter_name,
             # Phase 1.A "self-evolving world" (docs/VISION-2026-07-21-
@@ -13975,6 +14094,11 @@ class SimulationEngine:
             # counterpart to self_tuning_actions_recent above — advice
             # for a supported hypothesis that named no governor.
             "advisory_proposals_recent": list(self.world.advisory_proposals[-10:]),
+            # Tier 5 B6 adaptive tuning (distinct from the vision-doc
+            # "B6" governor tuning above — this is the Adaptive Runtime
+            # spec's item): every real llm_max_concurrent change
+            # `_maybe_tune_llm_concurrency` has made, never a no-op.
+            "adaptive_tuning_log_recent": list(self._adaptive_tuning_log)[-10:],
             "llm_stats": self._cognition_runner.stats(),
             "llm_backlog_effective": self._effective_backlog(),
             "llm_backlog_reserved_this_tick": self._reserved_this_tick,

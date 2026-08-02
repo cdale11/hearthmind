@@ -742,6 +742,50 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.198)
+
+Explicit user follow-up: "Any other remaining items from part B of
+tier 5? If so, close them too" -> `AskUserQuestion` chose B6 adaptive
+tuning among several "shipped standalone, not wired into a real
+control point" candidates.
+
+`Config.llm_max_concurrent` — this file's own long documented manual-
+retune history (4 -> 2 -> 1 -> 2 -> 1 -> 2) — is now adaptively
+steered from the same real signal (measured p95 LLM call latency) via
+a real `BangBangController`/`TunableRegistry` (`simulation/tuning.py`,
+built at v1.34.168, wired now). `SimulationEngine._maybe_tune_llm_
+concurrency` runs once daily, gated on LLM-enabled + a minimum-
+evidence floor, and a genuine change live-resizes the ACTUAL
+concurrency semaphore in-flight calls run through (`CognitionRunner.
+resize_concurrency` -> a new `_ResizableSemaphore` in `llm/jobs.py` —
+grows immediately, shrinks by swallowing future releases rather than
+yanking a held permit). Target = `ADAPTIVE_LATENCY_ELEVATED_MS` (the
+same "healthy ceiling" `_current_backpressure_limit` already uses),
+hysteresis + daily cadence + bounded ±1 step are the anti-chatter
+discipline. Deliberately scoped narrower than a full B13-sandboxed
+change: this constant only affects LLM call timing, never
+deterministic `World` state, and determinism isn't required for LLM-
+related paths per this file's own workflow rules — every past manual
+retune was likewise never gated behind a replay-hash check. Every
+real change (never a no-op) is logged to a new bounded `_adaptive_
+tuning_log`, surfaced via `full_diagnostics()`.
+
+New `scripts/verify_b6_adaptive_concurrency.py` (21 checks): resizable-
+semaphore grow/shrink correctness under real concurrent `asyncio`
+tasks, the real method's gates, a genuine severe/healthy-latency
+round trip actually resizing the live semaphore, the hysteresis dead-
+zone, the bounded floor, diagnostics surfacing, and CLI-override
+respect.
+
+Verified: `scripts/verify_b6_adaptive_concurrency.py` (21 checks) —
+all pass, first run, no bug found. `verify_tuning.py`/`verify_b0_
+runtime_migrations.py` (175 checks)/`verify_task_graph.py`/`verify_
+scheduler.py`/`verify_runtime_invariant.py` re-run clean. A real
+before/after replay-hash check (4000 ticks, seed 777) — MATCH,
+byte-identical. `scripts/verify_native_soak.py` (3 seeds x 3000
+ticks) — MATCH. `pyflakes` clean on all three touched files (only
+the six known pre-existing forward-ref findings in `engine.py`).
+
 ## Current state (v1.34.197)
 
 Explicit user follow-up: "Choose 1" (extend the `Task`/`Scheduler`

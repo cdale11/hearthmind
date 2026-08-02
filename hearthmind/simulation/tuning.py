@@ -10,18 +10,39 @@ in this runtime currently has the labeled training signal or call
 volume to justify a trained model over a measured feedback loop, so a
 bang-bang controller is the right tool here, not a placeholder for one.
 
-**Not wired into the live tick loop or any real tunable's actual
-control point** — same "never big-bang" discipline as every prior
-B-item. `register_llm_pacing_tunables` (B6.3) registers descriptive
-metadata mirroring the REAL existing `llm_pressure_*` constants
-documented in CLAUDE.md (`Config.llm_max_concurrent`,
-`LLM_PRESSURE_SLOWDOWN_START_RATIO`, etc.) — it does not rewire
-`simulation/engine.py`'s real pacing code to read from this registry.
-That's a real future migration, needing the same live-diagnostic
-verification every past retune of those exact constants has needed
-(see CLAUDE.md's own long documented history of that constant moving
-4 -> 2 -> 1 -> 2 -> 1 -> 2 from real measurements) — not something to
-flip blind in this pass.
+**`llm_max_concurrent` is now wired to a real control point** (this
+module's own long-flagged "real future migration," done): `Simulation
+Engine._maybe_tune_llm_concurrency` (engine.py) runs a real `BangBang
+Controller` against this registry's `llm_max_concurrent` `Tunable`
+once a day, driven by `CognitionRunner.stats()`'s own already-tracked
+rolling p95 latency — the exact real signal CLAUDE.md's own long
+documented manual-retune history (4 -> 2 -> 1 -> 2 -> 1 -> 2) was
+always driven by. A real change calls `CognitionRunner.resize_
+concurrency()` (llm/jobs.py's `_ResizableSemaphore`), which live-
+resizes the actual concurrency gate in-flight LLM calls run through —
+this is a genuine behavior change to a live process, not metadata.
+
+Scoped deliberately narrow, matching this constant's own precedent
+for why it's safe to automate without B13's full sandboxed replay-
+hash equivalence gate: `llm_max_concurrent` only changes LLM call
+*timing/scheduling*, never deterministic `World` state (Determinism/
+reproducibility is explicitly NOT a project requirement for LLM-
+related paths, per CLAUDE.md's own workflow rules) — every past
+manual retune of this exact constant was likewise never gated behind
+a replay-hash check. Anti-chatter discipline: `BangBangController`'s
+own hysteresis dead-zone, a once-a-day cadence, a minimum-evidence
+floor (skip while the latency window is too sparse to trust), and a
+bounded ±1 step per check (the `Tunable`'s own `step`/`min_value`/
+`max_value`) together bound how much and how often this can move.
+Every real change is logged to `SimulationEngine._adaptive_tuning_
+log` (bounded, dev-console-visible via `full_diagnostics()`) so a
+live deployment can see WHY its concurrency changed, not just that
+it did.
+
+The other three registered tunables (`llm_pressure_slowdown_start_
+ratio`/`llm_pressure_speedup_start_ratio`/`llm_pressure_min_speedup_
+multiplier`) remain metadata-only, same as before — real future work,
+not attempted this pass.
 """
 from __future__ import annotations
 
