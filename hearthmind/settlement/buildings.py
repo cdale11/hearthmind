@@ -3020,6 +3020,16 @@ class Settlement:
         this codebase (confirmed by direct grep) and `self.vehicles` is
         append-only (no removal path exists), so `start_vehicle`'s
         explicit invalidation is the ONLY site that ever needs one."""
+        self._institutions_by_kind_index: "dict[InstitutionKind, list[Institution]] | None" = None
+        """InstitutionKind -> [Institution] cache behind `institutions_
+        of_kind()` (B10.2, Tier 5). `Institution.kind` never mutates in
+        place anywhere in this codebase (confirmed by direct grep,
+        same as `Vehicle.kind`) — but unlike vehicles, institutions are
+        appended at FIVE real call sites (family/council/guild x2/
+        faction founding, all in `population.py`) plus pruned at one
+        (the `INSTITUTION_LIST_MAX_STORED` filter-reassignment), so
+        each of those six sites carries its own explicit invalidation
+        rather than relying on a single factory method."""
 
     # --- legacy flat-attribute passthroughs ---------------------------------
     # One property pair per pre-split field. Deliberately mechanical: the
@@ -3750,6 +3760,17 @@ class Settlement:
                 index.setdefault(v.kind, []).append(v)
             self._vehicles_by_kind_index = index
         return self._vehicles_by_kind_index.get(kind, [])
+
+    def institutions_of_kind(self, kind: "InstitutionKind") -> "list[Institution]":
+        """B10.2 sibling of `buildings_of_kind()`/`vehicles_of_kind()`,
+        over `self.institutions`. Callers still filter by membership/
+        `.feuds`/`.objective` themselves — only `.kind` is indexed."""
+        if self._institutions_by_kind_index is None:
+            index: "dict[InstitutionKind, list[Institution]]" = {}
+            for inst in self.institutions:
+                index.setdefault(inst.kind, []).append(inst)
+            self._institutions_by_kind_index = index
+        return self._institutions_by_kind_index.get(kind, [])
 
     # --- construction ------------------------------------------------------
 

@@ -782,6 +782,34 @@ starts on an explicit instruction naming an item.
       flagged-site count fell 76 -> 75. The remaining 75 sites, plus
       B0.3/B3.3/B4.2's other four candidates/B9.3, stay open.
 
+      **B10.2 fourth pilot conversion — SHIPPED, v1.34.192.** Explicit
+      user instruction ("continue part B"), continuing the same B10.2
+      site-pilot pattern without re-asking (three consecutive prior
+      turns had already chosen it via `AskUserQuestion`).
+      `Settlement.institutions_of_kind(kind)`: the institution-side
+      sibling of `buildings_of_kind()`/`vehicles_of_kind()`, replacing
+      a full `settlement.institutions` scan at six real call sites in
+      `population.py` (`_maybe_refresh_council`'s COUNCIL lookup,
+      `_maybe_refresh_guild`'s GUILD loop, `faction_of`, `council_
+      faction_majority`'s COUNCIL lookup, `family_of`, `fission_
+      party`'s FAMILY loop). Genuinely harder than the second and third
+      pilots in one respect: `Institution.kind` never mutates in place
+      (confirmed by direct grep), but institutions are appended at FIVE
+      real founding call sites (family/council/guild x2/faction) plus
+      pruned at one (`INSTITUTION_LIST_MAX_STORED`'s filter-
+      reassignment) — SIX real mutation sites needing explicit
+      invalidation, not one. Deliberately left unconverted:
+      `institution_objective_for` (scans every kind, no benefit) and
+      the `top_faction_id` lookup inside `council_faction_majority`
+      (an id lookup, not kind-filtered). Verified via a real before/
+      after replay-hash check (MATCH, 4000 ticks) plus a dedicated
+      `scripts/verify_institutions_by_kind_pilot.py` (16 checks, same
+      negative-control discipline as the prior two pilots). `scan_
+      global_scans.py`'s flagged-site count fell 75 -> 72. The
+      remaining 72 sites, plus B0.3/B3.3/B4.2's other four candidates/
+      B9.3, stay open — same proof-of-pattern scoping as every prior
+      pilot.
+
       **B4.2 pilot ("idle institutions") — SHIPPED, v1.34.187.**
       Explicit user choice via `AskUserQuestion` among B4.2's five named
       candidates, after an investigation found the other four (forgotten

@@ -730,6 +730,55 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.192)
+
+Explicit user instruction ("continue part B"), continuing the same
+B10.2 site-pilot pattern without a fresh `AskUserQuestion` — three
+consecutive prior turns had already picked "another B10.2 site pilot"
+via that question, so this turn proceeded straight to a fourth pilot
+rather than re-asking.
+
+New `Settlement.institutions_of_kind(kind)` (`settlement/buildings.py`):
+the institution-side sibling of `buildings_of_kind()`/`vehicles_of_
+kind()`, replacing a full `for inst in settlement.institutions: if
+inst.kind is not X: continue` scan at SIX real call sites in
+`population.py` (`_maybe_refresh_council`'s COUNCIL lookup, `_maybe_
+refresh_guild`'s GUILD loop, `faction_of`, `council_faction_majority`'s
+COUNCIL lookup, `family_of`, `fission_party`'s FAMILY loop). Genuinely
+harder than the second and third B10.2 pilots in one respect:
+`Institution.kind` never mutates in place anywhere in this codebase
+(confirmed by direct grep, same as `Vehicle.kind`) — but institutions
+are appended at FIVE real founding call sites (family/council/guild x2/
+faction, all in `population.py`) plus pruned at one (`INSTITUTION_
+LIST_MAX_STORED`'s filter-reassignment) — SIX real mutation sites
+needing their own explicit invalidation line, not the single site
+`vehicles_of_kind()` needed or the three `buildings_of_kind()` needed.
+Deliberately left unconverted: `institution_objective_for` (scans
+every kind regardless, no benefit from an index) and the `top_
+faction_id` lookup inside `council_faction_majority` (an id lookup,
+not kind-filtered).
+
+Verified: a real before/after `World.to_dict()` replay-hash check
+(`scripts/verify_replay_hash.py --ticks 4000 --seeds 777 --in-process`)
+— MATCH, byte-identical; new `scripts/verify_institutions_by_kind_
+pilot.py` (16 checks, standalone, no unittest) — same negative-control
+discipline as both prior pilots (a deliberate skip-invalidation case
+proving the cache genuinely can go stale, then confirming invalidating
+recovers it), plus a `faction_of`-shaped real-consumer proof (kind
+filter + membership check) matching a brute-force scan. Every one of
+the 20 pre-existing `scripts/verify_*.py` scripts plus all three prior
+B10.2 pilot scripts (`verify_core_migration_candidates_pilot.py`,
+`verify_buildings_by_kind_pilot.py`, `verify_vehicles_by_kind_pilot.py`)
+re-run clean; `pyflakes` clean on both touched files and the new
+script. `scripts/scan_global_scans.py`'s own flagged-site count fell
+75 -> 72.
+
+The remaining 72 `scan_global_scans.py`-flagged sites, plus B0.3/
+B3.3/B4.2's remaining four candidates (forgotten traditions, inactive
+settlements, distant wildlife, unused ideas)/B9.3 in full, remain
+explicitly open — same "proof-of-pattern pilot, not a wider sweep"
+scoping every prior B10.2 pilot used.
+
 ## Current state (v1.34.191)
 
 Explicit user instruction ("continue part B"), scoped via

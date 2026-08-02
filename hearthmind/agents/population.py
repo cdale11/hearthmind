@@ -1566,6 +1566,7 @@ def _prune_extinct_institutions(
     to_remove = {inst.id for inst in extinct[:excess]}
     if to_remove:
         settlement.institutions = [i for i in settlement.institutions if i.id not in to_remove]
+        settlement._institutions_by_kind_index = None  # B10.2: explicit invalidation, pruning site
 
 
 def _record_debt(recipient: Agent, giver: Agent, amount: float) -> None:
@@ -4953,6 +4954,7 @@ class Population:
         )
         settlement.next_institution_id += 1
         settlement.institutions.append(family)
+        settlement._institutions_by_kind_index = None  # B10.2: explicit invalidation
         names = parent_a_name and parent_b_name
         who = f"{parent_a_name} and {parent_b_name}" if names else "a new couple"
         return ("family_formed", f"A new family began with {who}.")
@@ -5003,6 +5005,7 @@ class Population:
         )
         settlement.next_institution_id += 1
         settlement.institutions.append(council)
+        settlement._institutions_by_kind_index = None  # B10.2: explicit invalidation
         names = ", ".join(a.name for a in elders)
         return [("council_formed", f"A council of elders formed: {names}.")]
 
@@ -5037,7 +5040,7 @@ class Population:
         every other sense (their own beliefs/objective history is
         untouched; only `member_agent_ids` membership changes)."""
         members = self.agents if members is None else members
-        council = next((i for i in settlement.institutions if i.kind is InstitutionKind.COUNCIL), None)
+        council = next(iter(settlement.institutions_of_kind(InstitutionKind.COUNCIL)), None)
         if council is None:
             return []
         living_members = [a for a in members if a.id in council.member_agent_ids]
@@ -5103,6 +5106,7 @@ class Population:
             )
             settlement.next_institution_id += 1
             settlement.institutions.append(guild)
+            settlement._institutions_by_kind_index = None  # B10.2: explicit invalidation
             names = ", ".join(a.name for a in masters)
             events.append(("guild_formed", f"A {skill} guild formed: {names}."))
         return events
@@ -5117,9 +5121,7 @@ class Population:
         ticks (only fires when a living non-member agent has just
         crossed GUILD_SKILL_MASTERY_THRESHOLD in a guild's trade)."""
         events: list[tuple[str, str]] = []
-        for guild in settlement.institutions:
-            if guild.kind is not InstitutionKind.GUILD:
-                continue
+        for guild in settlement.institutions_of_kind(InstitutionKind.GUILD):
             skill = guild.name
             newly_mastered = [
                 a for a in (self.agents if members is None else members)
@@ -5240,13 +5242,14 @@ class Population:
         )
         settlement.next_institution_id += 1
         settlement.institutions.append(faction)
+        settlement._institutions_by_kind_index = None  # B10.2: explicit invalidation
         return ("faction_formed", f'A faction has formed: "{name}".')
 
     def faction_of(self, agent_id: int, settlement: Settlement) -> "Institution | None":
         """The living FACTION `agent_id` belongs to, if any — consumed by
         dispute rivalry framing and fission-party assembly (Phase L)."""
-        for inst in settlement.institutions:
-            if inst.kind is InstitutionKind.FACTION and agent_id in inst.member_agent_ids:
+        for inst in settlement.institutions_of_kind(InstitutionKind.FACTION):
+            if agent_id in inst.member_agent_ids:
                 return inst
         return None
 
@@ -5263,7 +5266,7 @@ class Population:
         (`compute_priority`'s tiebreak) — "let a faction majority on
         the council bias dispute rulings and town-brain framing," the
         idea doc's own phrasing."""
-        council = next((i for i in settlement.institutions if i.kind is InstitutionKind.COUNCIL), None)
+        council = next(iter(settlement.institutions_of_kind(InstitutionKind.COUNCIL)), None)
         if council is None:
             return None
         living_members = [a for a in self.agents if a.id in council.member_agent_ids]
@@ -5306,8 +5309,8 @@ class Population:
         individual, same as the institution itself). Consumed by
         dispute rivalry framing (`rival_families`) and `_maybe_
         reproduce`'s cross-feud-line affinity gate (v0.87.11)."""
-        for inst in settlement.institutions:
-            if inst.kind is InstitutionKind.FAMILY and agent_id in inst.member_agent_ids:
+        for inst in settlement.institutions_of_kind(InstitutionKind.FAMILY):
+            if agent_id in inst.member_agent_ids:
                 return inst
         return None
 
@@ -8221,6 +8224,7 @@ class Population:
         )
         settlement.next_institution_id += 1
         settlement.institutions.append(guild)
+        settlement._institutions_by_kind_index = None  # B10.2: explicit invalidation
         _nudge_trait(founder, TRAIT_AMBITION, TRAIT_AMBITION_FOUNDING_NUDGE)
         _remember(founder, f"I brought the {skill} guild into being.")
         names = ", ".join(a.name for a in masters)
@@ -8291,8 +8295,8 @@ class Population:
         members = [a for a in self.agents if a.settlement_id == home.id]
         party: list[Agent] = [leader]
         taken = {leader.id}
-        for inst in home.institutions:
-            if inst.kind is not InstitutionKind.FAMILY or leader.id not in inst.member_agent_ids:
+        for inst in home.institutions_of_kind(InstitutionKind.FAMILY):
+            if leader.id not in inst.member_agent_ids:
                 continue
             for a in members:
                 if len(party) >= FISSION_PARTY_MAX:

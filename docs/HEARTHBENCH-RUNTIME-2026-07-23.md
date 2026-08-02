@@ -941,7 +941,7 @@ against a real `TimescaleLadder` anywhere. Real future work, naturally
 paired with B9.3's own still-open audit and the rest of the unwired
 Runtime modules (B2 through B8) once a real migration pass begins.
 
-## B10 — Locality [Hard Rule 11] [PARTIAL — B10.1/B10.3 shipped v1.34.177, B10.2's discovery tool shipped v1.34.177 + three real pilot conversions shipped v1.34.184/v1.34.190/v1.34.191, 75 flagged sites still open]
+## B10 — Locality [Hard Rule 11] [PARTIAL — B10.1/B10.3 shipped v1.34.177, B10.2's discovery tool shipped v1.34.177 + four real pilot conversions shipped v1.34.184/v1.34.190/v1.34.191/v1.34.192, 72 flagged sites still open]
 
 - [x] **B10.1 — Spatial index / region partition — SHIPPED, v1.34.177.**
   New `hearthmind/simulation/locality.py`'s `RegionGrid`: a uniform-
@@ -1065,6 +1065,29 @@ Runtime modules (B2 through B8) once a real migration pass begins.
   scripts re-run clean; `pyflakes` clean. `scan_global_scans.py`'s
   flagged-site count fell 76 -> 75. The remaining 75 sites stay
   unconverted, same scoping as both prior pilots.
+  **A fourth real pilot conversion SHIPPED, v1.34.192** (explicit
+  user instruction "continue part B," scoped to a fourth B10.2 site
+  pilot): `Settlement.institutions_of_kind(kind)`, the institution-
+  side sibling of `buildings_of_kind()`/`vehicles_of_kind()`,
+  replacing a full `settlement.institutions` scan at SIX real call
+  sites (`_maybe_refresh_council`'s COUNCIL lookup, `_maybe_refresh_
+  guild`'s GUILD loop, `faction_of`, `council_faction_majority`'s
+  COUNCIL lookup, `family_of`, `fission_party`'s FAMILY loop).
+  `Institution.kind` never mutates in place anywhere in this
+  codebase (confirmed by direct grep) — but unlike vehicles,
+  institutions are appended at FIVE real call sites (family/council/
+  guild x2/faction founding) plus pruned at one (the `INSTITUTION_
+  LIST_MAX_STORED` filter-reassignment), so this pilot's real risk
+  was getting all SIX invalidation sites right, not just one.
+  Verified: a real before/after replay-hash check (MATCH, 4000
+  ticks, two independent process runs); new `scripts/verify_
+  institutions_by_kind_pilot.py` (16 checks, same negative-control
+  discipline as the prior pilots plus a real `faction_of`-shaped
+  consumer proof); every one of the 19 pre-existing `verify_*.py`
+  scripts plus all three prior B10.2 pilot scripts re-run clean;
+  `pyflakes` clean. `scan_global_scans.py`'s flagged-site count fell
+  75 -> 72. The remaining 72 sites stay unconverted, same
+  proof-of-pattern scoping as every prior pilot.
 - [x] **B10.3 — Region-parallel execution — SHIPPED, v1.34.177.**
   `plan_region_parallel_batches`/`find_cross_region_write_conflicts`:
   groups region-tagged tasks by region and VERIFIES (not assumes) the

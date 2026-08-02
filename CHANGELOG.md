@@ -4,6 +4,35 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.192] — Tier 5 B10.2 fourth pilot: institutions_of_kind index
+
+Explicit user instruction ("continue part B"), scoped to a fourth
+B10.2 site pilot — same shape as the three prior pilots.
+
+New `Settlement.institutions_of_kind(kind)`: the institution-side
+sibling of `buildings_of_kind()`/`vehicles_of_kind()`, replacing a
+full `for inst in settlement.institutions: if inst.kind is not X:
+continue` scan at six real call sites in `population.py`
+(`_maybe_refresh_council`'s COUNCIL lookup, `_maybe_refresh_guild`'s
+GUILD loop, `faction_of`, `council_faction_majority`'s COUNCIL
+lookup, `family_of`, `fission_party`'s FAMILY loop).
+
+`Institution.kind` never mutates in place anywhere in this codebase —
+but unlike vehicles, institutions are appended at FIVE real call
+sites (family/council/guild x2/faction founding) plus pruned at one
+(the `INSTITUTION_LIST_MAX_STORED` filter-reassignment), so this
+pilot's real risk was getting all SIX invalidation sites right rather
+than just one.
+
+Verified via a real before/after replay-hash check (MATCH, 4000
+ticks, two independent process runs) and a new `scripts/verify_
+institutions_by_kind_pilot.py` (16 checks, same negative-control
+discipline as the prior pilots plus a real `faction_of`-shaped
+consumer proof). Every one of the 19 pre-existing `verify_*.py`
+scripts plus all three prior B10.2 pilot scripts re-run clean;
+`pyflakes` clean. `scan_global_scans.py`'s flagged-site count fell
+75 -> 72.
+
 ## [1.34.191] — Tier 5 B10.2 third pilot: vehicles_of_kind index
 
 Explicit user instruction ("continue part B"), scoped via
