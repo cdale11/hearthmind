@@ -1783,6 +1783,33 @@ def _idea_fingerprint(concept: "ontology.InventedConcept") -> tuple:
     return (concept.status, len(concept.adopter_ids))
 
 
+TRADITION_DORMANCY_IDLE_CHECKS_THRESHOLD = 3
+"""Tier 5 B4.2, third candidate ("forgotten traditions"): same shape
+and same threshold as the institutions/ideas pilots above — a
+(settlement, tradition) pair whose keeper count hasn't grown across 3
+consecutive monthly checks is dormant."""
+
+
+def _tradition_dormancy_key(settlement: "Settlement", tradition: str) -> str:
+    """`DormancyManager` entity id for one (settlement, tradition) pair
+    — namespaced by settlement id since the same tradition text could
+    theoretically recur across settlements (independent coinage, not
+    shared state)."""
+    return f"{settlement.id}:{tradition}"
+
+
+def _tradition_fingerprint(settlement: "Settlement", tradition: str, agents: list) -> int:
+    """Cheap idle-vs-active proxy for one tradition: how many of this
+    settlement's own agents (already pre-filtered to the settlement by
+    the caller) currently keep it. A tradition that keeps gaining
+    personal keepers is active; one whose keeper count sits flat tick
+    after tick is the "forgotten tradition" this pilot targets.
+    Deliberately NOT gated on the settlement's own population total — a
+    shrinking settlement's flat keeper count is still real idleness,
+    not noise to filter out."""
+    return sum(1 for a in agents if tradition in a.kept_traditions)
+
+
 class SimulationEngine:
     def __init__(
         self, conn: sqlite3.Connection, config: Config, world: World,
@@ -2322,6 +2349,23 @@ class SimulationEngine:
         job_target`'s round-robin excludes sleeping institutions —
         Mind-layer attention only, B15 `TWO_PART_GUARANTEE`-compliant
         for the identical reason the institutions pilot is."""
+        self._tradition_dormancy = DormancyManager()
+        self._tradition_fingerprint: dict[str, tuple] = {}
+        self._tradition_idle_checks: dict[str, int] = {}
+        """Tier 5 B4.2, third candidate ("forgotten traditions") — the
+        same real `DormancyManager` shape as the institutions/ideas
+        pilots above, over `(settlement, tradition)` pairs instead. See
+        `_update_tradition_dormancy`/`_tradition_fingerprint` (module-
+        level helper) for the mechanism; `_maybe_spread_tradition_
+        keeping`'s per-settlement weighted tradition pick excludes a
+        sleeping tradition the same way the two siblings above exclude
+        their own sleeping entities. Compliant with B15's `TWO_PART_
+        GUARANTEE` for the identical reason: a tradition existing (or
+        not) is Body-deterministic `Settlement.traditions` state,
+        UNTOUCHED by this dormancy — only which tradition gets the next
+        personal-keeper-spread ROLL (pure Mind-layer attention) is
+        gated. All three dicts are runtime scheduling state, never
+        persisted — same restart-safe discipline as the two siblings."""
         self._rumor_retellings_recent: list[dict] = []
         """A17's fitness-vs-truth axis (`world.memetics.rumor_fitness`/
         `rumor_truth_score`) — a small capped, transient (not persisted,
@@ -3247,6 +3291,23 @@ class SimulationEngine:
             priority_class=PriorityClass.CRITICAL,
         ))
         self._runtime_scheduler_idea_dormancy = Scheduler(self._runtime_registry_idea_dormancy)
+
+        # Tier 5 B4.2, third dormancy candidate ("forgotten traditions")
+        # — same real ON_EVENT/month_end shape as the two siblings
+        # above, over (settlement, tradition) pairs instead.
+        self._runtime_registry_tradition_dormancy = TaskRegistry()
+        self._runtime_registry_tradition_dormancy.register(Task(
+            id="tradition_dormancy",
+            subsystem="tradition_dormancy",
+            fn=self._update_tradition_dormancy,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"month_end"}),
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_tradition_dormancy = Scheduler(self._runtime_registry_tradition_dormancy)
 
         self._runtime_registry_institution_culture = TaskRegistry()
         self._runtime_registry_institution_culture.register(Task(
@@ -4358,6 +4419,7 @@ class SimulationEngine:
         ("_maybe_schedule_letter", _JOB_EVENTS),
         ("_update_institution_dormancy", _JOB_NO_ARGS),
         ("_update_idea_dormancy", _JOB_NO_ARGS),
+        ("_update_tradition_dormancy", _JOB_NO_ARGS),
         ("_maybe_schedule_institution_culture", _JOB_EVENTS),
         ("_schedule_due_cognition", _JOB_NO_ARGS),
         ("_schedule_due_dialogue", _JOB_NO_ARGS),
@@ -4433,6 +4495,7 @@ class SimulationEngine:
         "_maybe_schedule_letter": "_runtime_scheduler_letter",
         "_update_institution_dormancy": "_runtime_scheduler_institution_dormancy",
         "_update_idea_dormancy": "_runtime_scheduler_idea_dormancy",
+        "_update_tradition_dormancy": "_runtime_scheduler_tradition_dormancy",
         "_maybe_schedule_institution_culture": "_runtime_scheduler_institution_culture",
     }
 
@@ -4454,6 +4517,7 @@ class SimulationEngine:
         if "month_end" in events:
             self._runtime_scheduler_institution_dormancy.event_bus.publish("month_end")
             self._runtime_scheduler_idea_dormancy.event_bus.publish("month_end")
+            self._runtime_scheduler_tradition_dormancy.event_bus.publish("month_end")
         total_materials = sum(s.materials for s in self.world.settlements)
         self._materials_level_history.append((self.world.clock.tick_count, total_materials))
         for event in events:
@@ -7900,11 +7964,24 @@ class SimulationEngine:
         for settlement in named_with_traditions:
             if rng.random() >= TRADITION_KEEPING_SPREAD_CHANCE_PER_TICK:
                 continue
+            # Tier 5 B4.2 third pilot: a "forgotten tradition" (see
+            # `_update_tradition_dormancy`) is excluded from this
+            # settlement's own weighted candidate pool — falls back to
+            # the full list if every one of this settlement's own
+            # traditions happens to be asleep at once (dormancy narrows
+            # attention, it never silently disables the job, same
+            # fallback shape `_maybe_spread_concepts` uses).
+            candidate_traditions = [
+                t for t in settlement.traditions
+                if self._tradition_dormancy.is_scheduled(_tradition_dormancy_key(settlement, t))
+            ]
+            if not candidate_traditions:
+                candidate_traditions = settlement.traditions
             weights = [
                 1.0 + self.world.village_pillar.subject_confidence(t) * TRADITION_PILLAR_LEAN_WEIGHT
-                for t in settlement.traditions
+                for t in candidate_traditions
             ]
-            tradition = rng.choices(settlement.traditions, weights=weights, k=1)[0]
+            tradition = rng.choices(candidate_traditions, weights=weights, k=1)[0]
             candidates = [
                 a for a in self.world.population.agents
                 if a.settlement_id == settlement.id and tradition not in a.kept_traditions
@@ -9152,6 +9229,54 @@ class SimulationEngine:
         for concept_id in stale:
             del self._idea_fingerprint[concept_id]
             del self._idea_idle_checks[concept_id]
+
+    def _update_tradition_dormancy(self) -> None:
+        """Tier 5 B4.2, third dormancy candidate ("forgotten
+        traditions") — the same real `DormancyManager` sleep/wake shape
+        as `_update_institution_dormancy`/`_update_idea_dormancy`
+        directly above, applied to every named settlement's own
+        `Settlement.traditions` entries.
+
+        A tradition that keeps gaining personal keepers resets its
+        idle-check counter and wakes immediately via `DormancyManager.
+        wake`; one whose keeper count sits flat for `TRADITION_
+        DORMANCY_IDLE_CHECKS_THRESHOLD` consecutive monthly checks goes
+        to sleep. `_maybe_spread_tradition_keeping`'s per-settlement
+        weighted pick then excludes sleeping traditions — same Mind-
+        layer-only, B15-`TWO_PART_GUARANTEE`-compliant reasoning as
+        both siblings above (a tradition's own per-tick personal-
+        keeper-spread ROLL is what's gated, never `Settlement.
+        traditions` itself or any Body-deterministic effect)."""
+        seen: set[str] = set()
+        for settlement in self.world.settlements:
+            if not settlement.name or not settlement.traditions:
+                continue
+            agents = [a for a in self.world.population.agents if a.settlement_id == settlement.id]
+            for tradition in settlement.traditions:
+                key = _tradition_dormancy_key(settlement, tradition)
+                seen.add(key)
+                fingerprint = _tradition_fingerprint(settlement, tradition, agents)
+                if key not in self._tradition_fingerprint:
+                    self._tradition_dormancy.register(key, self.world.clock.tick_count)
+                    self._tradition_fingerprint[key] = fingerprint
+                    self._tradition_idle_checks[key] = 0
+                    continue
+                if fingerprint != self._tradition_fingerprint[key]:
+                    self._tradition_fingerprint[key] = fingerprint
+                    self._tradition_idle_checks[key] = 0
+                    self._tradition_dormancy.wake(key, self.world.clock.tick_count)
+                    continue
+                idle = self._tradition_idle_checks.get(key, 0) + 1
+                self._tradition_idle_checks[key] = idle
+                if idle >= TRADITION_DORMANCY_IDLE_CHECKS_THRESHOLD:
+                    self._tradition_dormancy.sleep(key, self.world.clock.tick_count)
+        # A tradition whose settlement was renamed/unfounded, or that no
+        # longer appears in `Settlement.traditions` at all, drops out —
+        # bounded by whatever cap `Settlement.traditions` itself holds.
+        stale = set(self._tradition_fingerprint) - seen
+        for key in stale:
+            del self._tradition_fingerprint[key]
+            del self._tradition_idle_checks[key]
 
     def _institution_job_target(self) -> "tuple[Settlement, object] | None":
         """§9 "institutions get their own persistent memory" (docs/IDEAS-

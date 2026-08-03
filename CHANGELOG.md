@@ -4,6 +4,48 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.208] — Part B: B4.2's third dormancy candidate ("forgotten traditions")
+
+Explicit user instruction: "Continue with B and ship Big Bang progress
+not little progress."
+
+New `SimulationEngine._update_tradition_dormancy` (monthly, ON_EVENT/
+month_end): the same real `DormancyManager` shape the institutions
+(v1.34.187) and ideas (v1.34.204) pilots already proved, applied to
+every named settlement's own `Settlement.traditions` entries. Tracks
+each `(settlement, tradition)` pair's real personal-keeper count
+(`Agent.kept_traditions`) — an unchanged count across 3 consecutive
+monthly checks sleeps it, a genuine new keeper wakes it immediately.
+`_maybe_spread_tradition_keeping`'s existing per-settlement weighted
+pick now excludes sleeping traditions, falling back to the full list
+when every tradition a settlement holds is asleep at once. Compliant
+with B15's `TWO_PART_GUARANTEE` for the same reason both siblings are:
+`Settlement.traditions` itself stays untouched Body-deterministic
+state — only which tradition gets the next Mind-layer personal-
+keeper-spread roll is gated.
+
+New `scripts/verify_b4_tradition_dormancy.py` (16 checks) — all pass,
+first run, no bug found.
+
+Verified: the new script; `verify_b4_idea_dormancy.py`/`verify_b0_
+runtime_migrations.py`/`verify_task_graph.py`/`verify_scheduler.py`/
+`verify_dormancy.py` re-run clean; a real production-path 4000-tick
+LLM-disabled smoke test (agents genuinely picked up kept traditions
+over the run, clean round-trip); `scripts/verify_replay_hash.py`
+(4000 ticks, seed 777) — MATCH; `scripts/verify_native_soak.py`
+(3 seeds x 3000 ticks) — MATCH. `pyflakes` clean.
+
+B4.2's other two candidates (inactive settlements, distant wildlife)
+remain open — both touch genuine Body-deterministic per-tick
+simulation, unlike the three Mind-layer-only siblings now shipped, and
+would need a real lossless elapsed-tick reconstruction to stay B15-
+compliant. B9.3 was investigated (most per-tick jobs already gate
+correctly via `SimClock`'s own calendar event flags) but not converted
+this pass — no obviously-wrong mismatch found without a genuine
+per-site read of all ~200 call sites. B10.2 stays confirmed exhausted.
+B11/B12/B14.2/B14.3/B15.5 remain open, each needing its own
+separately-scoped build.
+
 ## [1.34.207] — C++ port: A14's biology-tick scalar math; Tier 6 L3.1 LLM cost regressor
 
 Explicit user follow-up: "Yes and try something from tier 6 as well

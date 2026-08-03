@@ -1156,6 +1156,43 @@ starts on an explicit instruction naming an item.
       remainder/B11/B12/B13/B14.2/B14.3/B15.5 remain open, each still
       needing its own separately-scoped build.
 
+      **B4.2, third dormancy candidate ("forgotten traditions") —
+      SHIPPED, v1.34.208.** Explicit user instruction: "Continue with B
+      and ship Big Bang progress not little progress." Same real
+      `DormancyManager` shape as the institutions (v1.34.187) and ideas
+      (v1.34.204) pilots, applied to every named settlement's own
+      `Settlement.traditions` entries: `_update_tradition_dormancy`
+      (monthly, ON_EVENT/month_end) tracks each (settlement, tradition)
+      pair's real keeper count (`Agent.kept_traditions`) — an unchanged
+      count across 3 consecutive checks sleeps it, a genuine new keeper
+      wakes it immediately. `_maybe_spread_tradition_keeping`'s per-
+      settlement weighted pick then excludes sleeping traditions,
+      falling back to the full list if every one of a settlement's
+      traditions happens to be asleep at once — same fallback shape
+      the two siblings use. Compliant with B15's `TWO_PART_GUARANTEE`
+      for the identical reason: `Settlement.traditions` itself (Body-
+      deterministic state) is untouched, only which tradition gets the
+      next personal-keeper-spread ROLL (Mind-layer attention) is
+      gated. New `scripts/verify_b4_tradition_dormancy.py` (16 checks)
+      — all pass, first run, no bug found.
+
+      Verified: the new script, `verify_b4_idea_dormancy.py`/`verify_
+      b0_runtime_migrations.py`/`verify_task_graph.py`/`verify_
+      scheduler.py`/`verify_dormancy.py` re-run clean, a real
+      production-path 4000-tick LLM-disabled smoke test (agents
+      genuinely pick up kept traditions over the run, clean `World.
+      to_dict()`/`from_dict()` round-trip), a replay-hash MATCH (4000
+      ticks, seed 777), and a native-soak MATCH (3 seeds x 3000
+      ticks). B4.2's other two candidates (inactive settlements,
+      distant wildlife) remain open — both touch genuine Body-
+      deterministic per-tick simulation (unlike traditions/ideas/
+      institutions, all three purely Mind-layer) and would need a real
+      lossless elapsed-tick reconstruction to stay B15-compliant, a
+      materially larger and riskier design than this pass's three
+      Mind-layer-only siblings. B9.3/B10.2's remainder/B11/B12/B13
+      (already partially wired)/B14.2/B14.3/B15.5 remain open too, each
+      still needing its own separately-scoped build.
+
       **B13's UI trigger — SHIPPED, v1.34.206.** Explicit user
       follow-up: "Build B13 and other items you can complete." New
       `POST /intervene/llm-concurrency-hypothesis` -> `SimulationEngine.

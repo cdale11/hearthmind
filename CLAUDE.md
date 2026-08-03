@@ -742,6 +742,75 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.208)
+
+Explicit user instruction: "Continue with B and ship Big Bang progress
+not little progress." B4.2's third dormancy candidate ("forgotten
+traditions") — same real `DormancyManager` shape the institutions
+(v1.34.187) and ideas (v1.34.204) pilots already proved, applied to
+every named settlement's own `Settlement.traditions` entries.
+
+New `SimulationEngine._update_tradition_dormancy` (monthly, ON_EVENT/
+month_end, same real scheduler-dispatch wiring the two siblings use):
+tracks each `(settlement, tradition)` pair's real personal-keeper count
+(`Agent.kept_traditions`) via `_tradition_fingerprint` — an unchanged
+count across `TRADITION_DORMANCY_IDLE_CHECKS_THRESHOLD` (3) consecutive
+monthly checks sleeps it, a genuine new keeper wakes it immediately.
+`_maybe_spread_tradition_keeping`'s existing per-settlement weighted
+tradition pick now excludes sleeping traditions from its candidate
+pool, falling back to the full list if every tradition a settlement
+holds happens to be asleep at once — same fallback shape `_maybe_
+spread_concepts` already uses for ideas. Compliant with B15's `TWO_
+PART_GUARANTEE` for the identical reason both siblings are:
+`Settlement.traditions` itself is real Body-deterministic state,
+completely untouched by this dormancy — only which tradition gets the
+next personal-keeper-spread LLM-free ROLL (pure Mind-layer attention)
+is gated.
+
+New `scripts/verify_b4_tradition_dormancy.py` (16 checks — fresh-
+tradition registration, idle-threshold sleep, wake-on-real-keeper-
+gain with idle-counter reset, stale-tradition untracking, dormant-
+exclusion narrowing the candidate pool, the full-list fallback when
+everything's asleep, the fingerprint's real keeper-count dependency,
+and the real ON_EVENT dispatch wiring) — all pass, first run, no bug
+found.
+
+Verified: the new script; `scripts/verify_b4_idea_dormancy.py`/
+`verify_b0_runtime_migrations.py`/`verify_task_graph.py`/`verify_
+scheduler.py`/`verify_dormancy.py` re-run clean (unaffected); a real
+production-path 4000-tick LLM-disabled smoke test (agents genuinely
+picked up kept traditions organically over the run — confirmed
+non-empty `kept_traditions` on multiple agents by the end — with a
+clean `World.to_dict()`/`from_dict()` round-trip); `scripts/verify_
+replay_hash.py` (4000 ticks, seed 777, `--in-process`) — MATCH, byte-
+identical; `scripts/verify_native_soak.py` (3 seeds x 3000 ticks) —
+MATCH. `pyflakes` clean (only the six known pre-existing forward-ref
+findings).
+
+**What's still honestly open in Part B.** B4.2's other two named
+candidates (inactive settlements, distant wildlife) remain unattempted
+— unlike institutions/ideas/traditions (all three purely Mind-layer
+attention, safely gate-able without touching simulated reality), both
+of these touch genuine Body-deterministic per-tick simulation
+(settlement/population ticking, wildlife movement/reproduction) and
+would need a real lossless elapsed-tick reconstruction to stay B15-
+compliant — a materially larger, riskier design than a fingerprint-
+and-sleep pass, correctly not rushed through under the "ship real
+progress, not reckless progress" reading of this turn's instruction.
+B9.3 (the full ~200-site timescale-mismatch audit) was investigated
+this pass too: most existing per-tick jobs already gate correctly via
+`SimClock`'s own calendar-derived event flags (`month_end`/`day_end`/
+etc.), which already gives them the right cadence — B9's own
+`TimescaleGate` machinery has no obviously-wrong real mismatch left to
+convert without a genuine per-site read of all ~200 call sites, which
+this pass didn't have room to do safely alongside the tradition-
+dormancy work above. B10.2 stays confirmed exhausted (v1.34.205).
+B11/B12/B14.2/B14.3/B15.5 remain open, each still needing its own
+separately-scoped build (a real large-persisted-state consumer, a
+real diff-format snapshot writer, or a real HearthBench runner,
+respectively) — none of these is a wiring pass over already-real
+machinery.
+
 ## Current state (v1.34.207)
 
 Explicit user follow-up: "Yes and try something from tier 6 as well
