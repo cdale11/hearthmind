@@ -142,7 +142,23 @@ prove load-bearing and insufficient.
 L2.2 (who you're embedded among shapes what you do), dispute/faction
 detection.
 
-### L2.1 — Value / consequence model *(the merge that justifies itself)*
+### L2.1 — Value / consequence model *(the merge that justifies itself)* [SUBSTRATE SHIPPED, v1.34.209]
+
+`hearthmind/ml/value_model.py`: `ValueConsequenceModel` (a sigmoid-
+output MLP over four real structural features — emotion intensity,
+recent event count, relationship extremity, core-cast membership),
+`compute_consequence_label` (real magnitude + a real life-event bump,
+additive+clamped), `rank_by_predicted_value` (the real B2.4 consumer
+function, stable-sorted, no RNG). Verified: `scripts/verify_value_
+model.py` (16 checks — label formula bounds, graceful degradation on a
+partial feature dict, training measurably cutting held-out loss,
+correct high-vs-low consequence ranking on synthetic data, and
+`rank_by_predicted_value`'s stability/non-mutation). **Not wired into
+any real B2.4/L2.2 call site this pass** — needs real weights trained
+against a real accumulated emergence-log/life-events history this
+offline environment has no live world to source, same "ship the
+substrate, wire it once a real consumer/archive exists" discipline
+L0/L3.1/L3.2 all shipped under.
 
 Predicts: *how consequential is this agent's current state?* Trained on
 a real, already-recorded label — `world/emergence.py`'s `magnitude`

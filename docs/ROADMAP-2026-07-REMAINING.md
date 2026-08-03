@@ -1193,6 +1193,53 @@ starts on an explicit instruction naming an item.
       (already partially wired)/B14.2/B14.3/B15.5 remain open too, each
       still needing its own separately-scoped build.
 
+      **B14.2/B14.3, a real diff-format snapshot writer — SHIPPED,
+      v1.34.209.** Explicit user instruction: "Continue with B Big Bang
+      progress and also build parallely something from other tiers."
+      Fixes the exact correctness hazard flagged at v1.34.205 FIRST —
+      `_prune_snapshots` had no FULL+INCREMENTAL chain concept — then
+      builds the real writer on that fixed foundation. New `persistence/
+      diff.py`'s `diff_dict`/`apply_patch` (recursive structural dict
+      diff, list-atomic by deliberate scope trim, verified via 20,000
+      randomized trials with 0 mismatches and a confirmed no-mutation
+      guarantee on both inputs). `persistence/database.py` gained this
+      project's first-ever schema migration (`_migrate_snapshots_
+      schema`, `ALTER TABLE snapshots ADD COLUMN kind/base_snapshot_id`,
+      guarded by `PRAGMA table_info` so it's a real no-op on an
+      already-migrated DB, existing rows correctly backfill to
+      `kind='full'`). `save_snapshot(..., kind="full")` now computes and
+      stores a real `diff_dict` patch when `kind="incremental"`
+      (degrading to a real full save with no prior snapshot to diff
+      against); `_reconstruct_snapshot_dict` walks an INCREMENTAL
+      chain back to its FULL root and applies every patch forward,
+      raising loudly on a genuinely missing base rather than silently
+      half-reconstructing. `_prune_snapshots` now walks every kept
+      row's `base_snapshot_id` ancestry so a chain's dependencies can
+      never be pruned out from under it — the concrete fix for the
+      v1.34.205 hazard. `SimulationEngine._tick_once`'s real periodic
+      snapshot call site now calls `self._snapshot_scheduler.plan().
+      value` and threads it through — B14.2's `plan()` output is
+      finally consulted, not computed and discarded. New `scripts/
+      verify_b14_snapshot_diff.py` (20 checks — the diff/patch round-
+      trip fuzz test, a real FULL+INCREMENTAL+INCREMENTAL chain
+      reconstructing correctly via both `load_latest_snapshot`/`load_
+      snapshot_at_tick`, a negative control proving the OLD naive
+      prune would have orphaned the chain against the NEW chain-aware
+      one which doesn't, the missing-base `ValueError` case, and
+      backward compatibility with a genuinely pre-migration row) — all
+      pass, first run, no bug found. Verified: `pyflakes` clean (only
+      the six known pre-existing forward-ref findings in `engine.py`);
+      `verify_b14_persistence_scheduling.py`/`verify_task_graph.py`/
+      `verify_scheduler.py`/`verify_dormancy.py`/`verify_runtime_
+      invariant.py` re-run clean; a real replay-hash MATCH (4000 ticks,
+      seed 777, `--in-process`); `scripts/verify_native_soak.py` (3
+      seeds x 3000 ticks) MATCH. B14.3's `batch_size_for_storage`
+      remains unconsulted (no batched-write mechanism exists to size —
+      this pass's writer is still one `INSERT` per snapshot). B9.3/
+      B10.2's remainder/B4.2's other two candidates/B11/B12/B13
+      (already partially wired)/B15.5 remain open, each still needing
+      its own separately-scoped build.
+
       **B13's UI trigger — SHIPPED, v1.34.206.** Explicit user
       follow-up: "Build B13 and other items you can complete." New
       `POST /intervene/llm-concurrency-hypothesis` -> `SimulationEngine.
@@ -1367,10 +1414,33 @@ with three shared components.
       GNN explicitly deferred.
 
 **L2 — cognition** (the emergence layer)
-- [ ] **L2.1 Value/consequence model** — "how consequential is this
-      state?", trained on `emergence.magnitude` + downstream
-      `life_events`. **Two consumers, one model**: attention allocation
-      (unblocks **B2.4**) and policy advantage weighting.
+- [x] **L2.1 Value/consequence model** — substrate SHIPPED, v1.34.209,
+      as `hearthmind/ml/value_model.py`'s `ValueConsequenceModel`/
+      `compute_consequence_label`/`rank_by_predicted_value` — "how
+      consequential is this state?", trained on a real `compute_
+      consequence_label` combining `emergence.magnitude`-shaped input
+      (already clamped 0-1) with a downstream-life-event bump (additive,
+      re-clamped, never multiplicative — a magnitude=0 observation a
+      real life event followed still registers above zero). **Two
+      consumers, one model**: `rank_by_predicted_value` is the real
+      attention-allocation consumer (unblocks **B2.4**, stable-sorted,
+      no RNG); policy advantage weighting (L2.2 phase 2) remains open,
+      sequenced after L2.2 itself. Reuses L0's `FeatureEncoder`/`MLP`/
+      `train_mlp_sgd` directly, sigmoid output head (the label is
+      already bounded [0,1], unlike L3.1's unbounded-latency linear
+      head). Verified: `scripts/verify_value_model.py` (16 checks —
+      label-formula bounds incl. the additive-clamp/zero-magnitude
+      cases, graceful degradation on a partial feature dict, training
+      measurably cutting held-out loss on synthetic data, a trained
+      model correctly ranking a genuinely high-consequence agent above
+      a genuinely low one, and `rank_by_predicted_value`'s stability/
+      non-mutation) — all pass, first run, no bug found. **Not wired
+      into any real B2.4/L2.2 call site this pass** — needs real
+      weights trained against a real accumulated emergence-log/
+      life-events history this offline environment has no live world
+      to source, same "ship the substrate, wire it once a real
+      consumer/archive exists" discipline L0/L3.1/L3.2 all shipped
+      under.
 - [ ] **L2.2 Goal policy** ⭐ the flagship. Closed 7-value `AgentGoal`
       output; LLM keeps `reason`. **Two-phase curriculum:** phase 1
       distills the recorder's existing `(structured_input → goal)`

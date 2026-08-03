@@ -4,6 +4,75 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.209] — Part B: B14.2/B14.3's snapshot writer; Tier 6 L2.1 value model
+
+Explicit user instruction: "Continue with B Big Bang progress and also
+build parallely something from other tiers." Two independent pieces,
+one batch, same pattern as v1.34.207.
+
+Fixes the exact correctness hazard flagged at v1.34.205 FIRST — a
+naive diff format would let `_prune_snapshots` orphan an
+unreconstructable INCREMENTAL snapshot whose FULL base got pruned —
+then builds the real writer on the fixed foundation, not the other
+way around.
+
+New `persistence/diff.py`: `diff_dict`/`apply_patch`, a recursive
+structural dict diff (nested dicts diffed recursively key by key,
+every other value replaced wholesale if changed — a deliberate
+list-atomic scope trim over a general list-diff, documented in the
+module's own docstring). `persistence/database.py` gained this
+project's first-ever schema migration (`_migrate_snapshots_schema`,
+`ALTER TABLE snapshots ADD COLUMN kind/base_snapshot_id`, `PRAGMA
+table_info`-guarded so it's a real no-op on an already-migrated DB;
+existing rows correctly default to `kind='full'`). `save_snapshot`
+gained a real `kind` param: `"incremental"` stores a `diff_dict` patch
+against the most recent snapshot (degrading to a real full save with
+nothing to diff against yet); `_reconstruct_snapshot_dict` walks an
+INCREMENTAL chain back to its FULL root and applies every patch
+forward, raising `ValueError` on a genuinely missing base rather than
+silently half-reconstructing. `_prune_snapshots` now walks every kept
+row's `base_snapshot_id` ancestry so a chain's own dependencies can
+never be pruned out from under it. `SimulationEngine._tick_once`'s
+real periodic snapshot call site now calls `self._snapshot_scheduler.
+plan().value` and threads it through — B14.2's `plan()` output is
+finally consulted by something real. B14.3's `batch_size_for_storage`
+stays unconsulted (still one `INSERT` per snapshot, no batched-write
+mechanism to size).
+
+New `scripts/verify_b14_snapshot_diff.py` (20 checks — diff/patch
+round-trip under 20,000 randomized trials with a no-mutation
+guarantee, a real FULL+INCREMENTAL+INCREMENTAL chain reconstructing
+correctly through both `load_latest_snapshot`/`load_snapshot_at_tick`,
+a negative control proving the OLD naive prune would have orphaned
+the chain against the NEW chain-aware prune which doesn't, the
+missing-base `ValueError` case, and backward compatibility with a
+genuinely pre-migration row) — all pass, first run, no bug found.
+
+Verified: the new script; `verify_b14_persistence_scheduling.py`/
+`verify_task_graph.py`/`verify_scheduler.py`/`verify_dormancy.py`/
+`verify_runtime_invariant.py` re-run clean; `pyflakes` clean (only the
+six known pre-existing forward-ref findings in `engine.py`); `scripts/
+verify_replay_hash.py` (4000 ticks, seed 777) — MATCH; `scripts/
+verify_native_soak.py` (3 seeds x 3000 ticks) — MATCH. No native
+module or persisted `World` schema touched — the diff format operates
+purely on the already-serialized `world_json` blob.
+
+**Tier 6, L2.1 — value/consequence model.** New `hearthmind/ml/
+value_model.py`: `ValueConsequenceModel` (sigmoid-output MLP over four
+real per-agent structural features, reusing L0's `FeatureEncoder`/
+`MLP`/`train_mlp_sgd` directly), `compute_consequence_label` (real
+`emergence.magnitude` + a real downstream-life-event bump, additive
+and re-clamped, never multiplicative), `rank_by_predicted_value` (the
+real B2.4 "attention follows change" consumer — blocked since
+v1.34.83 on exactly this — stable-sorted, no RNG). New `scripts/
+verify_value_model.py` (16 checks) — all pass, first run, no bug
+found. Not wired into any real B2.4/L2.2 call site this pass — needs
+real weights trained against a real accumulated emergence-log/
+life-events archive this offline environment has no live world to
+source, same discipline L0/L3.1/L3.2 shipped under. No native module
+or persisted state touched — no replay-hash/native-soak re-run needed
+for this half.
+
 ## [1.34.208] — Part B: B4.2's third dormancy candidate ("forgotten traditions")
 
 Explicit user instruction: "Continue with B and ship Big Bang progress

@@ -742,6 +742,125 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.209)
+
+Explicit user instruction: "Continue with B Big Bang progress and also
+build parallely something from other tiers." Part B: B14.2/B14.3's
+real diff-format snapshot writer — the exact item flagged as a
+"correctness hazard identified" (not a wiring gap) at v1.34.205.
+
+**The fix comes before the feature, in order.** `persistence/
+snapshot.py`'s `_prune_snapshots` had no concept of a FULL+
+INCREMENTAL chain — a naive diff format would let pruning silently
+orphan an unreconstructable snapshot. New `_prune_snapshots` extends
+its existing keep-set (recent + keyframes, unchanged) by walking every
+kept row's `base_snapshot_id` ancestry back to its FULL root, so a
+chain's own dependencies can never be pruned out from under it. This
+ships FIRST in the same commit as the diff format itself, not as a
+follow-up once the format already existed to expose the bug live.
+
+New `persistence/diff.py`: `diff_dict`/`apply_patch`, a recursive
+structural dict diff — nested dict values diffed recursively key by
+key, every other value (list, scalar) compared by `==` and replaced
+wholesale if changed. Deliberate scope trim over a general list-diff
+(documented in the module's own docstring): `World.to_dict()`'s
+dominant branches are large sub-dicts that mostly change together or
+stay fully static for long stretches, so recursing into dicts alone
+already captures the real win without the correctness risk of
+element-wise list-diffing (index drift, list-of-dict identity
+tracking) in a codebase with no automated test suite.
+
+`persistence/database.py` gained this project's first-ever schema
+migration: `snapshots` gets `kind`/`base_snapshot_id` columns via
+`_migrate_snapshots_schema` (`PRAGMA table_info`-guarded, a real no-op
+on an already-migrated DB), existing rows correctly default to
+`kind='full'` (every pre-B14.2 row IS a real full dump, no
+reinterpretation needed). `save_snapshot(conn, world, kind="full")`:
+`kind="incremental"` computes and stores a real `diff_dict` patch
+against the most recent snapshot, degrading to a genuine full save
+when there's no prior snapshot to diff against (a brand-new world).
+`_reconstruct_snapshot_dict` walks an INCREMENTAL row's chain back to
+its FULL root and applies every patch forward via `apply_patch`,
+raising `ValueError` (never silently half-reconstructing) on a
+genuinely missing base row — both `load_latest_snapshot` and `load_
+snapshot_at_tick` now go through this path. `SimulationEngine._tick_
+once`'s real periodic snapshot call site now calls `self._snapshot_
+scheduler.plan().value` and threads it through to `save_snapshot` —
+B14.2's `plan()` output (real since v1.34.181) is finally consulted by
+something real instead of being computed and discarded. The other two
+`save_snapshot(...)` call sites (world creation, final-save-on-stop)
+deliberately stay `kind="full"` — nothing to diff against at creation,
+and a clean shutdown should leave a standalone recovery anchor rather
+than one more link in a chain a future save might extend. B14.3's
+`batch_size_for_storage` stays unconsulted — this writer is still one
+`INSERT` per snapshot, no batched-write mechanism exists to size yet.
+
+New `scripts/verify_b14_snapshot_diff.py` (20 checks — the diff/patch
+round-trip under 20,000 randomized trials with a confirmed no-mutation
+guarantee on both inputs; a real FULL+INCREMENTAL+INCREMENTAL chain
+reconstructing correctly through both load paths; confirmation an
+incremental row's stored patch is genuinely smaller than a full dump;
+a negative control proving the OLD naive prune selection would have
+dropped the chain's own ancestors against the NEW chain-aware
+selection which doesn't; a real prune pass leaving the chain fully
+reconstructable; the missing-base `ValueError` case; and backward
+compatibility with a genuinely pre-migration row, built via raw SQL
+with no `kind`/`base_snapshot_id` columns at all) — all pass, first
+run, no bug found.
+
+Verified: the new script; `scripts/verify_b14_persistence_
+scheduling.py`/`verify_task_graph.py`/`verify_scheduler.py`/`verify_
+dormancy.py`/`verify_runtime_invariant.py` re-run clean; `pyflakes`
+clean on all four touched/new files (only the six known pre-existing
+forward-ref findings in `engine.py`); `scripts/verify_replay_hash.py`
+(4000 ticks, seed 777, `--in-process`) — MATCH, byte-identical;
+`scripts/verify_native_soak.py` (3 seeds x 3000 ticks) — MATCH. No
+native module or persisted `World` field touched by this half — the
+diff format operates purely on the already-serialized `world_json`
+blob, never on `World`'s own schema.
+
+**"Also build parallely something from other tiers", same batch:
+Tier 6's L2.1, the value/consequence model.** New `hearthmind/ml/
+value_model.py`: `ValueConsequenceModel` (a sigmoid-output-head MLP
+over four real structural per-agent features — emotion intensity,
+recent event count, relationship extremity, core-cast membership —
+reusing L0's `FeatureEncoder`/`MLP`/`train_mlp_sgd` directly, same
+thin-wrapper shape `WorkloadForecaster`/`LLMCostRegressor` established).
+Predicts "how consequential is this agent's current state?" — the
+architecture doc's own named merge point, since attention allocation
+and policy-advantage weighting are literally the same estimate asked
+by two different callers. `compute_consequence_label` is the real
+training target: `emergence.py`'s own `Observation.magnitude` (already
+clamped 0-1) as the base reading, additively bumped (never
+multiplicatively, and re-clamped to 1.0) when a genuine `life_events`
+entry followed within a horizon — so a magnitude=0 observation that a
+real life event followed still registers as somewhat consequential
+rather than staying pinned at zero. `rank_by_predicted_value` is the
+real B2.4 ("attention follows change") consumer function — B2.4 has
+been blocked since it was first scoped (v1.34.83) on exactly this, a
+real learned priority signal rather than a hand-set weighted sum —
+stable-sorted, no RNG (same "no randomness in arbitration" discipline
+the HCA attention-redesign section above establishes for a related,
+later-scoped mechanism).
+
+New `scripts/verify_value_model.py` (16 checks — the label formula's
+bounds incl. the additive-clamp and zero-magnitude-plus-life-event
+cases, graceful degradation on a partially-filled feature dict,
+training measurably cutting held-out loss on synthetic data, a
+trained model correctly ranking a genuinely high-consequence agent
+above a genuinely low one, and `rank_by_predicted_value`'s stability/
+non-mutation) — all pass, first run, no bug found. `scripts/verify_
+ml_substrate.py`/`verify_llm_cost.py` re-run clean (unaffected).
+
+**Not wired into any real B2.4/L2.2 call site this pass** — needs
+real weights trained against a real accumulated emergence-log/
+life-events history this offline environment has no live world to
+source, same "ship the substrate, wire it once a real consumer/
+archive exists" discipline L0/L3.1/L3.2 all shipped under. No native
+module or persisted `World` state touched — no replay-hash/native-soak
+re-run needed for this half (pure offline ML substrate, same scope
+class as L3.1's own filing).
+
 ## Current state (v1.34.208)
 
 Explicit user instruction: "Continue with B and ship Big Bang progress

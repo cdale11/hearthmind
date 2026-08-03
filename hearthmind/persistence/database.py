@@ -81,7 +81,9 @@ CREATE TABLE IF NOT EXISTS snapshots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     tick INTEGER NOT NULL,
     saved_at REAL NOT NULL,
-    world_json TEXT NOT NULL
+    world_json TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'full',
+    base_snapshot_id INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_snapshots_tick ON snapshots (tick);
 
@@ -124,6 +126,27 @@ CREATE INDEX IF NOT EXISTS idx_agent_memory_log_agent ON agent_memory_log (agent
 """
 
 
+def _migrate_snapshots_schema(conn: sqlite3.Connection) -> None:
+    """B14.2's real diff-format columns (`kind`/`base_snapshot_id`) are
+    in `SCHEMA`'s `CREATE TABLE IF NOT EXISTS snapshots` above for a
+    brand-new database, but `CREATE TABLE IF NOT EXISTS` is a no-op
+    against an EXISTING `snapshots` table from before this version —
+    it never adds columns to a table that already exists. This is the
+    first schema migration this project has ever needed (every prior
+    addition was a whole new table); guarded by `PRAGMA table_info` so
+    it's a real no-op on both a fresh DB (columns already present from
+    `SCHEMA`) and an already-migrated one (re-run on every `connect()`
+    call). Existing rows default `kind='full'`/`base_snapshot_id=NULL`
+    — correct as-is: every snapshot ever written before this version
+    IS a full `world_json` dump, so no historical row needs
+    reinterpreting, only the two new columns need to exist."""
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(snapshots)").fetchall()}
+    if "kind" not in columns:
+        conn.execute("ALTER TABLE snapshots ADD COLUMN kind TEXT NOT NULL DEFAULT 'full'")
+    if "base_snapshot_id" not in columns:
+        conn.execute("ALTER TABLE snapshots ADD COLUMN base_snapshot_id INTEGER")
+
+
 def connect(db_path: str) -> sqlite3.Connection:
     Path(db_path).parent.mkdir(parents=True, exist_ok=True) if Path(db_path).parent != Path("") else None
     conn = sqlite3.connect(db_path)
@@ -137,6 +160,7 @@ def connect(db_path: str) -> sqlite3.Connection:
     # the periodic snapshot is the real recovery point regardless).
     conn.execute("PRAGMA synchronous = NORMAL")
     conn.executescript(SCHEMA)
+    _migrate_snapshots_schema(conn)
     conn.commit()
     return conn
 

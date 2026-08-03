@@ -4761,9 +4761,21 @@ class SimulationEngine:
         if self._snapshot_scheduler.due(
             self.world.clock.tick_count, list(self._recent_llm_backlog_samples), float(self._backpressure_limit),
         ):
-            save_snapshot(self.conn, self.world)
+            # B14.2's real wiring: WHICH kind (full vs. incremental) is
+            # the scheduler's own decision (`SnapshotScheduler.plan()`,
+            # already real since B14.1/B14.2 shipped) — this periodic
+            # call site is the only place that should ever request an
+            # incremental save. The other two `save_snapshot(...)` call
+            # sites (world creation/first-load, final-save-on-stop) stay
+            # on the default `kind="full"` deliberately: a fresh world
+            # has no snapshot to diff against anyway, and a clean
+            # shutdown should always leave a real, standalone recovery
+            # anchor rather than one more link in a chain that a
+            # future incremental save might extend.
+            kind = self._snapshot_scheduler.plan().value
+            save_snapshot(self.conn, self.world, kind=kind)
             self._snapshots_saved += 1
-            logger.debug("Snapshot saved at tick %s.", self.world.clock.tick_count)
+            logger.debug("Snapshot saved at tick %s (kind=%s).", self.world.clock.tick_count, kind)
 
     # --- Phase B: per-agent cognition (goals) -------------------------------
 

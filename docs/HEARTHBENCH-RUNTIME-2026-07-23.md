@@ -1891,7 +1891,7 @@ episode, documentary/culture_digest for episode->summary, etc.).
   the actual JS can, and this is why the "test the UI in a browser
   before reporting done" rule exists.
 
-## B14 — Persistence & background work [PARTIAL — B14.1-B14.3 shipped v1.34.181; B14.1 wired to a real control point v1.34.203]
+## B14 — Persistence & background work [SHIPPED — B14.1-B14.3 shipped v1.34.181; B14.1 wired v1.34.203; B14.2/B14.3's real diff-format writer wired v1.34.209]
 
 - [x] **B14.1 — Scheduled, budgeted, idle-preferring, adaptive-
   frequency snapshotting — SHIPPED, v1.34.181.** New `hearthmind/
@@ -1949,19 +1949,62 @@ episode, documentary/culture_digest for episode->summary, etc.).
   row count matches the engine's own counter exactly. New `scripts/
   verify_b14_persistence_scheduling.py` (8 checks).
 
-**B14.2/B14.3 remain NOT wired** — `plan()`'s `SnapshotKind` is
-deliberately never consulted (`save_snapshot` has no real diff/
-incremental-write mechanism to hand a planned kind to; calling `plan()`
-here would be decorative, not real — same honest gap as before this
-pass), and `batch_size_for_storage` has never been called against a
-live `HostProbe.sample()` reading (no batched-write mechanism exists
-in `persistence/database.py` to size). Real future work, unchanged:
-a genuine incremental-snapshot storage format would need to exist
-first for B14.2 to have anything real to decide between.
+- [x] **B14.2/B14.3's real diff-format writer — SHIPPED, v1.34.209.**
+  Explicit user instruction ("Continue with B Big Bang progress").
+  Fixes the exact correctness hazard flagged at v1.34.205 below FIRST,
+  then builds the real writer on top of the fix — never the reverse.
+  New `persistence/diff.py`'s `diff_dict`/`apply_patch`: a recursive
+  structural dict diff (nested dict values diffed recursively key by
+  key; every other value — list, scalar — compared by `==` and
+  replaced wholesale if changed, a deliberate scope trim over a
+  general list-diff to avoid index-drift/identity-tracking correctness
+  risk in a codebase with no automated test suite, documented in the
+  module's own docstring). `persistence/database.py`'s `SCHEMA` gained
+  `kind`/`base_snapshot_id` columns on `snapshots`; `_migrate_
+  snapshots_schema` (this project's first-ever `ALTER TABLE`, guarded
+  by `PRAGMA table_info` so it's a real no-op on both a fresh DB and an
+  already-migrated one) backfills existing rows to `kind='full'` —
+  correct as-is, since every snapshot ever written before this version
+  IS a real full dump. `save_snapshot(conn, world, kind="full")` now
+  takes a real `kind` param: `"incremental"` computes and stores a
+  `diff_dict` patch against the most recent snapshot (degrading to a
+  real full save if none exists yet — a brand-new world has nothing to
+  diff against); `_reconstruct_snapshot_dict` walks a chain of
+  INCREMENTAL rows back to their FULL root and applies every patch
+  forward via `apply_patch`, raising `ValueError` (never silently
+  half-reconstructing) if a base row is genuinely missing. `_prune_
+  snapshots` is now the real fix for the v1.34.205 hazard: it extends
+  its existing keep-set (recent + keyframes, unchanged) by walking
+  every kept row's `base_snapshot_id` ancestry back to its FULL root,
+  so an INCREMENTAL row's own base can never be deleted out from under
+  it. `SimulationEngine._tick_once`'s real periodic snapshot call site
+  now calls `self._snapshot_scheduler.plan().value` and passes it
+  through to `save_snapshot` — B14.2's `plan()` output is finally
+  consulted by something real, not computed and discarded. The two
+  other `save_snapshot(...)` call sites (world creation/first-load,
+  final-save-on-stop) deliberately stay on the default `kind="full"` —
+  a fresh world has nothing to diff against, and a clean shutdown
+  should always leave a real, standalone recovery anchor rather than
+  one more link in a chain a future incremental save might extend.
+  B14.3's `batch_size_for_storage` remains unconsulted — no batched-
+  write mechanism exists in `persistence/database.py` to size, and
+  this pass's diff format doesn't introduce one (a single `sqlite3`
+  `INSERT` per snapshot, same as before). New `scripts/verify_b14_
+  snapshot_diff.py` (20 checks — the diff/patch round-trip under
+  20,000 randomized trials incl. a no-mutation check, a real FULL+
+  INCREMENTAL+INCREMENTAL chain reconstructing correctly through both
+  `load_latest_snapshot`/`load_snapshot_at_tick`, confirmation that an
+  incremental row's stored patch is genuinely smaller than a full
+  dump, a negative control proving the OLD naive prune selection WOULD
+  drop a chain's own ancestors against the NEW chain-aware selection
+  which doesn't, a real prune pass leaving the chain fully
+  reconstructable, the missing-base-row `ValueError` case, and
+  backward compatibility with a genuinely pre-migration row).
 
 **Real correctness risk identified, v1.34.205 (explicit user directive
 to "build whatever is required for blocked items" prompted a concrete
-design investigation rather than another wiring attempt).**
+design investigation rather than another wiring attempt) — the exact
+hazard fixed above, v1.34.209.**
 `persistence/snapshot.py`'s `_prune_snapshots` deletes rows purely by
 `id`/`tick` recency (`SNAPSHOT_KEEP_RECENT`/keyframe interval) with NO
 concept of a FULL-snapshot-plus-its-dependent-INCREMENTAL-diffs chain.
@@ -1973,12 +2016,7 @@ pruning while its own base FULL row does not, making that snapshot
 permanently unreconstructable — silent data loss on a long-running
 world, discovered only at load time. This is precisely the class of
 mistake this project's "never big-bang" discipline exists to catch
-before it ships, not after — B14.2 needs `_prune_snapshots` reworked
-to prune whole FULL+INCREMENTAL chains atomically (never orphaning a
-dependent row) BEFORE any real diff format is introduced, not as an
-afterthought once one exists. Flagged as the concrete first design
-constraint for whoever picks up B14.2 next, not just "needs a diff
-format" as before this pass.
+before it ships, not after.
 
 ## B15 — Semantic safety: the determinism guarantee [Hard Rule 1] [PARTIAL — B15.1-B15.5 shipped v1.34.102/v1.34.182; B15.3/B15.4 wired to a real control point v1.34.203]
 

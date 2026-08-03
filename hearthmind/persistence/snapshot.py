@@ -6,6 +6,7 @@ import sqlite3
 import time
 
 from hearthmind.config import Config
+from hearthmind.persistence.diff import apply_patch, diff_dict
 from hearthmind.world.state import World
 
 
@@ -37,10 +38,65 @@ in one go — a client-triggered RAM spike that grows with the table.
 memory-audit pass."""
 
 
-def save_snapshot(conn: sqlite3.Connection, world: World) -> None:
+def _reconstruct_snapshot_dict(conn: sqlite3.Connection, snapshot_id: int) -> dict | None:
+    """B14.2's real reconstruction path: a `kind='full'` row's own
+    `world_json` IS the world dict, returned as-is. A `kind=
+    'incremental'` row's `world_json` is instead a `diff.diff_dict`
+    PATCH against its own `base_snapshot_id` — reconstruction walks
+    that chain back (recursing; bounded by `SnapshotPolicy.
+    full_snapshot_every`, so this never recurses deep) until it hits a
+    real FULL row, then applies every patch forward in order via
+    `diff.apply_patch`. Returns `None` only if `snapshot_id` doesn't
+    exist (a genuinely missing row, not a normal case — `_prune_
+    snapshots` is specifically written to never let this happen for a
+    row still reachable from a kept snapshot)."""
+    row = conn.execute(
+        "SELECT world_json, kind, base_snapshot_id FROM snapshots WHERE id = ?", (snapshot_id,)
+    ).fetchone()
+    if row is None:
+        return None
+    world_json, kind, base_id = row
+    data = json.loads(world_json)
+    if kind != "incremental" or base_id is None:
+        return data
+    base_dict = _reconstruct_snapshot_dict(conn, base_id)
+    if base_dict is None:
+        # A real corruption case (an incremental row's own base was
+        # somehow deleted) — surface it loudly rather than silently
+        # returning a half-reconstructed dict a caller might persist
+        # forward as if it were real world state.
+        raise ValueError(
+            f"snapshot {snapshot_id} is incremental against missing base snapshot {base_id} "
+            "(this should be structurally impossible — _prune_snapshots keeps every ancestor "
+            "of every retained snapshot; this indicates real database corruption)"
+        )
+    return apply_patch(base_dict, data)
+
+
+def save_snapshot(conn: sqlite3.Connection, world: World, kind: str = "full") -> None:
+    """`kind`: `"full"` (default, and every pre-B14.2 caller's exact
+    prior behavior — a complete `world.to_dict()` dump) or
+    `"incremental"` (B14.2's real diff format: stores only what changed
+    since the most recently saved snapshot, `kind`/`base_snapshot_id`
+    unchanged). An `"incremental"` request with no prior snapshot to
+    diff against (a brand-new world) degrades to a real `"full"` save
+    instead — there's nothing to diff against yet, and forcing one
+    would just be a full dump wearing the wrong label."""
+    new_dict = world.to_dict()
+    base_id = None
+    if kind == "incremental":
+        prev = conn.execute("SELECT id FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
+        if prev is None:
+            kind = "full"
+        else:
+            base_id = prev[0]
+            base_dict = _reconstruct_snapshot_dict(conn, base_id)
+            payload = diff_dict(base_dict, new_dict)
+    if kind != "incremental":
+        payload = new_dict
     conn.execute(
-        "INSERT INTO snapshots (tick, saved_at, world_json) VALUES (?, ?, ?)",
-        (world.clock.tick_count, time.time(), json.dumps(world.to_dict())),
+        "INSERT INTO snapshots (tick, saved_at, world_json, kind, base_snapshot_id) VALUES (?, ?, ?, ?, ?)",
+        (world.clock.tick_count, time.time(), json.dumps(payload), kind, base_id),
     )
     _prune_snapshots(conn)
     _prune_events(conn, world.config.event_log_retention)
@@ -236,28 +292,48 @@ def agent_memory_log_count(conn: sqlite3.Connection, agent_id: int) -> int:
 def _prune_snapshots(conn: sqlite3.Connection) -> None:
     """Delete snapshot rows that are neither recent (last
     SNAPSHOT_KEEP_RECENT) nor a keyframe (the earliest row in each
-    SNAPSHOT_KEYFRAME_INTERVAL_TICKS bucket). Runs inside
-    `save_snapshot`'s transaction — cheap (indexed on tick) and keeps
-    the table bounded on an arbitrarily long run."""
-    conn.execute(
+    SNAPSHOT_KEYFRAME_INTERVAL_TICKS bucket) — same real selection as
+    before B14.2 — EXTENDED to also keep every real ANCESTOR of a kept
+    row, walking each one's `base_snapshot_id` chain back to its
+    nearest FULL root. This is the concrete fix for the correctness
+    hazard B14.2 was flagged against: without it, a kept INCREMENTAL
+    row's own base could be a plain unprotected row and get deleted
+    out from under it, silently orphaning a snapshot nothing could
+    ever reconstruct again. Runs inside `save_snapshot`'s transaction."""
+    keep_rows = conn.execute(
         """
-        DELETE FROM snapshots WHERE id NOT IN (
+        SELECT id FROM snapshots WHERE id IN (
             SELECT id FROM snapshots ORDER BY tick DESC LIMIT ?
-        ) AND id NOT IN (
+        ) OR id IN (
             SELECT MIN(id) FROM snapshots GROUP BY tick / ?
         )
         """,
         (SNAPSHOT_KEEP_RECENT, SNAPSHOT_KEYFRAME_INTERVAL_TICKS),
+    ).fetchall()
+    keep_ids = {row[0] for row in keep_rows}
+    if not keep_ids:
+        return
+    frontier = list(keep_ids)
+    while frontier:
+        current_id = frontier.pop()
+        row = conn.execute("SELECT base_snapshot_id FROM snapshots WHERE id = ?", (current_id,)).fetchone()
+        base_id = row[0] if row else None
+        if base_id is not None and base_id not in keep_ids:
+            keep_ids.add(base_id)
+            frontier.append(base_id)
+    conn.execute(
+        f"DELETE FROM snapshots WHERE id NOT IN ({','.join('?' * len(keep_ids))})",
+        tuple(keep_ids),
     )
 
 
 def load_latest_snapshot(conn: sqlite3.Connection, runtime_config: Config) -> World | None:
     row = conn.execute(
-        "SELECT world_json FROM snapshots ORDER BY tick DESC LIMIT 1"
+        "SELECT id FROM snapshots ORDER BY tick DESC LIMIT 1"
     ).fetchone()
     if row is None:
         return None
-    data = json.loads(row[0])
+    data = _reconstruct_snapshot_dict(conn, row[0])
     return World.from_dict(data, runtime_config)
 
 
@@ -544,9 +620,9 @@ def load_snapshot_at_tick(conn: sqlite3.Connection, tick: int, runtime_config: C
     scrub-through-time view, not a rewind of the live world. See
     `GET /snapshots/{tick}`."""
     row = conn.execute(
-        "SELECT world_json FROM snapshots WHERE tick = ? LIMIT 1", (tick,)
+        "SELECT id FROM snapshots WHERE tick = ? LIMIT 1", (tick,)
     ).fetchone()
     if row is None:
         return None
-    data = json.loads(row[0])
+    data = _reconstruct_snapshot_dict(conn, row[0])
     return World.from_dict(data, runtime_config)
