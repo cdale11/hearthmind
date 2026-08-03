@@ -1401,7 +1401,7 @@ against a real `TimescaleLadder` anywhere. Real future work, naturally
 paired with B9.3's own still-open audit and the rest of the unwired
 Runtime modules (B2 through B8) once a real migration pass begins.
 
-## B10 — Locality [Hard Rule 11] [PARTIAL — B10.1/B10.3 shipped v1.34.177, B10.2's discovery tool shipped v1.34.177 + four real pilot conversions shipped v1.34.184/v1.34.190/v1.34.191/v1.34.192, 72 flagged sites still open]
+## B10 — Locality [Hard Rule 11] [PARTIAL — B10.1/B10.3 shipped v1.34.177, B10.2's discovery tool shipped v1.34.177 + four real pilot conversions shipped v1.34.184/v1.34.190/v1.34.191/v1.34.192, 72 flagged sites re-audited and confirmed exhausted v1.34.205]
 
 - [x] **B10.1 — Spatial index / region partition — SHIPPED, v1.34.177.**
   New `hearthmind/simulation/locality.py`'s `RegionGrid`: a uniform-
@@ -1568,6 +1568,30 @@ wildcard-write tasks exist in practice today). Real future work,
 naturally paired with B2.4's attention allocation (the doc's own named
 partner for B10.3) and B10.2's still-open real audit.
 
+**B10.2 re-audit, v1.34.205 — confirmed exhausted, not just
+re-asserted.** Explicit user directive ("reverse the never-big-bang
+policy... build whatever is required for blocked items") prompted a
+fresh `scan_global_scans.py` run (still 72 sites) followed by DIRECT
+line-by-line inspection of every `settlement/buildings.py` site (8)
+and a representative sample of `agents/population.py`'s `.buildings`/
+`.vehicles`/`.institutions` sites — not just trusting the prior
+pilot's own conclusion. Confirmed: the `settlement/buildings.py` 8
+are either the `buildings_of_kind`/`vehicles_of_kind`/`institutions_
+of_kind` index-BUILDER functions themselves (the base case a kind
+index can't be built without scanning once) or genuine full scans that
+need every entity regardless of kind (decay ticking touches every
+STANDING building; the diagnostics telemetry panel needs every
+building/vehicle's real state). The sampled `population.py` sites
+(`_advance_construction`/`_maybe_repair`/`_advance_vehicle_
+construction`/`_maybe_repair_vehicles`/inheritance's building-transfer
+loop/the dead-rider vehicle-release loop) all filter by `.stage`/
+`.condition`/`.owner_agent_id`/`.assigned_agent_id` — never by
+`.kind` — so `buildings_of_kind()`/`vehicles_of_kind()`/`institutions_
+of_kind()` genuinely cannot help any of them. This is the same
+conclusion the fourth B10.2 pilot (v1.34.192) reached, now backed by
+this pass's own direct evidence rather than inherited trust in that
+conclusion.
+
 ## B11 — Hierarchical memory [Hard Rule 12] [PARTIAL — B11.1-B11.4 shipped v1.34.178, not wired into any real control point]
 
 - [x] **B11.1 — Four tiers with explicit migration policy — SHIPPED,
@@ -1679,7 +1703,7 @@ reconstructable archived detail today) and wiring `condense_fn` at
 each stage to a real existing narrative job (chronicle for raw->
 episode, documentary/culture_digest for episode->summary, etc.).
 
-## B13 — Optimization hypotheses [Hard Rule 14] [PARTIAL — B13.1-B13.5 shipped v1.34.180/v1.34.183, not wired into any real control point]
+## B13 — Optimization hypotheses [Hard Rule 14] [PARTIAL — B13.1-B13.5 shipped v1.34.180/v1.34.183, real first wiring for llm_max_concurrent v1.34.205]
 
 - [x] **B13.1 — Hypothesis loop — SHIPPED, v1.34.180.** New
   `hearthmind/simulation/optimization_hypothesis.py`'s `HypothesisLoop.
@@ -1742,19 +1766,59 @@ episode, documentary/culture_digest for episode->summary, etc.).
   disqualified genome is never kept as a population's sole survivor
   over a qualifying alternative. **Closes B13 in full.**
 
-**Not wired into any real control point** — no import from
-`optimization_hypothesis.py` exists in `simulation/engine.py`/
-`server.py`; no real `HypothesisLoop` has ever been constructed over
-B6.3's actual registered LLM-pacing tunables, and `equivalence_check_
-fn` has only ever been exercised with a synthetic stand-in, never
-against a real `scripts/verify_replay_hash.py` invocation on a forked
-world. Real future work: a live-diagnostic-driven pass that
-constructs a real `HypothesisLoop` over `register_llm_pacing_
-tunables`'s actual registry, wires `equivalence_check_fn` to a real
-forked-world replay-hash comparison, and lets it propose the next
-retune of a constant like `llm_max_concurrent` — the exact constant
-whose own long documented CLAUDE.md history (4→2→1→2→1→2) this whole
-item exists to eventually automate.
+- [x] **B13, real first wiring for `llm_max_concurrent` — v1.34.205.**
+  Explicit user directive ("reverse the never-big-bang policy...
+  build whatever is required for blocked items"). `SimulationEngine.
+  __init__` now builds a real `self._llm_concurrency_hypothesis_loop`
+  (`HypothesisLoop(registry=self._tuning_registry, owned_tunable_
+  names={"llm_max_concurrent"})`) — deliberately a MANUALLY-invoked
+  control point (`_run_llm_concurrency_hypothesis`, never scheduled
+  into `_TICK_JOBS`), so it can never fight B6/B7's own already-live
+  `BangBangController`/`select_strategy` over this SAME tunable — two
+  independent automatic controllers adjusting one value would be a
+  real correctness risk this pass declines to introduce.
+
+  The real structural blocker this item's own text names ("needs a
+  live-diagnostic-driven pass") turned out to be sharper than
+  discipline: `HypothesisLoop.apply_and_measure`'s `measure_fn`
+  contract is synchronous, called twice back-to-back with zero real
+  elapsed time between calls — genuinely unable to host an awaited
+  probe itself, and this environment has no live LLM server to measure
+  latency against anyway. Solved with a real ACTIVE probe instead of a
+  passive stat read: `_probe_concurrency_wait_ms` builds a fresh
+  throwaway `_ResizableSemaphore` (the exact class `CognitionRunner`
+  itself uses) and times how long several real asyncio tasks take to
+  all acquire/release it under a given concurrency limit — a genuine,
+  live-measurable signal needing no LLM at all (verified: 1-slot
+  concurrency measurably waits longer than 8-slot for the same
+  synthetic workload). `_run_llm_concurrency_hypothesis` awaits this
+  probe once under the CURRENT value and once under the PROPOSED one
+  BEFORE calling into the still-synchronous B13.1 loop, unmodified
+  from its own already-verified API.
+
+  `equivalence_check_fn` reuses `simulation/sandbox.py`'s own real
+  fork-and-tick technique (`World.from_dict(world.to_dict(), config)` +
+  a real throwaway `SimulationEngine`, never `copy.deepcopy` — the
+  established precedent for safely forking a live `World` without
+  dragging along native-extension-backed objects) plus B15.1's own
+  hashing shape: two independent forks, one LLM-disabled config per
+  candidate value, ticked forward and hash-compared. Verified directly
+  — confirms `llm_max_concurrent` genuinely cannot affect Body-
+  deterministic state (expected, since it only gates async LLM-call
+  scheduling), never merely assumed.
+
+  New `scripts/verify_b13_llm_concurrency_hypothesis.py` (8 checks) —
+  real active-probe direction, `CrossAuthorityError`, a genuine
+  improvement kept + registry actually resized, a non-improving
+  proposal rolled back + registry unchanged, the real equivalence
+  check, and confirmation this is never auto-scheduled. All pass, first
+  run, no bug found.
+
+  What "propose the next retune of `llm_max_concurrent`" (this item's
+  own long-standing framing) would still take: a real dev-console/
+  diagnostics HTTP action calling `_run_llm_concurrency_hypothesis`
+  with an operator-supplied candidate value — the mechanism itself is
+  now real and verified; only the UI trigger is future work.
 
 ## B14 — Persistence & background work [PARTIAL — B14.1-B14.3 shipped v1.34.181; B14.1 wired to a real control point v1.34.203]
 
@@ -1823,6 +1887,27 @@ live `HostProbe.sample()` reading (no batched-write mechanism exists
 in `persistence/database.py` to size). Real future work, unchanged:
 a genuine incremental-snapshot storage format would need to exist
 first for B14.2 to have anything real to decide between.
+
+**Real correctness risk identified, v1.34.205 (explicit user directive
+to "build whatever is required for blocked items" prompted a concrete
+design investigation rather than another wiring attempt).**
+`persistence/snapshot.py`'s `_prune_snapshots` deletes rows purely by
+`id`/`tick` recency (`SNAPSHOT_KEEP_RECENT`/keyframe interval) with NO
+concept of a FULL-snapshot-plus-its-dependent-INCREMENTAL-diffs chain.
+A naive B14.2 implementation (store only the changed top-level
+`World.to_dict()` keys for an INCREMENTAL row, reconstruct by merging
+forward from the nearest earlier FULL row) would be genuinely unsafe
+under this exact pruning function: an INCREMENTAL row can survive
+pruning while its own base FULL row does not, making that snapshot
+permanently unreconstructable — silent data loss on a long-running
+world, discovered only at load time. This is precisely the class of
+mistake this project's "never big-bang" discipline exists to catch
+before it ships, not after — B14.2 needs `_prune_snapshots` reworked
+to prune whole FULL+INCREMENTAL chains atomically (never orphaning a
+dependent row) BEFORE any real diff format is introduced, not as an
+afterthought once one exists. Flagged as the concrete first design
+constraint for whoever picks up B14.2 next, not just "needs a diff
+format" as before this pass.
 
 ## B15 — Semantic safety: the determinism guarantee [Hard Rule 1] [PARTIAL — B15.1-B15.5 shipped v1.34.102/v1.34.182; B15.3/B15.4 wired to a real control point v1.34.203]
 

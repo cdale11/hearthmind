@@ -1156,6 +1156,33 @@ starts on an explicit instruction naming an item.
       remainder/B11/B12/B13/B14.2/B14.3/B15.5 remain open, each still
       needing its own separately-scoped build.
 
+      **B13's real first wiring for `llm_max_concurrent` — v1.34.205.**
+      Explicit user follow-up: "Keep going and build whatever is
+      required for blocked items." A real `HypothesisLoop`, manual-
+      only (never `_TICK_JOBS`-scheduled, so it can't fight B6/B7's own
+      live `BangBangController` over the same tunable). The real
+      structural blocker: `apply_and_measure`'s `measure_fn` is
+      synchronous with zero elapsed time between its two calls — can't
+      host an awaited probe, and no live LLM exists in this environment
+      to measure latency against regardless. Fixed with a genuine
+      active probe (`_probe_concurrency_wait_ms`, a real throwaway
+      `_ResizableSemaphore` timed under real asyncio contention — needs
+      no LLM) run twice BEFORE handing results to the unmodified,
+      already-verified synchronous B13.1 loop. `equivalence_check_fn`
+      reuses `simulation/sandbox.py`'s real fork-and-tick technique +
+      B15.1's hashing. New `scripts/verify_b13_llm_concurrency_
+      hypothesis.py` (8 checks). Same pass: B10.2 re-audited by direct
+      inspection (confirmed exhausted, same conclusion as the fourth
+      pilot); B14.2/B14.3 investigated and found to carry a real
+      correctness hazard (`_prune_snapshots` has no FULL+INCREMENTAL
+      chain concept — a naive diff format would let pruning orphan an
+      unreconstructable snapshot), documented as the concrete first
+      design constraint rather than rushed past; B11/B12/B9.3 found no
+      safe, meaningful, environment-testable first consumer this pass.
+      Verified: the new script (8 checks), full existing suite re-run
+      clean, replay-hash MATCH (4000 ticks, seed 777), native-soak
+      MATCH (3 seeds x 3000 ticks).
+
       **B4.2 pilot ("idle institutions") — SHIPPED, v1.34.187.**
       Explicit user choice via `AskUserQuestion` among B4.2's five named
       candidates, after an investigation found the other four (forgotten

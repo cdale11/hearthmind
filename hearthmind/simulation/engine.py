@@ -17,6 +17,7 @@ docs/DECISIONS.md, B1/B2/B3.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import itertools
 import json
 import logging
@@ -107,7 +108,7 @@ from hearthmind.simulation.sandbox import evaluate_concept_dual_fork, run_counte
 from hearthmind.simulation.dormancy import DormancyManager
 from hearthmind.simulation.task_graph import PriorityClass, Task, TaskRegistry, TriggerKind
 from hearthmind.simulation.scheduler import Scheduler, SubsystemBudget
-from hearthmind.simulation.tuning import BangBangController, TunableRegistry, register_llm_pacing_tunables
+from hearthmind.simulation.tuning import BangBangController, SafetyClass, TunableRegistry, register_llm_pacing_tunables
 from hearthmind.simulation.runtime_diagnostics import runtime_diagnostics_report
 from hearthmind.simulation.hardware_profile import GoodCitizenPolicy, HostProbe, MachineProfile, host_fingerprint, select_strategy
 from hearthmind.simulation.forecasting import is_quiet_window
@@ -120,8 +121,9 @@ from hearthmind.llm.cognition import (
     RECENT_MEMORIES_IN_PROMPT, SURVIVAL_ENERGY_THRESHOLD, SURVIVAL_HUNGER_THRESHOLD, SYSTEM_PROMPT, build_prompt,
     fallback_goal, parse_goal,
 )
-from hearthmind.llm.jobs import CognitionRunner
+from hearthmind.llm.jobs import CognitionRunner, _ResizableSemaphore
 from hearthmind.llm.recorder import TrainingRecorder
+from hearthmind.simulation.optimization_hypothesis import AdaptationHistory, AdaptationRecord, HypothesisLoop
 from hearthmind.persistence.snapshot import (
     consciousness_log_count, events_by_category, events_since_tick, history_events,
     load_latest_snapshot, log_agent_memory_entry, log_consciousness_entry, log_event, log_metrics,
@@ -1167,6 +1169,31 @@ budget above. WHICH agents fill this budget stays entirely `due_for_
 cognition`'s own staggered-slot/significance ordering — B15.4's own
 "never a selection" guarantee."""
 
+CONCURRENCY_PROBE_TASKS = 12
+"""Tier 5 B13's real active-probe measurement (`_probe_concurrency_
+wait_ms`): how many synthetic asyncio tasks compete for the throwaway
+semaphore each probe call. High enough that a small concurrency limit
+(1-2) produces real, measurable queueing against a larger one (6-8)
+within a few probe calls; low enough that a probe run costs well under
+a second even at the smallest concurrency setting."""
+
+CONCURRENCY_PROBE_HOLD_SECONDS = 0.02
+"""Tier 5 B13's real active-probe hold duration per synthetic task —
+short enough that `CONCURRENCY_PROBE_TASKS` probes complete quickly,
+long enough that real `asyncio` scheduling overhead doesn't dominate
+the measured signal."""
+
+CONCURRENCY_EQUIVALENCE_CHECK_TICKS = 30
+"""Tier 5 B13.2's real semantic-safety gate for `llm_max_concurrent`
+(`_concurrency_equivalence_check`): how many ticks each forked world
+runs before comparing state hashes. Short — `llm_max_concurrent` only
+ever gates async LLM-call scheduling, never anything `World.tick()`
+itself reads, so a genuine divergence (if the tunable's meaning ever
+changed) would show up on the very first tick; this is a real,
+reasoned floor, not a live-measured value, same "not tuned against
+production data" honesty every other Tier 5 constant docstring in this
+file already states where true."""
+
 BROADCAST_SUBSYSTEM_BUDGET_SECONDS = 0.015
 """Tier 5 B2's real control point: `_maybe_broadcast` (the per-tick
 WebSocket payload build — agents/buildings/summary/etc., explicitly
@@ -1850,6 +1877,22 @@ class SimulationEngine:
             hysteresis=ADAPTIVE_CONCURRENCY_HYSTERESIS_MS,
             increases_measurement=True,
         )
+        self._hypothesis_history = AdaptationHistory()
+        self._llm_concurrency_hypothesis_loop = HypothesisLoop(
+            registry=self._tuning_registry,
+            owned_tunable_names=frozenset({"llm_max_concurrent"}),
+            history=self._hypothesis_history,
+        )
+        """Tier 5 B13's real first consumer (explicit user directive:
+        "reverse the never-big-bang policy... build whatever is
+        required for blocked items"). Deliberately a MANUALLY-invoked
+        control point (`_run_llm_concurrency_hypothesis`, below) —
+        never scheduled automatically into `_TICK_JOBS` — so it can
+        never fight B6/B7's own already-live `BangBangController` over
+        this SAME tunable. Two independent automatic controllers
+        adjusting one value would be a genuine correctness risk this
+        pass declines to introduce; a human-invoked what-if check
+        alongside the live automatic controller is not."""
         # Tier 5 B7's real control point (explicit user directive: "B7"):
         # `GoodCitizenPolicy.should_back_off` is B7.4's own named input
         # signal for "a real scheduler would consult this" — B6's daily
@@ -3500,6 +3543,138 @@ class SimulationEngine:
             "host_pressure_veto": host_pressure_veto,
             "strategy_cap_applied": strategy_cap_applied,
         })
+
+    async def _probe_concurrency_wait_ms(
+        self, concurrency: int, n_tasks: int = CONCURRENCY_PROBE_TASKS,
+        hold_seconds: float = CONCURRENCY_PROBE_HOLD_SECONDS,
+    ) -> float:
+        """Tier 5 B13's real active-probe `measure_fn` primitive. Not a
+        synthetic stand-in reading a fabricated number: builds a fresh,
+        throwaway `_ResizableSemaphore(concurrency)` (the SAME class
+        `CognitionRunner` itself uses to gate real LLM calls) and times
+        how long `n_tasks` real asyncio tasks each holding it for
+        `hold_seconds` genuinely take to all complete — a lower
+        concurrency limit forces more serialization and measurably
+        raises this real wall-clock number, a higher one lowers it.
+        Deliberately drives its OWN throwaway semaphore instance rather
+        than the live `self._cognition_runner`'s one — a hypothesis
+        probe must never contend with real in-flight LLM calls for the
+        real gate."""
+        sem = _ResizableSemaphore(max(1, concurrency))
+
+        async def _hold_once() -> None:
+            async with sem:
+                await asyncio.sleep(hold_seconds)
+
+        start = time.perf_counter()
+        await asyncio.gather(*(_hold_once() for _ in range(n_tasks)))
+        return (time.perf_counter() - start) * 1000.0
+
+    async def _run_llm_concurrency_hypothesis(
+        self, proposed_value: int, hypothesis: str,
+    ) -> AdaptationRecord:
+        """Tier 5 B13's real first wiring for `llm_max_concurrent`
+        (explicit user directive: "reverse the never-big-bang policy
+        ... build whatever is required for blocked items"). Manually
+        invoked only (see `self._llm_concurrency_hypothesis_loop`'s own
+        docstring for why this is deliberately never scheduled
+        automatically) — a caller (dev console / a future diagnostics
+        action) supplies a candidate value and a free-text hypothesis;
+        this runs the real B13.1 loop end to end.
+
+        `HypothesisLoop.apply_and_measure`'s own `measure_fn` contract
+        is synchronous (called twice, back-to-back, with no real time
+        elapsing between the calls) — genuinely unable to host an
+        AWAITED probe itself. Real measurements are taken here, BEFORE
+        calling into the synchronous loop: `_probe_concurrency_wait_ms`
+        is awaited once under the CURRENT value and once under the
+        PROPOSED one, and `apply_and_measure` is handed a plain
+        two-element lookup as its `measure_fn` — real work happens in
+        this method, the B13.1 loop still owns the actual keep/rollback
+        accounting and `AdaptationHistory` record, unmodified from its
+        own already-verified (`verify_optimization_hypothesis.py`)
+        synchronous API.
+
+        `improved`/the SENSITIVE-gate decision are computed here too
+        (duplicating `apply_and_measure`'s own internal `better_fn`
+        check) so the expensive real equivalence probe below only ever
+        runs when it would actually matter — B13.2's own "only after a
+        genuine measured improvement" rule, honored a level up since
+        the real check can't itself be awaited inside the synchronous
+        loop."""
+        before_value = int(self._tuning_registry.get("llm_max_concurrent").value)
+        measured_before = await self._probe_concurrency_wait_ms(before_value)
+        measured_after = await self._probe_concurrency_wait_ms(int(proposed_value))
+        results = [measured_before, measured_after]
+        call_index = {"i": 0}
+
+        def measure_fn() -> float:
+            i = call_index["i"]
+            call_index["i"] = min(i + 1, 1)
+            return results[i]
+
+        def better_fn(before: float, after: float) -> bool:
+            return after < before  # lower real queueing wait is better
+
+        improved = better_fn(measured_before, measured_after)
+        tunable = self._tuning_registry.get("llm_max_concurrent")
+        equivalence_result: bool | None = None
+        if improved and tunable.safety_class is SafetyClass.SENSITIVE:
+            equivalence_result = await self._concurrency_equivalence_check(
+                before_value, int(proposed_value),
+            )
+
+        def equivalence_check_fn() -> bool:
+            return bool(equivalence_result)
+
+        return self._llm_concurrency_hypothesis_loop.apply_and_measure(
+            tunable_name="llm_max_concurrent", proposed_value=float(proposed_value),
+            hypothesis=hypothesis, measure_fn=measure_fn, better_fn=better_fn,
+            equivalence_check_fn=equivalence_check_fn,
+        )
+
+    async def _concurrency_equivalence_check(self, before_value: int, after_value: int) -> bool:
+        """B13.2's real semantic-safety gate for `llm_max_concurrent`,
+        reusing `simulation/sandbox.py`'s own real fork-and-tick
+        technique (`World.from_dict(world.to_dict(), config)` + a real
+        throwaway `SimulationEngine`, never `copy.deepcopy` — the
+        established precedent for safely forking a live `World` without
+        dragging along any native-extension-backed object graph) and
+        B15.1's own hashing shape (`scripts/verify_replay_hash.py`'s
+        `_state_hash`). Two independent forks, one config carrying
+        `before_value` and one carrying `after_value` (both LLM
+        disabled), each ticked `CONCURRENCY_EQUIVALENCE_CHECK_TICKS`
+        times with the same real background-task cleanup `run_
+        counterfactual` uses. Byte-identical `to_dict()` output
+        confirms `llm_max_concurrent` genuinely cannot affect Body-
+        deterministic state — never assumed, always checked."""
+        import dataclasses
+
+        from hearthmind.persistence.database import connect
+
+        def _hash(world: World) -> str:
+            payload = json.dumps(world.to_dict(), sort_keys=True, default=str)
+            return hashlib.sha256(payload.encode()).hexdigest()
+
+        base_snapshot = self.world.to_dict()
+        hashes: dict[int, str] = {}
+        for value in (before_value, after_value):
+            fork_config = dataclasses.replace(self.world.config, llm_enabled=False, llm_max_concurrent=value)
+            forked_world = World.from_dict(base_snapshot, fork_config)
+            conn = connect(":memory:")
+            fork_engine = SimulationEngine(conn, fork_config, forked_world)
+            try:
+                for _ in range(CONCURRENCY_EQUIVALENCE_CHECK_TICKS):
+                    fork_engine._tick_once()
+                    await asyncio.sleep(0)
+            finally:
+                if fork_engine._background_tasks:
+                    for task in fork_engine._background_tasks:
+                        task.cancel()
+                    await asyncio.gather(*fork_engine._background_tasks, return_exceptions=True)
+                conn.close()
+            hashes[value] = _hash(forked_world)
+        return hashes[before_value] == hashes[after_value]
 
     def _maybe_refresh_machine_profile(self, events: list[str]) -> None:
         """Tier 5 B7.2's real control point (explicit user directive:

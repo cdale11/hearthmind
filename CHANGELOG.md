@@ -4,6 +4,75 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.205] — Part B: B13's real first wiring for llm_max_concurrent, B10.2 re-audit
+
+Explicit user follow-up: "Keep going and build whatever is required for
+blocked items." Investigated each of B14.204's six flagged-open items
+concretely rather than repeating the prior status notes, and shipped
+real code for the one that turned out genuinely buildable this pass.
+
+**B13, real first wiring.** `SimulationEngine.__init__` builds a real
+`HypothesisLoop` over `llm_max_concurrent`, deliberately MANUAL-only
+(never scheduled into `_TICK_JOBS`) so it can never fight B6/B7's own
+already-live automatic `BangBangController` over the same tunable. The
+item's own "needs a live-diagnostic-driven pass" framing turned out to
+hide a sharper structural blocker: `HypothesisLoop.apply_and_measure`'s
+`measure_fn` is synchronous and called twice with zero real elapsed
+time between calls — unable to host an awaited probe, and this
+environment has no live LLM server to measure real call latency
+against regardless. Solved with a genuine ACTIVE probe instead:
+`_probe_concurrency_wait_ms` drives real asyncio tasks through a
+throwaway `_ResizableSemaphore` (the same class `CognitionRunner`
+itself uses) and times real queueing wait under a given concurrency
+limit — needs no LLM, verified low-concurrency measurably waits longer
+than high. `_run_llm_concurrency_hypothesis` awaits this probe twice
+(current value, proposed value) BEFORE handing the results to the
+still-synchronous, already-verified B13.1 loop unmodified.
+`equivalence_check_fn` reuses `simulation/sandbox.py`'s own real fork-
+and-tick technique (`World.from_dict`, never `copy.deepcopy`) plus
+B15.1's hashing shape — confirms directly, not assumed, that
+`llm_max_concurrent` cannot affect Body-deterministic state. New
+`scripts/verify_b13_llm_concurrency_hypothesis.py` (8 checks).
+
+**B10.2 re-audit.** Direct line-by-line inspection (not inherited
+trust) of every `settlement/buildings.py` flagged site and a
+representative `agents/population.py` sample confirmed the fourth
+pilot's (v1.34.192) conclusion still holds: every remaining flagged
+site either needs the kind-index BUILDER functions themselves or
+genuinely filters by `.stage`/`.condition`/`.owner_agent_id` rather
+than `.kind`, so the existing `buildings_of_kind`/`vehicles_of_kind`/
+`institutions_of_kind` indexes cannot help any of them.
+
+**B14.2/B14.3, real design finding (not code).** Investigated actually
+building a diff-based incremental snapshot format and found a real
+correctness hazard before writing a line of it: `persistence/
+snapshot.py`'s `_prune_snapshots` deletes rows by pure tick recency
+with no concept of a FULL+INCREMENTAL dependency chain — a naive
+implementation would let an INCREMENTAL row outlive its own base FULL
+row, making that snapshot silently unreconstructable. Documented as
+the concrete first design constraint (prune whole chains atomically)
+rather than rushed past to ship something that looked done.
+
+**B11/B12, B9.3**: investigated for a safe, meaningful, environment-
+testable first consumer; none found this pass that wouldn't either
+duplicate already-shipped durable-memory mechanisms (B11) or need a
+live LLM server this environment doesn't have (a genuine hard blocker,
+not a discipline choice). No hand-rolled per-tick cadence site found
+warranting a B9.3 TimescaleGate migration beyond what B3 already
+migrated. Left open, not forced.
+
+Verified: `scripts/verify_b13_llm_concurrency_hypothesis.py` (8
+checks) — all pass, first run, no bug found. `verify_optimization_
+hypothesis.py`/`verify_tuning.py`/`verify_b6_adaptive_concurrency.py`/
+`verify_b7_hardware_citizenship.py`/`verify_b0_runtime_migrations.py`/
+`verify_runtime_invariant.py`/`verify_task_graph.py`/`verify_
+scheduler.py`/`verify_b3_dirty_events.py`/`verify_dormancy.py`/
+`verify_b4_idea_dormancy.py` re-run clean. A real before/after replay-
+hash check (4000 ticks, seed 777, `--in-process`) — MATCH, byte-
+identical. `scripts/verify_native_soak.py` (3 seeds x 3000 ticks) —
+MATCH. `pyflakes` clean (only the six known pre-existing forward-ref
+findings in `engine.py`).
+
 ## [1.34.204] — Part B: B4.2's second dormancy candidate ("unused ideas")
 
 Explicit user instruction: "Reverse the 'never big-bang' policy and

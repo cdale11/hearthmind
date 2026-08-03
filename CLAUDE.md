@@ -742,6 +742,49 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.205)
+
+Explicit user follow-up: "Keep going and build whatever is required
+for blocked items." Investigated each of v1.34.204's six flagged-open
+items concretely (not just re-stated the prior notes) and shipped real
+code for the one that turned out genuinely buildable.
+
+**B13, real first wiring for `llm_max_concurrent`.** Manual-only
+`HypothesisLoop` (never auto-scheduled, so it can't fight B6/B7's own
+live `BangBangController` over the same tunable). Real blocker found:
+`apply_and_measure`'s `measure_fn` is synchronous with zero elapsed
+time between its two calls — can't host an awaited probe, and this
+environment has no live LLM server to measure real latency against
+anyway. Fixed with a genuine active probe instead: `_probe_
+concurrency_wait_ms` drives real asyncio tasks through a throwaway
+`_ResizableSemaphore` (same class `CognitionRunner` itself uses) and
+times real queueing wait — needs no LLM. Real `equivalence_check_fn`
+reuses `simulation/sandbox.py`'s fork-and-tick technique + B15.1's
+hashing. New `scripts/verify_b13_llm_concurrency_hypothesis.py` (8
+checks).
+
+**B10.2**: re-audited by direct inspection (not inherited trust) —
+confirmed the fourth pilot's conclusion still holds, no further
+convertible sites exist.
+
+**B14.2/B14.3**: found a real correctness hazard before writing code
+— `_prune_snapshots` has no concept of a FULL+INCREMENTAL chain, so a
+naive diff format would let pruning silently orphan an unreconstructable
+snapshot. Documented as the concrete first design constraint for
+whoever builds this next.
+
+**B11/B12/B9.3**: no safe, meaningful, environment-testable first
+consumer found this pass — B11 would duplicate already-shipped durable
+memory mechanisms, B9.3 found no un-migrated hand-rolled cadence site,
+and a genuinely useful B12 target needs its own scoped decision. Left
+open rather than forced.
+
+Verified: `scripts/verify_b13_llm_concurrency_hypothesis.py` (8
+checks) — all pass, first run, no bug found. Full existing verify
+suite re-run clean. Replay-hash MATCH (4000 ticks, seed 777).
+Native-soak MATCH (3 seeds x 3000 ticks). `pyflakes` clean (only the
+six known pre-existing forward-ref findings).
+
 ## Current state (v1.34.204)
 
 Explicit user instruction: "Reverse the 'never big-bang' policy and
