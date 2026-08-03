@@ -1496,8 +1496,29 @@ with three shared components.
       future work.
 
 **L4 — calibration**
-- [ ] **L4.1 Belief confidence** — isotonic/Platt calibration.
-      **Deliberately not a network** (demoted from the audit's M7).
+- [x] **L4.1 Belief confidence** — substrate SHIPPED, v1.34.210, as
+      `hearthmind/ml/belief_calibration.py`'s `BeliefConfidence
+      Calibrator`/`compute_belief_outcome_label`/`extract_calibration_
+      examples`/`calibration_gap` — a thin domain wrapper over L0's
+      already-shipped `PlattCalibrator` (that class's own docstring
+      already named L4.1 as its motivation, v1.34.171 — only the
+      domain wiring was missing). Real ground truth: `World.
+      reflection_notebook` entries settling to `"supported"`/
+      `"rejected"` via the existing multi-cycle evidence loop — a
+      genuine "did this stated belief hold up" outcome, `"open"`/
+      `"superseded"` entries correctly excluded as unsettled rather
+      than guessed at either way. **Deliberately not a network**
+      (demoted from the audit's M7). Verified: `scripts/verify_belief_
+      calibration.py` (14 checks — outcome-label correctness, example
+      extraction, graceful degradation on missing fields, the
+      calibration-gap diagnostic on both an overconfident synthetic
+      source and a well-calibrated one, and the calibrator genuinely
+      pulling an overconfident value toward reality after fitting) —
+      all pass, first run, no bug found. **Not wired into any real
+      consumer this pass** — needs a real settled-hypothesis history
+      from a live world this offline environment has no archive to
+      source, same "ship the substrate, wire it once a real consumer/
+      archive exists" discipline L0/L2.1/L3.1/L3.2 all shipped under.
 
 **L5 — the lifelong learning loop** (added v1.34.172, explicit user
 correction: the original filing was missing this — "weights are

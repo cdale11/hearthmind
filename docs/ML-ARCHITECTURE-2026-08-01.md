@@ -277,7 +277,31 @@ runtime-scoped model (or a deliberate warm-start seed before a fresh
 world's own Mind models start specializing) learn from every run that
 has ever happened on this host.
 
-### L4.1 — Belief confidence calibration *(not a network)*
+### L4.1 — Belief confidence calibration *(not a network)* [SUBSTRATE SHIPPED, v1.34.210]
+
+`hearthmind/ml/belief_calibration.py`: `BeliefConfidenceCalibrator`
+(a thin domain wrapper over L0's already-shipped `PlattCalibrator` —
+that class's own docstring names L4.1 as its motivation since v1.34.171,
+but the domain-specific wiring was never built until now),
+`compute_belief_outcome_label`/`extract_calibration_examples` (real
+ground truth: `World.reflection_notebook` entries settling to
+`"supported"`/`"rejected"` via the existing multi-cycle evidence
+loop — a genuine "did this stated belief hold up" outcome, not an
+invented label), `calibration_gap` (a model-free diagnostic: mean
+signed difference between stated confidence and the real empirical
+hold-up rate). Verified: `scripts/verify_belief_calibration.py` (14
+checks — outcome-label correctness, example extraction excluding
+unsettled `"open"`/`"superseded"` entries, graceful degradation on
+missing fields, the calibration-gap diagnostic on both a synthetic
+overconfident source and a well-calibrated one, and the calibrator
+genuinely pulling an overconfident stated value toward reality after
+fitting). **Not wired into any real consumer this pass** — `_maybe_
+schedule_self_tuning`/`town_brain`/etc. still read a raw, uncalibrated
+`reflection_pillar.subject_confidence()`/entry `confidence` — needs a
+real settled-hypothesis history from a live world this offline
+environment has no archive to source, same "ship the substrate, wire
+it once a real consumer/archive exists" discipline L0/L2.1/L3.1/L3.2
+all shipped under.
 
 Maps asserted confidence → empirically calibrated confidence using
 isotonic regression or Platt scaling, against whether beliefs of that

@@ -1810,6 +1810,34 @@ def _tradition_fingerprint(settlement: "Settlement", tradition: str, agents: lis
     return sum(1 for a in agents if tradition in a.kept_traditions)
 
 
+SETTLEMENT_DORMANCY_IDLE_CHECKS_THRESHOLD = 3
+"""Tier 5 B4.2, fourth candidate ("inactive settlements"): same shape
+and same threshold as the institutions/ideas/traditions pilots above.
+Unlike the two candidates this pilot's own prior entries flagged as
+needing a genuinely lossless elapsed-tick reconstruction (this one and
+"distant wildlife"), "inactive settlements" turns out to have the
+identical safe shape as the other three once scoped correctly: it
+gates `_job_target()`'s existing month-indexed round-robin over WHICH
+settlement gets this month's settlement-scoped LLM jobs (town_brain,
+beliefs, chronicle, ...) — never `Population.tick()`/`WildlifeGrid.
+tick()` for that settlement, which keep running every tick for every
+settlement regardless. A settlement with nothing coarse-grained
+changing about it for 3 consecutive monthly checks is dormant in the
+Mind-layer-attention sense only; any real change wakes it immediately."""
+
+
+def _settlement_fingerprint(settlement: "Settlement", population_count: int) -> tuple:
+    """Cheap idle-vs-active proxy for one settlement: living population,
+    era, standing building count, tech level — coarse, cheap-to-compute
+    structural facts, deliberately NOT materials/currency (which drift
+    every tick from ordinary economic activity and would make a
+    settlement "active" forever, defeating the whole point). A
+    settlement where none of these four shift for several consecutive
+    monthly checks is genuinely quiet; a birth/death, era advance, new
+    building, or invention wakes it immediately."""
+    return (population_count, settlement.era, len(settlement.buildings), settlement.tech_level)
+
+
 class SimulationEngine:
     def __init__(
         self, conn: sqlite3.Connection, config: Config, world: World,
@@ -2366,6 +2394,24 @@ class SimulationEngine:
         personal-keeper-spread ROLL (pure Mind-layer attention) is
         gated. All three dicts are runtime scheduling state, never
         persisted — same restart-safe discipline as the two siblings."""
+        self._settlement_dormancy = DormancyManager()
+        self._settlement_fingerprint: dict[int, tuple] = {}
+        self._settlement_idle_checks: dict[int, int] = {}
+        """Tier 5 B4.2, fourth candidate ("inactive settlements") — same
+        real `DormancyManager` shape as the three siblings above, over
+        named `World.settlements` instead. See `_update_settlement_
+        dormancy`/`_settlement_fingerprint` (module-level helper) for
+        the mechanism; `_job_target`'s existing month-indexed round-
+        robin excludes sleeping settlements the same way `_institution_
+        job_target`/`_maybe_spread_concepts`/`_maybe_spread_tradition_
+        keeping` exclude their own sleeping entities. Compliant with
+        B15's `TWO_PART_GUARANTEE` for the identical reason: a
+        settlement's own Body-deterministic ticking (`Population.
+        tick()`, `WildlifeGrid.tick()`) is completely untouched by this
+        dormancy — only which settlement gets this month's Mind-layer
+        narrative attention is gated. Runtime scheduling state, never
+        persisted — same restart-safe discipline as the three
+        siblings."""
         self._rumor_retellings_recent: list[dict] = []
         """A17's fitness-vs-truth axis (`world.memetics.rumor_fitness`/
         `rumor_truth_score`) — a small capped, transient (not persisted,
@@ -3309,6 +3355,23 @@ class SimulationEngine:
         ))
         self._runtime_scheduler_tradition_dormancy = Scheduler(self._runtime_registry_tradition_dormancy)
 
+        # Tier 5 B4.2, fourth dormancy candidate ("inactive settlements")
+        # — same real ON_EVENT/month_end shape as the three siblings
+        # above, over named `World.settlements` themselves instead.
+        self._runtime_registry_settlement_dormancy = TaskRegistry()
+        self._runtime_registry_settlement_dormancy.register(Task(
+            id="settlement_dormancy",
+            subsystem="settlement_dormancy",
+            fn=self._update_settlement_dormancy,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"month_end"}),
+            reads=frozenset({"world.settlements"}),
+            writes=frozenset({"world.settlements"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_settlement_dormancy = Scheduler(self._runtime_registry_settlement_dormancy)
+
         self._runtime_registry_institution_culture = TaskRegistry()
         self._runtime_registry_institution_culture.register(Task(
             id="institution_culture",
@@ -4081,13 +4144,25 @@ class SimulationEngine:
         keeps total monthly LLM volume flat no matter how many
         settlements exist — the multi-settlement pass must not multiply
         the call load on the 8GB target hardware. With one settlement
-        this is exactly the old behavior."""
+        this is exactly the old behavior.
+
+        Tier 5 B4.2's fourth dormancy candidate ("inactive settlements",
+        `_update_settlement_dormancy`) narrows the rotation pool to
+        settlements something has actually happened to, falling back to
+        the full list if every named settlement happens to be asleep at
+        once — same fallback shape `_maybe_spread_concepts`/`_maybe_
+        spread_tradition_keeping` use for their own sleeping entities.
+        With one settlement (or before any settlement has accumulated
+        enough idle checks to sleep) this is still exactly the old
+        behavior — a real no-op for the common case."""
         named = [s for s in self.world.settlements if s.name]
         if not named:
             return self.world.settlement
+        awake = [s for s in named if self._settlement_dormancy.is_scheduled(str(s.id))]
+        pool = awake if awake else named
         clock = self.world.clock
         month_ordinal = clock.year * len(self.world.config.days_per_month) + clock.month_index
-        return named[month_ordinal % len(named)]
+        return pool[month_ordinal % len(pool)]
 
     # --- the one scheduling path for settlement-level LLM jobs -----------------
 
@@ -4420,6 +4495,7 @@ class SimulationEngine:
         ("_update_institution_dormancy", _JOB_NO_ARGS),
         ("_update_idea_dormancy", _JOB_NO_ARGS),
         ("_update_tradition_dormancy", _JOB_NO_ARGS),
+        ("_update_settlement_dormancy", _JOB_NO_ARGS),
         ("_maybe_schedule_institution_culture", _JOB_EVENTS),
         ("_schedule_due_cognition", _JOB_NO_ARGS),
         ("_schedule_due_dialogue", _JOB_NO_ARGS),
@@ -4496,6 +4572,7 @@ class SimulationEngine:
         "_update_institution_dormancy": "_runtime_scheduler_institution_dormancy",
         "_update_idea_dormancy": "_runtime_scheduler_idea_dormancy",
         "_update_tradition_dormancy": "_runtime_scheduler_tradition_dormancy",
+        "_update_settlement_dormancy": "_runtime_scheduler_settlement_dormancy",
         "_maybe_schedule_institution_culture": "_runtime_scheduler_institution_culture",
     }
 
@@ -4518,6 +4595,7 @@ class SimulationEngine:
             self._runtime_scheduler_institution_dormancy.event_bus.publish("month_end")
             self._runtime_scheduler_idea_dormancy.event_bus.publish("month_end")
             self._runtime_scheduler_tradition_dormancy.event_bus.publish("month_end")
+            self._runtime_scheduler_settlement_dormancy.event_bus.publish("month_end")
         total_materials = sum(s.materials for s in self.world.settlements)
         self._materials_level_history.append((self.world.clock.tick_count, total_materials))
         for event in events:
@@ -9289,6 +9367,64 @@ class SimulationEngine:
         for key in stale:
             del self._tradition_fingerprint[key]
             del self._tradition_idle_checks[key]
+
+    def _update_settlement_dormancy(self) -> None:
+        """Tier 5 B4.2, fourth dormancy candidate ("inactive
+        settlements") — the same real `DormancyManager` sleep/wake
+        shape as the three siblings above, applied to every NAMED
+        `World.settlement` instead. Reframed from the shape the item's
+        own prior entries flagged as needing a genuinely lossless
+        elapsed-tick reconstruction (the harder problem `_update_
+        institution_dormancy`'s own docstring names for wildlife/
+        settlement per-tick ticking): this pilot gates `_job_target()`'s
+        existing month-indexed round-robin (WHICH settlement gets this
+        month's town_brain/beliefs/chronicle/... LLM narration) rather
+        than Body-deterministic ticking itself — the identical Mind-
+        layer-attention-only shape as institutions/ideas/traditions,
+        not the harder problem.
+
+        A settlement whose coarse fingerprint (living population, era,
+        building count, tech level — see `_settlement_fingerprint`)
+        keeps shifting resets its idle-check counter and wakes
+        immediately via `DormancyManager.wake`; one that sits flat for
+        `SETTLEMENT_DORMANCY_IDLE_CHECKS_THRESHOLD` consecutive monthly
+        checks goes to sleep. `_job_target`'s round-robin then excludes
+        sleeping settlements — same Mind-layer-only, B15 `TWO_PART_
+        GUARANTEE`-compliant reasoning as all three siblings (a
+        settlement's own Body-deterministic per-tick ticking is
+        completely untouched; only which settlement's turn it is for a
+        narrative LLM job this month is gated)."""
+        seen: set[int] = set()
+        for settlement in self.world.settlements:
+            if not settlement.name:
+                continue
+            seen.add(settlement.id)
+            population_count = sum(
+                1 for a in self.world.population.agents if a.settlement_id == settlement.id
+            )
+            fingerprint = _settlement_fingerprint(settlement, population_count)
+            key = str(settlement.id)
+            if settlement.id not in self._settlement_fingerprint:
+                self._settlement_dormancy.register(key, self.world.clock.tick_count)
+                self._settlement_fingerprint[settlement.id] = fingerprint
+                self._settlement_idle_checks[settlement.id] = 0
+                continue
+            if fingerprint != self._settlement_fingerprint[settlement.id]:
+                self._settlement_fingerprint[settlement.id] = fingerprint
+                self._settlement_idle_checks[settlement.id] = 0
+                self._settlement_dormancy.wake(key, self.world.clock.tick_count)
+                continue
+            idle = self._settlement_idle_checks.get(settlement.id, 0) + 1
+            self._settlement_idle_checks[settlement.id] = idle
+            if idle >= SETTLEMENT_DORMANCY_IDLE_CHECKS_THRESHOLD:
+                self._settlement_dormancy.sleep(key, self.world.clock.tick_count)
+        # A settlement that lost its name (shouldn't happen in practice,
+        # settlements are never unnamed once named) drops out — bounded
+        # by `Config.max_settlements` regardless.
+        stale = set(self._settlement_fingerprint) - seen
+        for settlement_id in stale:
+            del self._settlement_fingerprint[settlement_id]
+            del self._settlement_idle_checks[settlement_id]
 
     def _institution_job_target(self) -> "tuple[Settlement, object] | None":
         """§9 "institutions get their own persistent memory" (docs/IDEAS-

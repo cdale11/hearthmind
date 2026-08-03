@@ -742,6 +742,111 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.210)
+
+Explicit user instruction: "Continue Big Bang B and parallel other
+tier." Part B: B4.2's fourth dormancy candidate ("inactive
+settlements") — the same real `DormancyManager` shape as the
+institutions (v1.34.187) and ideas (v1.34.204) pilots already proved,
+this time applied one level up: per-settlement rather than per-entity-
+within-a-settlement.
+
+**Reframed away from the harder problem, not solved head-on.** Every
+prior entry naming "inactive settlements" as still-open flagged it as
+needing a genuinely lossless elapsed-tick reconstruction (skipping
+`Population.tick()`/`WildlifeGrid.tick()` for a quiet settlement while
+staying replay-hash-identical to never skipping it — B15's `TWO_PART_
+GUARANTEE`). That problem is real and stays correctly deferred to
+"distant wildlife," the one candidate genuinely left unattempted. This
+pilot instead gates the ALREADY-real `_job_target()` — the existing
+month-indexed round-robin over WHICH named settlement gets this
+month's town_brain/beliefs/chronicle/... LLM narration — the identical
+Mind-layer-attention-only shape institutions/ideas/traditions already
+proved safe, just applied at settlement scope.
+
+New `SimulationEngine._update_settlement_dormancy` (monthly, ON_EVENT/
+month_end, same real scheduler-dispatch wiring the three siblings use):
+tracks each named settlement's coarse fingerprint (`_settlement_
+fingerprint`: living population, era, standing building count, tech
+level) — an unchanged fingerprint across 3 consecutive monthly checks
+sleeps it, any real change wakes it immediately. Deliberately excludes
+materials/currency from the fingerprint: those drift every tick from
+ordinary economic activity and would make a settlement read "active"
+forever, defeating the whole point. `_job_target`'s existing rotation
+now excludes sleeping settlements, falling back to the full named list
+when every settlement is asleep at once (the same fallback shape
+`_maybe_spread_concepts`/`_maybe_spread_tradition_keeping` use) — a
+real no-op for the common single-settlement case, since an empty
+"awake" pool always falls back to the one real settlement anyway.
+Compliant with B15's `TWO_PART_GUARANTEE` for the identical reason
+the three siblings are: a settlement's own Body-deterministic per-tick
+ticking is completely untouched — only which settlement's turn it is
+for a narrative LLM job this month is gated.
+
+New `scripts/verify_b4_settlement_dormancy.py` (19 checks —
+register/sleep/wake lifecycle, the real dormant-exclusion narrowing
+`_job_target`'s rotation pool across real month boundaries via direct
+`clock.tick_count` manipulation, the fallback to the full list when
+every settlement is asleep, the single-settlement real no-op case,
+`_settlement_fingerprint`'s real structural-state dependency, the real
+ON_EVENT/month_end dispatch through the registered Task, and a real
+3000-tick production-path smoke test) — all pass, first run, no bug
+found in the module under test (two fixture bugs caught and fixed in
+the script itself before shipping: `_job_target`'s rotation only
+changes with real `clock.tick_count` advancement, so repeatedly
+calling it without advancing the clock always returns the same
+settlement — not a bug in `_job_target`, a test-design mistake, fixed
+by driving `tick_count` across real month boundaries directly).
+
+**This closes four of B4.2's five named candidates** (idle
+institutions, unused ideas, forgotten traditions, inactive
+settlements). Only "distant wildlife" remains open, correctly, for
+the reason stated above.
+
+**"Also build parallely something from other tiers", same batch:
+Tier 6's L4.1, belief confidence calibration.** New `hearthmind/ml/
+belief_calibration.py`: `BeliefConfidenceCalibrator` (a thin domain
+wrapper over L0's already-shipped `PlattCalibrator` — that class's own
+docstring has named L4.1 as its motivation since v1.34.171, but the
+domain-specific wiring was never built), `compute_belief_outcome_
+label`/`extract_calibration_examples` (real ground truth: `World.
+reflection_notebook` entries settling to `"supported"`/`"rejected"`
+via the existing multi-cycle evidence loop — a genuine "did this
+stated belief hold up" outcome, `"open"`/`"superseded"` entries
+correctly excluded as unsettled rather than guessed at), `calibration_
+gap` (a model-free diagnostic: mean signed difference between stated
+confidence and the real empirical hold-up rate — the number that would
+justify calibration existing at all).
+
+New `scripts/verify_belief_calibration.py` (14 checks — outcome-label
+correctness across all four real status values, example extraction
+correctly excluding unsettled entries, graceful degradation on a
+missing `confidence` field, the calibration-gap diagnostic on both a
+synthetic systematically-overconfident source and a genuinely well-
+calibrated one, and the fitted calibrator measurably pulling an
+overconfident stated value toward reality) — all pass, first run, no
+bug found. `scripts/verify_ml_substrate.py`/`verify_value_model.py`
+re-run clean (unaffected).
+
+**Not wired into any real consumer this pass** — `_maybe_schedule_
+self_tuning`/`town_brain`/etc. still read a raw, uncalibrated
+`reflection_pillar.subject_confidence()`/entry `confidence`; needs a
+real settled-hypothesis history from a live world this offline
+environment has no archive to source, same "ship the substrate, wire
+it once a real consumer/archive exists" discipline L0/L2.1/L3.1/L3.2
+all shipped under.
+
+Verified: both new scripts (33 checks total, all pass, first run);
+`scripts/verify_b4_tradition_dormancy.py`/`verify_b4_idea_dormancy.py`/
+`verify_b0_runtime_migrations.py`/`verify_task_graph.py`/`verify_
+scheduler.py`/`verify_dormancy.py`/`verify_runtime_invariant.py`
+re-run clean; `pyflakes` clean on all touched/new files (only the six
+known pre-existing forward-ref findings in `engine.py`); `scripts/
+verify_replay_hash.py` (4000 ticks, seed 777, `--in-process`) — MATCH,
+byte-identical; `scripts/verify_native_soak.py` (3 seeds x 3000 ticks)
+— MATCH. No native module touched by the L4.1 half (pure offline ML
+substrate, same scope class as L2.1/L3.1's own filings).
+
 ## Current state (v1.34.209)
 
 Explicit user instruction: "Continue with B Big Bang progress and also

@@ -865,7 +865,7 @@ migration itself.
   updated to special-case this one now-ON_EVENT job rather than
   assuming every migration is CRITICAL+PERIODIC.
 
-## B4 — Dormancy [Hard Rule 4] [PARTIAL — B4.1/B4.3/B4.4 shipped v1.34.166, two of five B4.2 candidates shipped: "idle institutions" v1.34.187, "unused ideas" v1.34.204]
+## B4 — Dormancy [Hard Rule 4] [PARTIAL — B4.1/B4.3/B4.4 shipped v1.34.166, four of five B4.2 candidates shipped: "idle institutions" v1.34.187, "unused ideas" v1.34.204, "forgotten traditions" v1.34.208, "inactive settlements" v1.34.210]
 
 - [x] **B4.1 — `Dormant` lifecycle — SHIPPED (mechanism only), v1.34.166.**
   New `hearthmind/simulation/dormancy.py`'s `DormancyManager`: real
@@ -935,13 +935,76 @@ migration itself.
   everything's asleep, and the real ON_EVENT/month_end dispatch through
   the registered Task.
 
-  Two of five named candidates now shipped. The remaining three
-  (forgotten traditions, inactive settlements, distant wildlife) still
-  need the harder, genuinely lossless elapsed-tick reconstruction B15's
-  `TWO_PART_GUARANTEE` requires before they could sleep any real
-  Body-deterministic per-tick draw (wildlife movement/reproduction,
-  settlement decay) without risking a replay-hash divergence — real,
+  Two of five named candidates now shipped this pass. Since updated:
+  "forgotten traditions" (v1.34.208) and "inactive settlements"
+  (v1.34.210) both shipped in the same real Mind-layer-attention-only
+  shape as institutions/ideas — see their own dedicated entries below.
+  Only "distant wildlife" remains, and it genuinely does need the
+  harder, lossless elapsed-tick reconstruction B15's `TWO_PART_
+  GUARANTEE` requires (wildlife movement/reproduction is real Body-
+  deterministic per-tick simulation with no round-robin attention
+  layer to narrow the way settlement-scoped LLM jobs have) — real,
   materially larger future work, not attempted this pass.
+
+- [x] **B4.2, third candidate — "forgotten traditions" pilot — SHIPPED,
+  v1.34.208.** Explicit user instruction ("Continue with B and ship
+  Big Bang progress not little progress"). Same real `DormancyManager`
+  shape as the two siblings above, applied to every named settlement's
+  own `Settlement.traditions` entries: `SimulationEngine._update_
+  tradition_dormancy` (monthly, ON_EVENT/month_end) tracks each
+  `(settlement, tradition)` pair's real personal-keeper count (`Agent.
+  kept_traditions`) — an unchanged count across 3 consecutive monthly
+  checks sleeps it, a genuine new keeper wakes it immediately.
+  `_maybe_spread_tradition_keeping`'s existing per-settlement weighted
+  tradition pick excludes sleeping traditions, falling back to the
+  full list if every tradition a settlement holds is asleep at once.
+  Compliant with B15's `TWO_PART_GUARANTEE` for the identical reason
+  both siblings are — `Settlement.traditions` itself is untouched
+  Body-deterministic state, only which tradition gets the next
+  personal-keeper-spread roll (Mind-layer attention) is gated.
+  Verified: `scripts/verify_b4_tradition_dormancy.py` (16 checks) —
+  all pass, first run, no bug found.
+
+- [x] **B4.2, fourth candidate — "inactive settlements" pilot —
+  SHIPPED, v1.34.210.** Explicit user instruction ("Continue Big Bang
+  B and parallel other tier"). Reframed from the harder Body-
+  deterministic-ticking shape earlier entries flagged this candidate
+  as needing: rather than skipping `Population.tick()`/`WildlifeGrid.
+  tick()` for a quiet settlement (the genuinely hard problem, still
+  correctly deferred to "distant wildlife"), this pilot gates the
+  ALREADY-real `_job_target()` month-indexed round-robin — WHICH named
+  settlement gets this month's town_brain/beliefs/chronicle/... LLM
+  narration — the identical Mind-layer-attention-only shape as
+  institutions/ideas/traditions, just applied one level up (per-
+  settlement, not per-entity-within-a-settlement). `SimulationEngine.
+  _update_settlement_dormancy` (monthly, ON_EVENT/month_end) tracks
+  each named settlement's coarse fingerprint (`_settlement_
+  fingerprint`: living population, era, standing building count, tech
+  level — deliberately NOT materials/currency, which drift every tick
+  from ordinary economic activity and would make a settlement "active"
+  forever) — unchanged for 3 consecutive monthly checks sleeps it, any
+  real change wakes it immediately. `_job_target` now excludes
+  sleeping settlements from its rotation pool, falling back to the
+  full named list when every settlement is asleep at once (a real
+  no-op for the common single-settlement case, since the "awake" pool
+  is then empty and the fallback always resolves to the one real
+  settlement anyway). Compliant with B15's `TWO_PART_GUARANTEE`: a
+  settlement's own Body-deterministic per-tick ticking is completely
+  untouched by this dormancy — only which settlement's turn it is for
+  a narrative LLM job this month is gated. New `scripts/verify_b4_
+  settlement_dormancy.py` (19 checks — register/sleep/wake lifecycle,
+  the real dormant-exclusion narrowing `_job_target`'s rotation pool
+  across real month boundaries, the fallback to the full list when
+  every settlement is asleep, the single-settlement real no-op case,
+  the real ON_EVENT/month_end dispatch, and a real 3000-tick
+  production-path smoke test) — all pass, first run, no bug found
+  (two fixture bugs caught and fixed in the script itself before
+  shipping — `_job_target`'s rotation only changes with real
+  `clock.tick_count` advancement, not a bare repeated call — no bug
+  in the module under test).
+
+  **This closes four of B4.2's five named candidates.** Only "distant
+  wildlife" remains open, for the reason stated above.
 - [x] **B4.3 — Semantic safety — SHIPPED, v1.34.166.** Baked directly
   into the API rather than left as a discipline to remember: `wake()`
   is the ONLY way to leave DORMANT/ARCHIVED and it ALWAYS returns the

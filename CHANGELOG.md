@@ -4,6 +4,50 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.210] — Part B: B4.2's fourth dormancy candidate; Tier 6 L4.1 belief calibration
+
+Explicit user instruction: "Continue Big Bang B and parallel other
+tier." Two independent pieces.
+
+**Part B: "inactive settlements" (B4.2's fourth of five named
+candidates).** Reframed from the harder Body-deterministic-ticking
+shape earlier entries flagged this candidate as needing: gates the
+already-real `_job_target()` month-indexed round-robin (WHICH named
+settlement gets this month's town_brain/beliefs/chronicle/... LLM
+narration) rather than skipping `Population.tick()`/`WildlifeGrid.
+tick()` — the identical Mind-layer-attention-only shape institutions/
+ideas/traditions already proved safe. New `SimulationEngine._update_
+settlement_dormancy` (monthly): a named settlement's coarse
+fingerprint (population, era, building count, tech level — not
+materials/currency, which drift every tick) unchanged across 3
+consecutive monthly checks sleeps it via `DormancyManager`, any real
+change wakes it immediately. `_job_target` excludes sleeping
+settlements, falling back to the full list when everything's asleep
+(a real no-op for the common single-settlement case). New `scripts/
+verify_b4_settlement_dormancy.py` (19 checks) — all pass, first run,
+no bug found in the module under test. **Closes four of B4.2's five
+named candidates** — only "distant wildlife" remains open.
+
+**Tier 6, L4.1 — belief confidence calibration.** New `hearthmind/ml/
+belief_calibration.py`: `BeliefConfidenceCalibrator` (a thin domain
+wrapper over L0's already-shipped `PlattCalibrator`), `compute_belief_
+outcome_label`/`extract_calibration_examples` (real ground truth:
+`World.reflection_notebook` entries settling to `"supported"`/
+`"rejected"`), `calibration_gap` (a model-free overconfidence/
+underconfidence diagnostic). New `scripts/verify_belief_
+calibration.py` (14 checks) — all pass, first run, no bug found. Not
+wired into any real consumer this pass — needs a real settled-
+hypothesis history this offline environment has no archive to source.
+
+Verified: both new scripts (33 checks total); `verify_b4_tradition_
+dormancy.py`/`verify_b4_idea_dormancy.py`/`verify_b0_runtime_
+migrations.py`/`verify_task_graph.py`/`verify_scheduler.py`/`verify_
+dormancy.py`/`verify_runtime_invariant.py`/`verify_ml_substrate.py`/
+`verify_value_model.py` re-run clean; `pyflakes` clean (only the six
+known pre-existing forward-ref findings in `engine.py`); `scripts/
+verify_replay_hash.py` (4000 ticks, seed 777) — MATCH; `scripts/
+verify_native_soak.py` (3 seeds x 3000 ticks) — MATCH.
+
 ## [1.34.209] — Part B: B14.2/B14.3's snapshot writer; Tier 6 L2.1 value model
 
 Explicit user instruction: "Continue with B Big Bang progress and also
