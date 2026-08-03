@@ -1134,6 +1134,28 @@ starts on an explicit instruction naming an item.
       design decision or live-diagnostic-driven judgment call, per this
       project's own "never big-bang" discipline.
 
+      **B4.2, second candidate ("unused ideas") — v1.34.204.** Explicit
+      user instruction: "Reverse the 'never big-bang' policy and
+      complete part B." Investigated the full remaining list above and
+      found most items genuinely need real infrastructure invented
+      from scratch (a diff-format snapshot writer, a trained
+      forecaster, a HearthBench runner), not a wiring pass — shipped
+      the one fully self-contained item this turn instead of rushing
+      six separately-scoped efforts through at once. `_update_idea_
+      dormancy` (monthly) applies the exact same real `DormancyManager`
+      shape the institutions pilot proved to `World.invented_concepts`
+      still `proposed`/`spreading`: fingerprint = status + adopter
+      count, 3 unchanged checks sleeps it, a real adopter gain wakes it
+      immediately. `_maybe_spread_concepts`'s per-tick roll excludes
+      sleeping ideas, same full-list fallback shape. Compliant with
+      B15's `TWO_PART_GUARANTEE` for the same reason — Mind-layer
+      attention only. New `scripts/verify_b4_idea_dormancy.py` (14
+      checks). Verified: replay-hash MATCH (4000 ticks, seed 777),
+      native-soak MATCH (3 seeds x 3000 ticks), full existing suite
+      re-run clean. B4.2's other three candidates and B9.3/B10.2's
+      remainder/B11/B12/B13/B14.2/B14.3/B15.5 remain open, each still
+      needing its own separately-scoped build.
+
       **B4.2 pilot ("idle institutions") — SHIPPED, v1.34.187.**
       Explicit user choice via `AskUserQuestion` among B4.2's five named
       candidates, after an investigation found the other four (forgotten

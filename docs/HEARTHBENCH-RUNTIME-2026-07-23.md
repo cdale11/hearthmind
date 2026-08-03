@@ -865,7 +865,7 @@ migration itself.
   updated to special-case this one now-ON_EVENT job rather than
   assuming every migration is CRITICAL+PERIODIC.
 
-## B4 — Dormancy [Hard Rule 4] [PARTIAL — B4.1/B4.3/B4.4 shipped v1.34.166, one real B4.2 pilot candidate ("idle institutions") shipped v1.34.187]
+## B4 — Dormancy [Hard Rule 4] [PARTIAL — B4.1/B4.3/B4.4 shipped v1.34.166, two of five B4.2 candidates shipped: "idle institutions" v1.34.187, "unused ideas" v1.34.204]
 
 - [x] **B4.1 — `Dormant` lifecycle — SHIPPED (mechanism only), v1.34.166.**
   New `hearthmind/simulation/dormancy.py`'s `DormancyManager`: real
@@ -911,6 +911,37 @@ migration itself.
   runtime scheduling state, never persisted — same "derived, re-
   baselines cleanly on restart" discipline as this file's own `_prev_
   population_total`/`_materials_critical_flagged`.
+- [x] **B4.2, second candidate — "unused ideas" pilot — SHIPPED, v1.34.204.**
+  Explicit user directive ("reverse the never-big-bang policy and
+  complete part B"). Same real, Constitution-compliant shape as the
+  institutions pilot, applied to `World.invented_concepts` still in
+  `proposed`/`spreading` status: `SimulationEngine._update_idea_
+  dormancy` (monthly, `simulation/engine.py`) watches each growing
+  concept's cheap fingerprint (status, adopter count); unchanged for
+  `IDEA_DORMANCY_IDLE_CHECKS_THRESHOLD` (3) consecutive checks sleeps
+  it, a real adopter gain or status change wakes it immediately.
+  `_maybe_spread_concepts`'s per-tick adoption-roll list now excludes
+  sleeping ideas (falling back to the full list if every growing
+  concept happens to be asleep at once) — a "forgotten idea" no longer
+  competes for the same per-tick roll a genuinely still-growing one
+  gets. Constitution-compliant for the identical reason the
+  institutions pilot is: this only narrows Mind-layer per-tick
+  ATTENTION (which concept gets a chance at a new adopter this tick),
+  never any Body-deterministic effect — a concept's own eventual
+  adoption/established/retired fate is untouched either way, only its
+  cadence of attempts. Verified: `scripts/verify_b4_idea_dormancy.py`
+  (14 checks, standalone, no unittest) — register/sleep/wake lifecycle,
+  the real dormant-exclusion narrowing the roll list, the fallback when
+  everything's asleep, and the real ON_EVENT/month_end dispatch through
+  the registered Task.
+
+  Two of five named candidates now shipped. The remaining three
+  (forgotten traditions, inactive settlements, distant wildlife) still
+  need the harder, genuinely lossless elapsed-tick reconstruction B15's
+  `TWO_PART_GUARANTEE` requires before they could sleep any real
+  Body-deterministic per-tick draw (wildlife movement/reproduction,
+  settlement decay) without risking a replay-hash divergence — real,
+  materially larger future work, not attempted this pass.
 - [x] **B4.3 — Semantic safety — SHIPPED, v1.34.166.** Baked directly
   into the API rather than left as a discipline to remember: `wake()`
   is the ONLY way to leave DORMANT/ARCHIVED and it ALWAYS returns the

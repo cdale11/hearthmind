@@ -1737,6 +1737,25 @@ def _institution_fingerprint(institution: "Institution") -> tuple:
     )
 
 
+IDEA_DORMANCY_IDLE_CHECKS_THRESHOLD = 3
+"""Tier 5 B4.2, second candidate ("unused ideas"): same shape and same
+threshold as `INSTITUTION_DORMANCY_IDLE_CHECKS_THRESHOLD` above — an
+`InventedConcept` still in `proposed`/`spreading` status that gains no
+new adopter across 3 consecutive monthly checks is dormant. Exactly
+like the institutions pilot, this only narrows Mind-layer LLM/roll
+ATTENTION (`_maybe_spread_concepts`'s per-tick roll list) — it never
+skips a Body-affecting per-tick effect, so it stays compliant with
+B15's `TWO_PART_GUARANTEE` the same way the institutions pilot is."""
+
+
+def _idea_fingerprint(concept: "ontology.InventedConcept") -> tuple:
+    """Cheap idle-vs-active proxy for a growing concept: status plus
+    adopter count. A concept that keeps gaining adopters (or changes
+    status) is active; one that sits with the same adopter count and
+    status tick after tick is the "forgotten idea" this pilot targets."""
+    return (concept.status, len(concept.adopter_ids))
+
+
 class SimulationEngine:
     def __init__(
         self, conn: sqlite3.Connection, config: Config, world: World,
@@ -2236,6 +2255,18 @@ class SimulationEngine:
         idle-tracking progress on a restart just means a few institutions
         take a little longer to be recognized as idle again, never a
         correctness issue."""
+        self._idea_dormancy = DormancyManager()
+        self._idea_fingerprint: dict[int, tuple] = {}
+        self._idea_idle_checks: dict[int, int] = {}
+        """Tier 5 B4.2, second candidate ("unused ideas") — same real
+        `DormancyManager` migration as `_idea_dormancy`'s institution
+        sibling above, over `World.invented_concepts` instead. See
+        `_update_idea_dormancy`/`_idea_fingerprint` (module-level
+        helper) for the mechanism; `_maybe_spread_concepts`'s per-tick
+        roll list excludes sleeping ideas the same way `_institution_
+        job_target`'s round-robin excludes sleeping institutions —
+        Mind-layer attention only, B15 `TWO_PART_GUARANTEE`-compliant
+        for the identical reason the institutions pilot is."""
         self._rumor_retellings_recent: list[dict] = []
         """A17's fitness-vs-truth axis (`world.memetics.rumor_fitness`/
         `rumor_truth_score`) — a small capped, transient (not persisted,
@@ -3144,6 +3175,23 @@ class SimulationEngine:
             priority_class=PriorityClass.CRITICAL,
         ))
         self._runtime_scheduler_institution_dormancy = Scheduler(self._runtime_registry_institution_dormancy)
+
+        # Tier 5 B4.2, second dormancy candidate ("unused ideas") — same
+        # real ON_EVENT/month_end shape as institution_dormancy directly
+        # above, over `World.invented_concepts` instead of institutions.
+        self._runtime_registry_idea_dormancy = TaskRegistry()
+        self._runtime_registry_idea_dormancy.register(Task(
+            id="idea_dormancy",
+            subsystem="idea_dormancy",
+            fn=self._update_idea_dormancy,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"month_end"}),
+            reads=frozenset({"world.invented_concepts"}),
+            writes=frozenset({"world.invented_concepts"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_idea_dormancy = Scheduler(self._runtime_registry_idea_dormancy)
 
         self._runtime_registry_institution_culture = TaskRegistry()
         self._runtime_registry_institution_culture.register(Task(
@@ -4122,6 +4170,7 @@ class SimulationEngine:
         ("_maybe_schedule_noncore_nudge", _JOB_EVENTS),
         ("_maybe_schedule_letter", _JOB_EVENTS),
         ("_update_institution_dormancy", _JOB_NO_ARGS),
+        ("_update_idea_dormancy", _JOB_NO_ARGS),
         ("_maybe_schedule_institution_culture", _JOB_EVENTS),
         ("_schedule_due_cognition", _JOB_NO_ARGS),
         ("_schedule_due_dialogue", _JOB_NO_ARGS),
@@ -4196,6 +4245,7 @@ class SimulationEngine:
         "_maybe_schedule_noncore_nudge": "_runtime_scheduler_noncore_nudge",
         "_maybe_schedule_letter": "_runtime_scheduler_letter",
         "_update_institution_dormancy": "_runtime_scheduler_institution_dormancy",
+        "_update_idea_dormancy": "_runtime_scheduler_idea_dormancy",
         "_maybe_schedule_institution_culture": "_runtime_scheduler_institution_culture",
     }
 
@@ -4216,6 +4266,7 @@ class SimulationEngine:
         # in events: return` guard used to read directly.
         if "month_end" in events:
             self._runtime_scheduler_institution_dormancy.event_bus.publish("month_end")
+            self._runtime_scheduler_idea_dormancy.event_bus.publish("month_end")
         total_materials = sum(s.materials for s in self.world.settlements)
         self._materials_level_history.append((self.world.clock.tick_count, total_materials))
         for event in events:
@@ -7551,6 +7602,15 @@ class SimulationEngine:
         growing = [c for c in self.world.invented_concepts.values() if c.status in ("proposed", "spreading")]
         if not growing:
             return
+        # Tier 5 B4.2 second pilot: a "forgotten idea" (see `_update_
+        # idea_dormancy`) is excluded from the per-tick roll list —
+        # falls back to the full list if every growing concept happens
+        # to be asleep at once (dormancy narrows attention, it never
+        # silently disables the job, same fallback shape `_institution_
+        # job_target` uses).
+        awake = [c for c in growing if self._idea_dormancy.is_scheduled(str(c.id))]
+        if awake:
+            growing = awake
         rng = _namespaced_rng(self.world.config.seed, self.world.clock.tick_count, "ontology_spread")
         for concept in growing:
             if rng.random() >= CONCEPT_SPREAD_CHANCE_PER_TICK:
@@ -8808,6 +8868,54 @@ class SimulationEngine:
         for dict_key in stale:
             del self._institution_fingerprint[dict_key]
             del self._institution_idle_checks[dict_key]
+
+    def _update_idea_dormancy(self) -> None:
+        """Tier 5 B4.2, second dormancy candidate ("unused ideas") —
+        the same real `DormancyManager` sleep/wake shape as `_update_
+        institution_dormancy` directly above, applied to `World.
+        invented_concepts` still in `proposed`/`spreading` status (an
+        `established`/`abandoned`/`retired` concept is no longer
+        "growing" at all — `_maybe_spread_concepts` already excludes
+        it via its own `growing` filter, so dormancy tracking for it
+        would be meaningless).
+
+        A concept that keeps gaining adopters (or changes status)
+        resets its idle-check counter and wakes immediately via
+        `DormancyManager.wake`; one that sits with the same fingerprint
+        for `IDEA_DORMANCY_IDLE_CHECKS_THRESHOLD` consecutive monthly
+        checks goes to sleep. `_maybe_spread_concepts`'s per-tick roll
+        list then skips sleeping ideas — same Mind-layer-only,
+        B15-`TWO_PART_GUARANTEE`-compliant reasoning as the institutions
+        pilot (an idea's own per-tick adoption ROLL is what's gated,
+        never any Body-deterministic per-tick effect elsewhere)."""
+        seen: set[int] = set()
+        for concept in self.world.invented_concepts.values():
+            if concept.status not in ("proposed", "spreading"):
+                continue
+            seen.add(concept.id)
+            fingerprint = _idea_fingerprint(concept)
+            key = str(concept.id)
+            if concept.id not in self._idea_fingerprint:
+                self._idea_dormancy.register(key, self.world.clock.tick_count)
+                self._idea_fingerprint[concept.id] = fingerprint
+                self._idea_idle_checks[concept.id] = 0
+                continue
+            if fingerprint != self._idea_fingerprint[concept.id]:
+                self._idea_fingerprint[concept.id] = fingerprint
+                self._idea_idle_checks[concept.id] = 0
+                self._idea_dormancy.wake(key, self.world.clock.tick_count)
+                continue
+            idle = self._idea_idle_checks.get(concept.id, 0) + 1
+            self._idea_idle_checks[concept.id] = idle
+            if idle >= IDEA_DORMANCY_IDLE_CHECKS_THRESHOLD:
+                self._idea_dormancy.sleep(key, self.world.clock.tick_count)
+        # A concept that left `proposed`/`spreading` (established,
+        # abandoned, retired) is no longer tracked — bounded by the same
+        # MAX_CONCEPTS_STORED cap `World.invented_concepts` itself holds.
+        stale = set(self._idea_fingerprint) - seen
+        for concept_id in stale:
+            del self._idea_fingerprint[concept_id]
+            del self._idea_idle_checks[concept_id]
 
     def _institution_job_target(self) -> "tuple[Settlement, object] | None":
         """§9 "institutions get their own persistent memory" (docs/IDEAS-
