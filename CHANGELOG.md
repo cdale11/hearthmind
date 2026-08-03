@@ -4,6 +4,77 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.206] — Part B: B13's UI trigger, plus a real frontend bug caught by live browser testing
+
+Explicit user follow-up: "Build B13 and other items you can complete."
+Ships the one remaining B13 gap flagged at v1.34.205: a real dev-
+console/HTTP trigger for `_run_llm_concurrency_hypothesis`.
+
+**UI trigger.** New `POST /intervene/llm-concurrency-hypothesis`
+(same queued-intervention seam every other `/intervene/*` endpoint
+uses) -> `SimulationEngine._maybe_start_llm_concurrency_hypothesis`
+-> a real background `asyncio.Task` running v1.34.205's already-
+verified probe+equivalence-check mechanism. One request in flight at
+a time; a second concurrent request is dropped, not stacked.
+`full_diagnostics()['llm_concurrency_hypothesis']` exposes `running`/
+`last_result`/`history_recent` (bounded, last 10). New dev-console
+panel (`interface/static/index.html`/`app.js`): a proposed-value
+input, an optional hypothesis text field, a "Run hypothesis" button
+that POSTs then polls `/diagnostics` until the real result lands. New
+`scripts/verify_b13_dev_console_endpoint.py` (9 checks, drives the
+engine-side `WorldBroadcaster.enqueue_intervention`/`_apply_pending_
+interventions` seam directly, no HTTP server needed) — all pass,
+first run, no bug found.
+
+**Real bug caught by live browser testing, not the new verify script
+above.** That script only exercises engine-side machinery, never the
+actual frontend JS, so it structurally could not have caught this. A
+live Playwright pass (real dev server, real browser, real click)
+found the panel's status text never advanced past "queued…" despite
+the backend genuinely completing (confirmed via a direct `curl
+/diagnostics` showing a real `decision: "kept"` result). Root cause:
+`GET /diagnostics`'s response nests `SimulationEngine.
+full_diagnostics()` under a top-level `"engine"` key
+(`interface/app.py`'s own response shape), but the new JS read
+`report.llm_concurrency_hypothesis` un-nested in two places (the
+run-button's own poll loop and the "Full diagnostic report" button's
+handler) — both silently `undefined` forever. The identical bug, same
+root cause, was found PRE-EXISTING one line above
+(`report.pillar_cognition_status`) — that panel's rendering had been
+silently broken since it first shipped, fixed in the same pass. A
+third dead read (`renderDevConsole`'s `payload.diagnostics.llm_
+concurrency_hypothesis`, reading off the periodic WebSocket broadcast
+payload) was found and dropped rather than fixed — that field only
+ever exists in the heavier `full_diagnostics()` report, never in the
+cheap per-tick `_diagnostics_snapshot()` the broadcast carries, so the
+read could never have resolved to anything, and the panel already
+refreshes correctly via its own explicit poll loop and the "Full
+diagnostic report" button.
+
+Re-verified via a second live Playwright pass: the panel now
+genuinely resolves to a real result ("kept: measurement improved and
+passed the semantic-safety gate... 1 -> 5, 264.2ms -> 61.2ms") within
+seconds, and the "Full diagnostic report" button now shows real
+non-empty `pillar_cognition_status` content. No JS console errors
+beyond an unrelated benign favicon 404.
+
+Standing lesson, worth restating: an engine-level verify script proves
+backend machinery is real but cannot catch a frontend read-path bug —
+only an actual browser exercising the actual JS can, which is exactly
+why "test the UI in a browser before reporting done" is a standing
+workflow rule.
+
+Verified: `scripts/verify_b13_dev_console_endpoint.py` (9 checks) —
+all pass. `node --check` clean on `app.js`, before and after the three
+read-path fixes. Two independent live Playwright passes (pre-fix,
+confirming the bug; post-fix, confirming both panels genuinely
+populate with real data) via a real dev server, LLM disabled. No
+fabricated results at any point — every reported outcome came from an
+actual tool/agent execution. `pyflakes` clean on all touched Python
+files (only the six known pre-existing forward-ref findings). No
+native module, persisted `World` state, or deterministic Body code
+path touched — no replay-hash/native-soak re-run needed.
+
 ## [1.34.205] — Part B: B13's real first wiring for llm_max_concurrent, B10.2 re-audit
 
 Explicit user follow-up: "Keep going and build whatever is required for

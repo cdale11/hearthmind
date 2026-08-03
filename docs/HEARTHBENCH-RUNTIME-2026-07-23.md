@@ -1820,6 +1820,77 @@ episode, documentary/culture_digest for episode->summary, etc.).
   with an operator-supplied candidate value — the mechanism itself is
   now real and verified; only the UI trigger is future work.
 
+  **UI trigger shipped, v1.34.206.** Explicit user follow-up: "Build
+  B13 and other items you can complete." New `POST /intervene/llm-
+  concurrency-hypothesis` (interface/app.py) — same queued-intervention
+  seam every other `/intervene/*` endpoint uses, `proposed_value`
+  required, `hypothesis` optional free text. `SimulationEngine._maybe_
+  start_llm_concurrency_hypothesis` applies it on the engine's next
+  real tick and spawns the actual probe+loop as a real background
+  `asyncio.Task` (the work is too long to run synchronously inside
+  `_apply_intervention` — the probe alone holds real semaphore
+  contention for a bounded but non-trivial stretch, and the
+  equivalence check ticks two forked worlds). One request in flight at
+  a time — a second request while one is already running is dropped,
+  not queued or stacked, since only the most recent result is ever
+  surfaced. `full_diagnostics()['llm_concurrency_hypothesis']` exposes
+  `running`/`last_result`/`history_recent` (bounded to the last 10 real
+  attempts) — reachable via the existing dev-console "Full diagnostic
+  report" button, with a new dedicated dev-console panel
+  (`interface/static/index.html`/`app.js`): a proposed-value input, an
+  optional hypothesis text field, a "Run hypothesis" button that POSTs
+  the request then polls `/diagnostics` (bounded to 2 minutes) until
+  the real result lands, and shows the real before/after value,
+  measured wait, and gate verdict.
+
+  New `scripts/verify_b13_dev_console_endpoint.py` (9 checks) — drives
+  the exact `WorldBroadcaster.enqueue_intervention`/`_apply_pending_
+  interventions` seam the real HTTP endpoint uses (no HTTP server
+  needed to exercise the engine-side machinery): the field's presence/
+  shape before any request, the background task actually starting and
+  completing, a genuine improvement's real result surfacing correctly,
+  a second concurrent request being dropped (not stacked), and a
+  malformed request being a safe no-op. All pass, first run, no bug
+  found. `node --check` clean on the touched frontend file.
+
+  **Real bug caught by live browser testing, not the verify script
+  above (v1.34.206, same pass).** The new script above only drives the
+  engine-side machinery directly — it never exercises the actual
+  frontend JS, so it could not have caught this. A live Playwright
+  smoke test (dev server, real browser, real click) found the panel's
+  status text never advanced past "queued…" despite the backend
+  genuinely completing (confirmed via a direct `curl /diagnostics`
+  showing a real `decision: "kept"` result). Root cause: `GET
+  /diagnostics`'s response nests `SimulationEngine.full_diagnostics()`
+  under a top-level `"engine"` key (`interface/app.py`'s own response
+  shape — `{"engine": live, "event_category_counts": ..., ...}`), but
+  the new JS read `report.llm_concurrency_hypothesis` at the un-nested
+  top level in two places (the run-button's own poll loop and the
+  "Full diagnostic report" button's handler) — both silently read
+  `undefined` forever. The SAME bug, same root cause, was found
+  pre-existing (not introduced this pass) one line above in the
+  "Full diagnostic report" handler: `report.pillar_cognition_status`
+  had the identical un-nested read, meaning that panel's rendering had
+  been silently broken since it shipped. A third, related dead read
+  (`renderDevConsole`'s `payload.diagnostics.llm_concurrency_hypothesis`,
+  reading off the periodic WebSocket broadcast payload) was also found
+  and removed — that field only ever exists in the heavier
+  `full_diagnostics()` report, never in the cheap per-tick
+  `_diagnostics_snapshot()` the broadcast carries, so the read could
+  never have resolved to anything. All three fixed to read through
+  `report.engine.*`; the third simply dropped, since the panel already
+  refreshes correctly via its own explicit poll loop and the "Full
+  diagnostic report" button. Re-verified via a second live Playwright
+  pass: the panel now genuinely resolves to a real result ("kept:
+  measurement improved and passed the semantic-safety gate... 1 -> 5,
+  264.2ms -> 61.2ms") within seconds, and the "Full diagnostic report"
+  button now shows real non-empty `pillar_cognition_status` content.
+  Standing lesson, worth restating: an engine-level verify script
+  proves the backend machinery is real, but it structurally cannot
+  catch a frontend read-path bug — only an actual browser exercising
+  the actual JS can, and this is why the "test the UI in a browser
+  before reporting done" rule exists.
+
 ## B14 — Persistence & background work [PARTIAL — B14.1-B14.3 shipped v1.34.181; B14.1 wired to a real control point v1.34.203]
 
 - [x] **B14.1 — Scheduled, budgeted, idle-preferring, adaptive-

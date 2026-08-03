@@ -742,6 +742,67 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.206)
+
+Explicit user follow-up: "Build B13 and other items you can complete"
+— ships the UI trigger flagged as the one remaining B13 gap at
+v1.34.205 ("propose the next retune of `llm_max_concurrent`... only
+the UI trigger is future work").
+
+New `POST /intervene/llm-concurrency-hypothesis` (same queued-
+intervention seam every other `/intervene/*` endpoint uses) ->
+`SimulationEngine._maybe_start_llm_concurrency_hypothesis` -> a real
+background `asyncio.Task` running `_run_llm_concurrency_hypothesis`
+(v1.34.205's already-verified active-probe + equivalence-check
+mechanism) — one request in flight at a time, a second concurrent
+request dropped not stacked. `full_diagnostics()['llm_concurrency_
+hypothesis']` exposes `running`/`last_result`/`history_recent`
+(bounded, last 10). New dev-console panel (proposed-value input,
+optional hypothesis text, a "Run hypothesis" button that POSTs then
+polls `/diagnostics` for the real result). New `scripts/verify_b13_
+dev_console_endpoint.py` (9 checks, drives the engine-side seam
+directly, no HTTP server needed) — all pass, first run.
+
+**Real bug caught by live browser testing, not the new verify script
+above** — that script only exercises engine-side machinery, never the
+actual frontend JS, so it structurally could not have caught this.
+A live Playwright pass (dev server, real browser, real click) found
+the panel's status text never advanced past "queued…" despite the
+backend genuinely completing. Root cause: `GET /diagnostics` nests
+`full_diagnostics()` under a top-level `"engine"` key
+(`interface/app.py`'s own response shape), but the new JS read
+`report.llm_concurrency_hypothesis` un-nested in two places — both
+silently `undefined` forever. The identical bug, same root cause, was
+found PRE-EXISTING one line above in the "Full diagnostic report"
+button's handler (`report.pillar_cognition_status`, never nested
+correctly since that panel shipped) — fixed in the same pass. A third
+dead read (`renderDevConsole`'s `payload.diagnostics.llm_concurrency_
+hypothesis`, off the periodic WebSocket broadcast payload, which never
+carries this field — only the heavier `full_diagnostics()` does) was
+found and dropped rather than fixed, since the panel already refreshes
+correctly via its own poll loop and the "Full diagnostic report"
+button. Re-verified via a second live Playwright pass: the panel now
+resolves to a real result ("kept: measurement improved and passed the
+semantic-safety gate... 1 -> 5, 264.2ms -> 61.2ms") within seconds, and
+the "Full diagnostic report" button now shows real non-empty `pillar_
+cognition_status` content. Standing lesson: an engine-level verify
+script proves backend machinery is real but cannot catch a frontend
+read-path bug — only an actual browser exercising the actual JS can,
+which is exactly why the "test the UI in a browser before reporting
+done" rule exists.
+
+Verified: `scripts/verify_b13_dev_console_endpoint.py` (9 checks) —
+all pass. `node --check` clean on `app.js` (before and after the three
+read-path fixes). Two independent live Playwright passes (pre-fix,
+confirming the bug; post-fix, confirming the panel genuinely resolves
+and the full-diagnostic-report panel genuinely populates) — both via
+a real dev server, LLM disabled, no fabricated results. `pyflakes`
+clean on all touched Python files (only the six known pre-existing
+forward-ref findings). No native module, persisted `World` state, or
+deterministic Body code path touched — no replay-hash/native-soak
+re-run needed (this batch is LLM-pacing-adjacent + frontend only, same
+scope class as v1.34.198's B6 adaptive-concurrency wiring).
+
 ## Current state (v1.34.205)
 
 Explicit user follow-up: "Keep going and build whatever is required

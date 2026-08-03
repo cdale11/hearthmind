@@ -1156,6 +1156,30 @@ starts on an explicit instruction naming an item.
       remainder/B11/B12/B13/B14.2/B14.3/B15.5 remain open, each still
       needing its own separately-scoped build.
 
+      **B13's UI trigger — SHIPPED, v1.34.206.** Explicit user
+      follow-up: "Build B13 and other items you can complete." New
+      `POST /intervene/llm-concurrency-hypothesis` -> `SimulationEngine.
+      _maybe_start_llm_concurrency_hypothesis` -> a real background
+      `asyncio.Task` running v1.34.205's already-verified probe+
+      equivalence-check mechanism; `full_diagnostics()['llm_concurrency_
+      hypothesis']` + a new dev-console panel. New `scripts/verify_b13_
+      dev_console_endpoint.py` (9 checks, engine-side seam only). **A
+      live Playwright pass then found a real bug the new script
+      structurally couldn't catch**: `GET /diagnostics` nests
+      `full_diagnostics()` under `"engine"`, but the new JS read two
+      fields un-nested — both silently `undefined` forever, so the
+      panel's status text never advanced past "queued…" despite the
+      backend genuinely completing. The identical bug was found
+      PRE-EXISTING one line above (`report.pillar_cognition_status`,
+      broken since that panel first shipped) and fixed in the same
+      pass; a third dead read (off the periodic broadcast payload,
+      which never carries this field) was found and dropped. Re-
+      verified via a second live Playwright pass: both panels now
+      genuinely populate with real data. Standing lesson: an engine-
+      level verify script proves backend machinery is real but cannot
+      catch a frontend read-path bug — only an actual browser
+      exercising the actual JS can.
+
       **B13's real first wiring for `llm_max_concurrent` — v1.34.205.**
       Explicit user follow-up: "Keep going and build whatever is
       required for blocked items." A real `HypothesisLoop`, manual-

@@ -425,7 +425,12 @@ devFullReportBtn.addEventListener("click", async () => {
     const report = await fetchJSON("/diagnostics");
     const text = JSON.stringify(report, null, 2);
     devConsoleContent.textContent = text;
-    renderPillarCognitionStatus(report.pillar_cognition_status);
+    // GET /diagnostics nests SimulationEngine.full_diagnostics() under
+    // "engine" (interface/app.py's own response shape) — a real,
+    // pre-existing bug found via live browser testing (v1.34.206):
+    // this read the un-nested top level and silently rendered nothing.
+    renderPillarCognitionStatus(report.engine && report.engine.pillar_cognition_status);
+    renderConcurrencyHypothesisResult(report.engine && report.engine.llm_concurrency_hypothesis);
     try {
       await navigator.clipboard.writeText(text);
       devReportStatus.textContent = "copied to clipboard";
@@ -437,6 +442,72 @@ devFullReportBtn.addEventListener("click", async () => {
   } catch (e) {
     devReportStatus.textContent = `failed: ${e.message}`;
   }
+});
+
+// Tier 5 B13's dev-console trigger: queues a real HypothesisLoop
+// attempt over llm_max_concurrent (`POST /intervene/llm-concurrency-
+// hypothesis`), then polls `/diagnostics` until `llm_concurrency_
+// hypothesis.running` clears — the probe/equivalence-check run as a
+// real background async task on the engine side, never synchronously
+// inside the request. Manual-only by design (see the engine's own
+// docstring) — never auto-runs, never fights the live adaptive
+// concurrency controller.
+const concurrencyHypothesisValueInput = document.getElementById("concurrency-hypothesis-value");
+const concurrencyHypothesisTextInput = document.getElementById("concurrency-hypothesis-text");
+const concurrencyHypothesisRunBtn = document.getElementById("concurrency-hypothesis-run-btn");
+const concurrencyHypothesisStatus = document.getElementById("concurrency-hypothesis-status");
+
+function renderConcurrencyHypothesisResult(section) {
+  if (!section) return;
+  if (section.running) {
+    concurrencyHypothesisStatus.textContent = "running…";
+    return;
+  }
+  const r = section.last_result;
+  if (!r) {
+    concurrencyHypothesisStatus.textContent = "no hypothesis run yet";
+    return;
+  }
+  concurrencyHypothesisStatus.textContent =
+    `${r.decision}: ${r.reason}\n` +
+    (r.before_value !== undefined
+      ? `llm_max_concurrent ${r.before_value} -> ${r.after_value}\n` +
+        `measured wait: ${r.measured_before_ms?.toFixed(1)}ms -> ${r.measured_after_ms?.toFixed(1)}ms` +
+        (r.gate_applied ? ` (equivalence gate: ${r.gate_passed ? "passed" : "failed"})` : "")
+      : "");
+}
+
+concurrencyHypothesisRunBtn?.addEventListener("click", async () => {
+  const proposedValue = parseInt(concurrencyHypothesisValueInput.value, 10);
+  if (!Number.isFinite(proposedValue)) {
+    concurrencyHypothesisStatus.textContent = "enter a proposed llm_max_concurrent value first";
+    return;
+  }
+  concurrencyHypothesisStatus.textContent = "queued…";
+  await fetch("/intervene/llm-concurrency-hypothesis", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      proposed_value: proposedValue,
+      hypothesis: concurrencyHypothesisTextInput.value.trim(),
+    }),
+  });
+  // Poll a bounded number of times rather than indefinitely — the real
+  // probe+equivalence-check is bounded work (a handful of ticks), so a
+  // stuck poll here would indicate a real backend problem, not
+  // something worth retrying forever.
+  for (let i = 0; i < 60; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    try {
+      const report = await fetchJSON("/diagnostics");
+      const section = report.engine && report.engine.llm_concurrency_hypothesis;
+      renderConcurrencyHypothesisResult(section);
+      if (section && !section.running) return;
+    } catch (e) {
+      concurrencyHypothesisStatus.textContent = `polling failed: ${e.message}`;
+      return;
+    }
+  }
+  concurrencyHypothesisStatus.textContent = "still running after 2 minutes — check server logs";
 });
 
 devToggle.addEventListener("click", () => {
@@ -4702,6 +4773,11 @@ Hypothesis: ${r.hypothesis}`;
 function renderDevConsole(payload) {
   if (devConsole.classList.contains("hidden")) return;
   renderRecorderStatus(payload.diagnostics && payload.diagnostics.training_recorder);
+  // llm_concurrency_hypothesis lives only in full_diagnostics() (the
+  // "Full diagnostic report" button / the run-button's own poll loop),
+  // never in the cheap per-tick _diagnostics_snapshot() this periodic
+  // broadcast carries — a matching read here would always be undefined
+  // (v1.34.206 fix, found via live browser testing).
   // Phase N: the town consciousness's persistent inner state is
   // deliberately absent from the main UI (same ambiguity discipline as
   // temperament/mood/player_standing) but belongs squarely in the

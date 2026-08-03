@@ -1893,6 +1893,18 @@ class SimulationEngine:
         adjusting one value would be a genuine correctness risk this
         pass declines to introduce; a human-invoked what-if check
         alongside the live automatic controller is not."""
+        self._llm_concurrency_hypothesis_running = False
+        self._last_llm_concurrency_hypothesis: dict | None = None
+        """Real dev-console/API surface for the manual B13 control point
+        above — `/intervene/llm-concurrency-hypothesis` enqueues a
+        request, `_apply_intervention`'s `llm_concurrency_hypothesis`
+        branch spawns the real async probe+loop as a background task
+        (same `_background_tasks` shutdown-drain discipline as every
+        other fire-and-forget LLM/sandbox task in this file), and this
+        field holds the most recent real `AdaptationRecord` as a plain
+        dict for `full_diagnostics()` to surface. `_running` prevents a
+        second request from starting a fresh probe while one is already
+        in flight — one at a time, never queued/stacked."""
         # Tier 5 B7's real control point (explicit user directive: "B7"):
         # `GoodCitizenPolicy.should_back_off` is B7.4's own named input
         # signal for "a real scheduler would consult this" — B6's daily
@@ -5490,6 +5502,55 @@ class SimulationEngine:
             )
         elif kind == "recorder_stop":
             self.stop_training_recording()
+        elif kind == "llm_concurrency_hypothesis":
+            self._maybe_start_llm_concurrency_hypothesis(item)
+
+    def _maybe_start_llm_concurrency_hypothesis(self, item: dict) -> None:
+        """Tier 5 B13's real dev-console/API trigger for `_run_llm_
+        concurrency_hypothesis` — enqueued via `POST /intervene/llm-
+        concurrency-hypothesis`, applied here on the next real tick
+        (same seam every other `/intervene/*` request uses), spawned as
+        a real background task (the probe/equivalence-check both need
+        several real ticks/awaits, too long to run synchronously inside
+        `_apply_intervention`). One in flight at a time — a second
+        request while one is already running is silently dropped rather
+        than queued or stacked, since only the MOST RECENT result is
+        ever surfaced anyway."""
+        if self._llm_concurrency_hypothesis_running:
+            return
+        try:
+            proposed_value = int(item["proposed_value"])
+        except (KeyError, TypeError, ValueError):
+            return
+        hypothesis = str(item.get("hypothesis", "")).strip()[:200] or "manually requested via the dev console"
+        self._llm_concurrency_hypothesis_running = True
+
+        async def _runner() -> None:
+            try:
+                record = await self._run_llm_concurrency_hypothesis(proposed_value, hypothesis)
+                self._last_llm_concurrency_hypothesis = {
+                    "hypothesis": record.hypothesis,
+                    "tunable_name": record.tunable_name,
+                    "before_value": record.before_value,
+                    "after_value": record.after_value,
+                    "measured_before_ms": record.measured_before,
+                    "measured_after_ms": record.measured_after,
+                    "gate_applied": record.gate_applied,
+                    "gate_passed": record.gate_passed,
+                    "decision": record.decision,
+                    "reason": record.reason,
+                }
+            except Exception:
+                logger.exception("llm_concurrency_hypothesis intervention failed")
+                self._last_llm_concurrency_hypothesis = {
+                    "decision": "error", "reason": "the hypothesis run raised an exception; see server logs",
+                }
+            finally:
+                self._llm_concurrency_hypothesis_running = False
+
+        task = asyncio.create_task(_runner())
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     def _record_observer_attention(self, agent_id) -> None:
         """§4 "observer attention as a signal into the Town
@@ -15066,6 +15127,22 @@ class SimulationEngine:
                         "reason": event.reason,
                     }
                     for event in self._escalation_ladder.history[-10:]
+                ],
+            },
+            # Tier 5 B13's real dev-console/API control point — the
+            # most recent manually-requested `HypothesisLoop` attempt
+            # over `llm_max_concurrent` (see `_maybe_start_llm_
+            # concurrency_hypothesis`/`POST /intervene/llm-concurrency-
+            # hypothesis`), `None` until one has ever been requested.
+            "llm_concurrency_hypothesis": {
+                "running": self._llm_concurrency_hypothesis_running,
+                "last_result": self._last_llm_concurrency_hypothesis,
+                "history_recent": [
+                    {
+                        "hypothesis": r.hypothesis, "before_value": r.before_value,
+                        "after_value": r.after_value, "decision": r.decision, "reason": r.reason,
+                    }
+                    for r in self._hypothesis_history.all()[-10:]
                 ],
             },
             "peak_memory_rss_mb": peak_rss_mb,

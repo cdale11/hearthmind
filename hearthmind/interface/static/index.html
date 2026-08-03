@@ -394,6 +394,17 @@
           <pre id="pillar-cognition-content" class="muted">click "Full diagnostic report" below to load</pre>
         </div>
 
+        <div id="concurrency-hypothesis-panel">
+          <h3>B13: LLM concurrency hypothesis</h3>
+          <p class="muted">Manual what-if check against real measured queueing wait — never runs automatically, never fights the live adaptive controller.</p>
+          <div id="concurrency-hypothesis-controls">
+            <input id="concurrency-hypothesis-value" type="number" min="1" max="8" placeholder="proposed llm_max_concurrent" />
+            <input id="concurrency-hypothesis-text" type="text" placeholder="hypothesis (optional)" />
+            <button id="concurrency-hypothesis-run-btn">Run hypothesis</button>
+          </div>
+          <pre id="concurrency-hypothesis-status" class="muted">no hypothesis run yet</pre>
+        </div>
+
         <button id="dev-full-report">Full diagnostic report</button>
         <span id="dev-report-status" class="muted"></span>
         <pre id="dev-console-content"></pre>

@@ -304,6 +304,32 @@ def create_app(broadcaster: WorldBroadcaster, conn: sqlite3.Connection, config: 
         broadcaster.enqueue_intervention(item)
         return JSONResponse({"queued": True})
 
+    @app.post("/intervene/llm-concurrency-hypothesis")
+    async def intervene_llm_concurrency_hypothesis(payload: dict) -> JSONResponse:
+        """Tier 5 B13's real dev-console/API trigger: queues a real
+        `HypothesisLoop` attempt over `llm_max_concurrent` for a
+        candidate `proposed_value`, optional free-text `hypothesis`.
+        Applied on the engine's next tick (same seam as every other
+        `/intervene/*` endpoint), then runs as a background async task
+        — poll `GET /diagnostics`'s `llm_concurrency_hypothesis` field
+        for the real result once it completes. Deliberately manual-only
+        (see `SimulationEngine._llm_concurrency_hypothesis_loop`'s own
+        docstring) — never runs automatically, so it can't fight B6/B7's
+        own live adaptive concurrency controller."""
+        proposed_value = payload.get("proposed_value")
+        if proposed_value is None:
+            return JSONResponse({"error": "proposed_value is required"}, status_code=400)
+        try:
+            proposed_value = int(proposed_value)
+        except (TypeError, ValueError):
+            return JSONResponse({"error": "proposed_value must be an integer"}, status_code=400)
+        broadcaster.enqueue_intervention({
+            "type": "llm_concurrency_hypothesis",
+            "proposed_value": proposed_value,
+            "hypothesis": str(payload.get("hypothesis", "")),
+        })
+        return JSONResponse({"queued": True})
+
     @app.get("/recorder/status")
     async def recorder_status() -> JSONResponse:
         """Permanent LLM training recorder status (llm/recorder.py, §8) —
