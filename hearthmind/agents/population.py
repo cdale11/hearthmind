@@ -72,6 +72,31 @@ unconditionally for every agent every tick, unlike the goal-gated
 lookups in modules 1-5. `None` when the extension wasn't built — falls
 back to the equivalent pure-Python branching in that case."""
 
+try:
+    from hearthmind._native import BiologyConstants as _NativeBiologyConstants
+    from hearthmind._native import tick_development as _native_tick_development
+    from hearthmind._native import tick_immune_strength as _native_tick_immune_strength
+    from hearthmind._native import tick_injury_recovery as _native_tick_injury_recovery
+    from hearthmind._native import tick_sleep_debt as _native_tick_sleep_debt
+    from hearthmind._native import tick_stress as _native_tick_stress
+except ImportError:
+    _NativeBiologyConstants = None
+    _native_tick_sleep_debt = None
+    _native_tick_immune_strength = None
+    _native_tick_stress = None
+    _native_tick_injury_recovery = None
+    _native_tick_development = None
+"""Optional compiled fast path for A14's five per-agent, per-tick
+scalar drift passes — `_tick_sleep_debt`/`_tick_immune_strength`/
+`_tick_stress`/`_tick_injury_recovery`/`_tick_development` (see
+cpp/src/biology_ticks.cpp) — same "runs for every agent, every tick,
+unconditionally, pure arithmetic" shape as `_update_needs` (module 6)
+and `decay_emotions` (module 19). All dict/object resolution
+(`agent.emotions.get(...)`, the `relationship_flags` feud scan) stays
+in Python; only the arithmetic moves. `None` when the extension wasn't
+built — each method falls back to the equivalent pure-Python branching
+in that case."""
+
 from hearthmind.agents import agent_store
 from hearthmind.agents.agent import (
     CRITICAL_HUNGER_THRESHOLD,
@@ -2294,26 +2319,33 @@ class Population:
         if month_end:
             self._tick_traits(rng)
         hospital_settlement_ids = {sid for sid, has in has_hospital_by_id.items() if has}
+        # A14's five per-agent scalar-drift passes share one native
+        # BiologyConstants (see cpp/src/biology_ticks.cpp), built once
+        # here rather than once per pass — same "build once per tick"
+        # discipline `needs_constants` above already established.
+        # `None` (extension unbuilt) makes every pass below fall back
+        # to its equivalent pure-Python branching.
+        biology_constants = self._biology_constants()
         # A14 "Layered organism biology," sixth and final slice: sleep
         # debt drifts from the same just-updated energy reading, BEFORE
         # immune_strength ticks below (which now reads it as a further
         # chronic drag on top of its own momentary energy pull).
-        self._tick_sleep_debt(self.agents)
+        self._tick_sleep_debt(self.agents, biology_constants)
         # A14 "Layered organism biology," first slice (roadmap Stage IV
         # step 23): immune state drifts from real current nutrition/
         # rest before disease resolves this tick, so a just-updated
         # hunger/energy reading (from _update_needs above) is what
         # feeds it, not a stale value from last tick.
-        self._tick_immune_strength(self.agents)
+        self._tick_immune_strength(self.agents, biology_constants)
         # A14 "Layered organism biology," second slice: stress reads the
         # same just-updated emotions/hunger/sick_ticks state.
-        self._tick_stress(self.agents)
+        self._tick_stress(self.agents, biology_constants)
         # A14 "Layered organism biology," third slice: injury heals
         # from the same just-updated hunger/energy state.
-        self._tick_injury_recovery(self.agents)
+        self._tick_injury_recovery(self.agents, biology_constants)
         # A14 "Layered organism biology," fourth slice: development
         # grows from the same just-updated hunger state.
-        self._tick_development(self.agents)
+        self._tick_development(self.agents, biology_constants)
         disease_events, died_of_disease = self._tick_disease(
             self.agents, by_position, hospital_settlement_ids, primary.temperament, rng, tick,
         )
@@ -2781,22 +2813,64 @@ class Population:
         return [("illness", f"{index_case.name} has fallen ill.")]
 
     @staticmethod
-    def _tick_sleep_debt(agents: list[Agent]) -> None:
+    def _biology_constants():
+        """Builds one native `BiologyConstants` (see cpp/src/biology_
+        ticks.cpp), reused across every agent and all five `_tick_*`
+        passes below within a single `tick()` call — same "build once
+        per tick, not once per agent" discipline `needs_constants`
+        already established a few hundred lines up. Returns `None`
+        (a genuine no-op) when the extension wasn't built, matching
+        every other native fast path in this file."""
+        if _NativeBiologyConstants is None:
+            return None
+        c = _NativeBiologyConstants()
+        c.sleep_debt_adapt_rate = SLEEP_DEBT_ADAPT_RATE
+        c.immune_hunger_weight = IMMUNE_HUNGER_WEIGHT
+        c.immune_energy_weight = IMMUNE_ENERGY_WEIGHT
+        c.sleep_debt_immune_weight = SLEEP_DEBT_IMMUNE_WEIGHT
+        c.immune_baseline = IMMUNE_BASELINE
+        c.immune_adapt_rate = IMMUNE_ADAPT_RATE
+        c.sickness_immune_drain_per_tick = SICKNESS_IMMUNE_DRAIN_PER_TICK
+        c.immune_strength_floor = IMMUNE_STRENGTH_FLOOR
+        c.stress_fear_weight = STRESS_FEAR_WEIGHT
+        c.stress_grief_weight = STRESS_GRIEF_WEIGHT
+        c.critical_hunger_threshold = CRITICAL_HUNGER_THRESHOLD
+        c.stress_hunger_crisis_pull = STRESS_HUNGER_CRISIS_PULL
+        c.stress_sickness_pull = STRESS_SICKNESS_PULL
+        c.stress_feud_pull = STRESS_FEUD_PULL
+        c.stress_adapt_rate = STRESS_ADAPT_RATE
+        c.injury_recovery_rate = INJURY_RECOVERY_RATE
+        c.injury_recovery_hunger_weight = INJURY_RECOVERY_HUNGER_WEIGHT
+        c.injury_recovery_energy_weight = INJURY_RECOVERY_ENERGY_WEIGHT
+        c.development_growth_per_tick = DEVELOPMENT_GROWTH_PER_TICK
+        c.development_nutrition_weight = DEVELOPMENT_NUTRITION_WEIGHT
+        c.development_nutrition_min_factor = DEVELOPMENT_NUTRITION_MIN_FACTOR
+        c.development_nutrition_max_factor = DEVELOPMENT_NUTRITION_MAX_FACTOR
+        return c
+
+    @staticmethod
+    def _tick_sleep_debt(agents: list[Agent], constants=None) -> None:
         """A14 "Layered organism biology," sixth and final slice
         (roadmap Tier 1 item 8): drifts every agent's continuous
         `sleep_debt` toward `1.0 - energy` via exponential smoothing at
         `SLEEP_DEBT_ADAPT_RATE` — deliberately much slower than
         `IMMUNE_ADAPT_RATE`, so this tracks a CHRONIC rest deficit
         across many ticks, not the same-tick tiredness `energy` already
-        captures on its own. Pure Python, O(agents), same cost class as
-        `_tick_immune_strength`."""
+        captures on its own. O(agents), same cost class as
+        `_tick_immune_strength`. Native fast path (see cpp/src/biology_
+        ticks.cpp): `constants` from `_biology_constants()`; `None`
+        (extension unbuilt) falls back to the equivalent pure Python."""
+        if constants is not None and _native_tick_sleep_debt is not None:
+            for agent in agents:
+                agent.sleep_debt = _native_tick_sleep_debt(constants, agent.energy, agent.sleep_debt)
+            return
         for agent in agents:
             target = clamp(1.0 - agent.energy, 0.0, 1.0)
             agent.sleep_debt += (target - agent.sleep_debt) * SLEEP_DEBT_ADAPT_RATE
             agent.sleep_debt = clamp(agent.sleep_debt, 0.0, 1.0)
 
     @staticmethod
-    def _tick_immune_strength(agents: list[Agent]) -> None:
+    def _tick_immune_strength(agents: list[Agent], constants=None) -> None:
         """A14 "Layered organism biology," first slice (roadmap Stage IV
         step 23): drifts every agent's continuous `immune_strength`
         toward a target derived from their CURRENT hunger/energy —
@@ -2806,11 +2880,19 @@ class Population:
         coupling: fighting infection taxes immune reserve). Also
         drags the target down by their chronic `sleep_debt` (A14's
         sixth slice) — a distinct, slower-resolving signal from the
-        momentary rest_pull below. Pure Python, reads/writes only the
-        plain (non-native-store-backed) `immune_strength`/`hunger`/
-        `energy`/`sick_ticks`/`sleep_debt` attributes — runs every
-        tick, O(agents), same cost class as the trait/emotion decay
-        passes elsewhere in this file."""
+        momentary rest_pull below. Reads/writes only the plain
+        (non-native-store-backed) `immune_strength`/`hunger`/`energy`/
+        `sick_ticks`/`sleep_debt` attributes — runs every tick,
+        O(agents), same cost class as the trait/emotion decay passes
+        elsewhere in this file. Native fast path: see `_tick_sleep_
+        debt`'s docstring for the `constants`/fallback contract."""
+        if constants is not None and _native_tick_immune_strength is not None:
+            for agent in agents:
+                agent.immune_strength = _native_tick_immune_strength(
+                    constants, agent.hunger, agent.energy, agent.sleep_debt,
+                    agent.immune_strength, agent.sick_ticks > 0,
+                )
+            return
         for agent in agents:
             # hunger/energy are already 0..1 with 0.5 as their own
             # natural midpoint reading — center each around that so a
@@ -2825,16 +2907,27 @@ class Population:
             agent.immune_strength = clamp(agent.immune_strength, IMMUNE_STRENGTH_FLOOR, 1.0)
 
     @staticmethod
-    def _tick_stress(agents: list[Agent]) -> None:
+    def _tick_stress(agents: list[Agent], constants=None) -> None:
         """A14 "Layered organism biology," second slice (roadmap Tier 1
         item 8): drifts every agent's continuous `stress` toward a
         target built from real, already-tracked acute-threat signals —
         current fear/grief emotions, a hunger crisis
         (`CRITICAL_HUNGER_THRESHOLD`), active illness (`sick_ticks`),
         and a hardened feud (`relationship_flags`) — via exponential
-        smoothing (`STRESS_ADAPT_RATE`). Pure Python, reads only plain
-        (non-native-store-backed) attributes — O(agents), same cost
-        class as `_tick_immune_strength`."""
+        smoothing (`STRESS_ADAPT_RATE`). Reads only plain (non-native-
+        store-backed) attributes — O(agents), same cost class as
+        `_tick_immune_strength`. Native fast path: the two dict scans
+        (`emotions.get`, the feud check over `relationship_flags`)
+        stay in Python — only the arithmetic moves; see `_tick_sleep_
+        debt`'s docstring for the `constants`/fallback contract."""
+        if constants is not None and _native_tick_stress is not None:
+            for agent in agents:
+                has_feud = any(flag == "feud" for flag in agent.relationship_flags.values())
+                agent.stress = _native_tick_stress(
+                    constants, agent.emotions.get(EMOTION_FEAR, 0.0), agent.emotions.get(EMOTION_GRIEF, 0.0),
+                    agent.hunger, agent.sick_ticks > 0, has_feud, agent.stress,
+                )
+            return
         for agent in agents:
             target = (
                 agent.emotions.get(EMOTION_FEAR, 0.0) * STRESS_FEAR_WEIGHT
@@ -2851,7 +2944,7 @@ class Population:
             agent.stress = clamp(agent.stress, 0.0, 1.0)
 
     @staticmethod
-    def _tick_injury_recovery(agents: list[Agent]) -> None:
+    def _tick_injury_recovery(agents: list[Agent], constants=None) -> None:
         """A14 "Layered organism biology," third slice (roadmap Tier 1
         item 8): heals every agent's continuous `injury` toward 0 each
         tick via exponential smoothing, at a rate scaled up to 1.5x by
@@ -2859,8 +2952,15 @@ class Population:
         agent (`INJURY_RECOVERY_HUNGER_WEIGHT`/`_ENERGY_WEIGHT`) — real
         convalescence, not an instant reset. Injury itself is only ever
         GAINED elsewhere (`_maybe_predator_attack`'s non-lethal
-        outcome); this is the recovery half only. Pure Python,
-        O(agents), same cost class as `_tick_stress`."""
+        outcome); this is the recovery half only. O(agents), same cost
+        class as `_tick_stress`. Native fast path: the `injury <= 0.0`
+        early-out is mirrored inside `tick_injury_recovery` itself, so
+        this can call unconditionally; see `_tick_sleep_debt`'s
+        docstring for the `constants`/fallback contract."""
+        if constants is not None and _native_tick_injury_recovery is not None:
+            for agent in agents:
+                agent.injury = _native_tick_injury_recovery(constants, agent.hunger, agent.energy, agent.injury)
+            return
         for agent in agents:
             if agent.injury <= 0.0:
                 continue
@@ -2870,7 +2970,7 @@ class Population:
             agent.injury = clamp(agent.injury - rate, 0.0, 1.0)
 
     @staticmethod
-    def _tick_development(agents: list[Agent]) -> None:
+    def _tick_development(agents: list[Agent], constants=None) -> None:
         """A14 "Layered organism biology," fourth slice (roadmap Tier 1
         item 8): accumulates every agent's continuous `development`
         toward 1.0 each tick at `DEVELOPMENT_GROWTH_PER_TICK`, scaled
@@ -2879,8 +2979,16 @@ class Population:
         stunting under sustained famine, distinct from `injury`'s
         acute-trauma coupling. Runs for every agent regardless of age
         (a fully-grown adult just stays pinned at 1.0 once reached).
-        Real consumer: `carrying_capacity`'s labor term. Pure Python,
-        O(agents), same cost class as `_tick_stress`."""
+        Real consumer: `carrying_capacity`'s labor term. O(agents),
+        same cost class as `_tick_stress`. Native fast path: the
+        `development >= 1.0` early-out is mirrored inside `tick_
+        development` itself, so this can call unconditionally; see
+        `_tick_sleep_debt`'s docstring for the `constants`/fallback
+        contract."""
+        if constants is not None and _native_tick_development is not None:
+            for agent in agents:
+                agent.development = _native_tick_development(constants, agent.hunger, agent.development)
+            return
         for agent in agents:
             if agent.development >= 1.0:
                 continue

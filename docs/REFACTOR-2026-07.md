@@ -939,6 +939,35 @@ Python. Porting those to C++ over the table, one method-group at a time
 (each verified against the Python it replaces before deletion), is the
 next leg toward the full engine.
 
+**Module 24 shipped (v1.34.207): `biology_ticks.cpp` — the first real
+"agent tick logic" method-group port the paragraph above called for.**
+A14's five per-agent, per-tick scalar-drift passes (`Population.
+_tick_sleep_debt`/`_tick_immune_strength`/`_tick_stress`/`_tick_
+injury_recovery`/`_tick_development`, agents/population.py) share the
+exact "runs for every agent, every tick, unconditionally, pure scalar
+arithmetic" shape modules 6 (`needs.cpp`) and 19 (`emotion_decay.cpp`)
+established — real, un-ported per-tick candidates that had accumulated
+since A14 shipped (v1.34.37-42) with no native port at the time. One
+shared `BiologyConstants` struct (built once per tick, same discipline
+`NeedsConstants` already established) backs all five native functions;
+each Python method's own real early-out (`injury <= 0.0`/`development
+>= 1.0`) is mirrored inside the native function itself as a same-value
+no-op, so the Python call site stays uniform across all five passes
+rather than special-casing two of them. Fallback (no native extension):
+each method's own pure-Python branch, byte-identical to before this
+module existed.
+
+Verified: 50,000-trial randomized equivalence against a direct Python
+reference reimplementation of the fallback branch (0 mismatches);
+`scripts/verify_native_soak.py`'s new toggle (full `World.to_dict()`
+per tick, native vs fallback byte-identical, default 3-seed/3000-tick
+run) — MATCH on all three seeds. This is the fourth "still Python"
+per-agent method-group the object-graph paragraph above named as the
+next leg (after `_update_needs`/`decay_emotions`/`_update_
+relationships`) — the great majority of `population.py`'s tick logic
+remains Python, unattempted this pass; a future session can repeat the
+same shape for the next self-contained scalar-math method-group found.
+
 ## One-line summary for CLAUDE.md / CHANGELOG
 
 Audit found the codebase clean (near-zero dead code, no wasteful

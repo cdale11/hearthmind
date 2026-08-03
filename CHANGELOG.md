@@ -4,6 +4,50 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.207] — C++ port: A14's biology-tick scalar math; Tier 6 L3.1 LLM cost regressor
+
+Explicit user follow-up: "Yes and try something from tier 6 as well
+and see if some C++ porting backlog can be done."
+
+**C++ porting backlog, module 24.** New `cpp/src/biology_ticks.cpp`
+ports A14's five per-agent, per-tick scalar-drift passes
+(`Population._tick_sleep_debt`/`_tick_immune_strength`/`_tick_stress`/
+`_tick_injury_recovery`/`_tick_development`) — the same "runs for
+every agent, every tick, unconditionally, pure arithmetic" shape
+`needs.cpp`/`emotion_decay.cpp` already established, left unattempted
+since A14 shipped. One shared `BiologyConstants` struct built once per
+tick backs all five; each method's own early-out is mirrored inside
+the native function so every call site stays uniform. Fallback
+(extension unbuilt): the original pure-Python branches, unchanged.
+
+Verified: a 50,000-trial randomized equivalence test against a direct
+Python reference of the fallback branch (0 mismatches);
+`scripts/verify_native_soak.py`'s new toggle — MATCH on all three
+default seeds (1/55/999, 3000 ticks each, full `World.to_dict()` per
+tick). `pyflakes` clean.
+
+**Tier 6, L3.1 first instance.** New `hearthmind/ml/llm_cost.py`'s
+`LLMCostRegressor`: predicts one specific about-to-be-issued call's
+`latency_ms` from its own shape (task/prompt+context size/current
+backlog/`deep_reasoning`), distinct from L3.2's already-shipped
+aggregate call-volume forecaster. `should_preflight_defer` is the real,
+independently-testable decision this model would inform — reliability-
+weighted, never a hard block. Not wired into the real scheduling path
+this pass (no live archive in this environment to train real weights
+against), same discipline L0/L3.2 shipped under.
+
+A real bug was caught and fixed during verification, not shipped:
+the first draft's synthetic dataset used raw char counts and
+millisecond targets directly, and plain SGD reliably diverged to NaN
+(the same bug class CLAUDE.md's own v1.34.174 entry documents). Fixed
+by normalizing both input scale (`prompt_chars_k`/`context_chars_k`)
+and target scale (`LATENCY_SCALE_MS`), plus a lower default learning
+rate (0.001) — documented at the call site.
+
+Verified: `scripts/verify_llm_cost.py` (16 checks) — all pass.
+`pyflakes` clean. `scripts/verify_ml_substrate.py`/`verify_
+forecasting.py` re-run clean (unaffected).
+
 ## [1.34.206] — Part B: B13's UI trigger, plus a real frontend bug caught by live browser testing
 
 Explicit user follow-up: "Build B13 and other items you can complete."

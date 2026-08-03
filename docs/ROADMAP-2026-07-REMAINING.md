@@ -1350,8 +1350,36 @@ with three shared components.
       bag-of-words relevance term at `agents/agent.py:472-474`.
 
 **L3 — runtime** (zero emergence risk, B0-owned)
-- [ ] **L3.1 LLM cost regressor** — predict `latency_ms` before issuing
-      a call; attacks `calls_dropped_backpressure` at its root.
+- [x] **L3.1 LLM cost regressor** — first instance SHIPPED, v1.34.207,
+      as `hearthmind/ml/llm_cost.py`'s `LLMCostRegressor`/`should_
+      preflight_defer`/`CostPredictionAccuracyTracker` — predicts
+      `latency_ms` for one SPECIFIC about-to-be-issued call (task,
+      prompt/context size, current backlog, `deep_reasoning`) before
+      it's issued, distinct from L3.2's aggregate near-term call-volume
+      forecast. `should_preflight_defer` is the real decision this
+      model would inform, shipped as an independently-testable pure
+      function (never a hard block — reliability-weighted, same "hint,
+      not gate" framing as B8.2's `plan_reservation`). **Not wired
+      into `_schedule_llm_job`/`llm/jobs.py`'s real scheduling path
+      this pass** — needs real weights trained against a real `llm/
+      recorder.py` archive, which this offline environment has no live
+      archive to source; same "ship the substrate, wire it once a real
+      consumer/archive exists" discipline L0/L3.2 both shipped under.
+      Verified: `scripts/verify_llm_cost.py` (16 checks — schema
+      shape, unrecognized-task graceful degradation, training measurably
+      cuts held-out loss on a synthetic dataset, a trained model
+      predicts higher latency for a heavy deep_reasoning call under
+      backlog than a light one on an idle queue, the accuracy tracker's
+      reliability math in both directions plus the cold-start default,
+      and `should_preflight_defer`'s five real decision-boundary cases)
+      — all pass, first run except one real bug caught and fixed
+      before shipping: plain SGD over unnormalized char-count features
+      and millisecond-scale targets reliably diverged to NaN (the same
+      bug class CLAUDE.md's own v1.34.174 entry already documents) —
+      fixed by normalizing both input scale (`prompt_chars_k`/`context_
+      chars_k`, thousands of characters rather than raw counts) and
+      target scale (`LATENCY_SCALE_MS`), plus a lower `learning_rate`
+      default (0.001), not by tuning the synthetic data away.
 - [x] **L3.2 Demand forecaster (B8.1) — first instance SHIPPED,
       v1.34.174** as `WorkloadForecaster`/`plan_reservation`/
       `ForecastAccuracyTracker`/`is_quiet_window` — see Tier 5's B8

@@ -104,6 +104,14 @@ _NATIVE_TOGGLES = [
     # (cpp/src/mining_scars.cpp).
     (_terrain_evolution, "_native_mining_scar_gain_step"),
     (_terrain_evolution, "_native_mining_scar_decay_step"),
+    # v1.34.207: A14's five per-agent scalar-drift passes
+    # (cpp/src/biology_ticks.cpp).
+    (_population, "_NativeBiologyConstants"),
+    (_population, "_native_tick_sleep_debt"),
+    (_population, "_native_tick_immune_strength"),
+    (_population, "_native_tick_stress"),
+    (_population, "_native_tick_injury_recovery"),
+    (_population, "_native_tick_development"),
 ]
 
 

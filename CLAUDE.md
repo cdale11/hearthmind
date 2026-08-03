@@ -742,6 +742,79 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.207)
+
+Explicit user follow-up: "Yes and try something from tier 6 as well
+and see if some C++ porting backlog can be done." Two independent
+pieces, one batch.
+
+**C++ porting backlog: module 24, `biology_ticks.cpp`.** Investigated
+docs/REFACTOR-2026-07.md's own R6/R7/R8 status and found the queue's
+opportunistic pure-math items (weather/soil/mining/road/relationship)
+all already closed, but a real, unattempted candidate had accumulated
+since: A14's five per-agent, per-tick scalar-drift passes
+(`Population._tick_sleep_debt`/`_tick_immune_strength`/`_tick_stress`/
+`_tick_injury_recovery`/`_tick_development`, shipped v1.34.37-42 with
+no native port at the time) share the exact "runs for every agent,
+every tick, unconditionally, pure arithmetic" shape modules 6
+(`needs.cpp`) and 19 (`emotion_decay.cpp`) established. New `cpp/src/
+biology_ticks.cpp`: one shared `BiologyConstants` struct (built once
+per tick in `Population._biology_constants()`, same discipline
+`NeedsConstants` already established) backs all five native functions;
+each Python method's own early-out (`injury <= 0.0`/`development >=
+1.0`) is mirrored inside the native function itself, so all five call
+sites stay uniform. Fallback (no native extension): each method's own
+pure-Python branch, byte-identical to before.
+
+Verified: a direct 50,000-trial randomized equivalence test against a
+Python reference reimplementation of the fallback branch — 0
+mismatches. `scripts/verify_native_soak.py`'s new toggle (full `World.
+to_dict()` per tick, native vs fallback) — MATCH on all three default
+seeds (1/55/999, 3000 ticks each). `pyflakes` clean on all touched
+files (only the six known pre-existing forward-ref findings).
+
+**Tier 6: L3.1, the LLM cost regressor — first instance shipped.** New
+`hearthmind/ml/llm_cost.py`: predicts one SPECIFIC about-to-be-issued
+call's `latency_ms` (task/prompt-context size/current backlog/`deep_
+reasoning`) before it's issued — distinct from L3.2's own already-
+shipped aggregate near-term call-VOLUME forecaster
+(`simulation/forecasting.py`'s `WorkloadForecaster`). Reuses L0's
+`FeatureEncoder`/`MLP`/`train_mlp_sgd` directly, same thin-wrapper
+shape `WorkloadForecaster` established. `should_preflight_defer` is
+the real decision this model would inform (attacking `calls_dropped_
+backpressure` at its root, per the roadmap's own framing), shipped as
+an independently-testable pure function — reliability-weighted, never
+a hard block, same "hint not gate" discipline as B8.2's `plan_
+reservation`. **Not wired into `_schedule_llm_job`/`llm/jobs.py`'s
+real scheduling path this pass** — needs real weights trained against
+a real `llm/recorder.py` archive, which this offline environment has
+no live archive to source; same "ship the substrate, wire it once a
+real consumer/archive exists" discipline L0/L3.2 both shipped under.
+
+Real bug caught and fixed before shipping, not left for a caller to
+rediscover: the first draft's synthetic verification dataset used raw
+character counts and millisecond-scale targets directly — plain SGD
+reliably diverged to NaN (the exact bug class CLAUDE.md's own
+v1.34.174 entry already documents). Fixed by normalizing both input
+scale (`prompt_chars_k`/`context_chars_k`, thousands of characters
+rather than raw counts, mirroring `WORKLOAD_FORECAST_SCHEMA`'s own
+small-fractional-value convention) and target scale (new `LATENCY_
+SCALE_MS` constant), plus lowering `LLMCostRegressor.train`'s default
+`learning_rate` to 0.001 — documented at the call site rather than
+silently tuned away, same discipline the v1.34.174 fix itself used.
+
+Verified: `scripts/verify_llm_cost.py` (16 checks — schema shape,
+graceful degradation on an unrecognized task, training measurably
+cutting held-out loss on synthetic data, a trained model correctly
+predicting higher latency for a heavy deep_reasoning call under
+backlog than a light one on an idle queue, the accuracy tracker's
+reliability math in both directions plus its cold-start default, and
+`should_preflight_defer`'s five real decision-boundary cases) — all
+pass. `pyflakes` clean. `scripts/verify_ml_substrate.py`/`verify_
+forecasting.py` re-run clean (unaffected). No native module, persisted
+`World` state, or deterministic Body code path touched by this half —
+no replay-hash/native-soak re-run needed for it.
+
 ## Current state (v1.34.206)
 
 Explicit user follow-up: "Build B13 and other items you can complete"

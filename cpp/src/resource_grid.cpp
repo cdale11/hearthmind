@@ -207,6 +207,7 @@ void register_road_wear(py::module_ &m);
 void register_wildlife_step(py::module_ &m);
 void register_soil_fertility(py::module_ &m);
 void register_mining_scars(py::module_ &m);
+void register_biology_ticks(py::module_ &m);
 
 PYBIND11_MODULE(_native, m) {
     m.doc() = "Hearthmind native (C++) hot-path extensions. Optional — "
@@ -251,4 +252,5 @@ PYBIND11_MODULE(_native, m) {
     register_wildlife_step(m);
     register_soil_fertility(m);
     register_mining_scars(m);
+    register_biology_ticks(m);
 }
