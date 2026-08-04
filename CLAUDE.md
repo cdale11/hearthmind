@@ -742,6 +742,83 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.223)
+
+Explicit user instruction: "Start phase 3 B1 and any parallel task of
+your choice with most importance" — two independent pieces, one batch.
+
+**B1.** The base coalition-bidding/arbitration engine Stage B's later
+refinements (`B2`-`B7`) attach to. New `hearthmind/cognition/
+workspace.py`: `Bid` (a coalition proposal — specialist id, subject,
+score, an execution-agnostic resolver, a reason) and `GlobalWorkspace`
+(`submit()`/`arbitrate()`/`broadcast()`) implementing L3's own
+per-cycle mechanism (docs/COGNITIVE-ARCHITECTURE-2026-08-02.md §3) for
+steps 1/4/5/6: collect bids, pick one winner (highest score, ties
+broken by submission order — `max()`'s own stability, no RNG anywhere
+in the module, not even imported), broadcast to every subscriber, log
+the full competition (winner + every real loser, a genuinely empty
+cycle recorded as a real outcome too). Step 2 (coalition merge) is a
+no-op pass-through until `B4`; step 3's scoring is the raw bid score
+alone until `B5`'s seven-factor formula replaces it; step 7 (measure
+realised value, credit it back to bidders) is `B7`'s later,
+`learn()`-dependent addition. `arbitrate()`/`broadcast()` deliberately
+never invoke a winning bid's own `resolver` — execution stays the
+caller's responsibility, since resolution may need to be awaited or
+may end up dispatching through C3's future cached-chunk/learned-model/
+LLM ladder.
+
+New `scripts/verify_b1_global_workspace.py` (17 checks — basic
+arbitration; the full competition log naming winner + every loser; a
+20-repeat deterministic tie-break proof; cycle-counter advancement;
+real subscriber broadcast; a resolver-never-auto-invoked proof;
+bounded history eviction; and a real cross-primitive integration test:
+A1's own `SurpriseSpecialist` feeding real bids into the workspace,
+confirming a genuinely novel/rare signal wins arbitration over three
+chronically-routine specialists even though every one of them bid
+that same cycle) — all pass, first run, no bug found in the module
+under test.
+
+Deliberately NOT wired into any real production LLM call site this
+pass — B1's own "every LLM call site converted to a bid" is real,
+large, separate migration work (A2's own count: ~78 real `_append_
+emergence`-adjacent call sites, plus a comparable number of
+independent `_schedule_llm_job` sites), the same "ship the interface,
+wire the first real consumer next" discipline every prior Stage A/G
+item here has used, not a big-bang rewrite. The stated test
+("pillar-level call share rises from 1.4% to > 15% without raising
+total calls") stays explicitly unmet until that real migration lands.
+
+**Parallel task, chosen for most importance: a real `runtime_
+diagnostics` key-mismatch bug**, found while starting B1 and re-running
+the broader verify suite — `scripts/verify_b3_dirty_events.py` had
+been failing on unmodified `origin` since last session (confirmed via
+`git stash` at the time, flagged then, fixed now).
+`full_diagnostics()['runtime_diagnostics']` was keyed by each job's
+own Python METHOD name (`_RUNTIME_SCHEDULED_JOB_SCHEDULERS`'s own
+keys, e.g. `_update_institution_dormancy`) rather than the real,
+friendly `task_id` each dedicated scheduler's one registered `Task`
+actually carries (e.g. `institution_dormancy`) — every real consumer
+(the method's own doc comment, the dev console panel, the verify
+script) expected the latter, so `full_diagnostics()['runtime_
+diagnostics']['institution_dormancy']` was silently `None` on every
+real call since this dict first shipped (v1.34.214). Fixed by deriving
+each entry's real key from its own report's first (and only) `tasks`
+entry — each dedicated scheduler holds exactly one task, per B0.3's
+"one registry per migrated job" design, so this is always safe.
+
+Verified: both new scripts; `verify_b3_dirty_events.py` (16 checks, the
+real fix applied — all pass) and `verify_runtime_diagnostics.py`/
+`verify_scheduler.py`/`verify_task_graph.py`/`verify_dormancy.py`/
+`verify_b0_runtime_migrations.py`/`verify_surprise_specialist.py`/
+`verify_a3_surprise_overlay.py`/`verify_emergence_surprise_gate.py`
+re-run clean; `pyflakes` clean on all touched/new files (only the six
+known pre-existing forward-ref findings in `engine.py`); `scripts/
+verify_replay_hash.py` (4000 ticks, seed 777, `--in-process`) — MATCH,
+byte-identical; `scripts/verify_native_soak.py` (3 seeds x 3000 ticks)
+— MATCH. `B2` (competitive starvation) is the next open Stage B item
+per the dependency-ordered build sequence — resume only on future
+explicit direction.
+
 ## Current state (v1.34.222)
 
 Explicit user instruction: "Start A3 and fix stale docs and entries" —

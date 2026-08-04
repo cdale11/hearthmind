@@ -15876,6 +15876,25 @@ class SimulationEngine:
             "top_bridge": _social_feature_extreme(_social_features_live, "bridge_score"),
             "top_centrality": _social_feature_extreme(_social_features_live, "weighted_centrality"),
         }
+        # Bug fix (found while starting Tier 7 HCA Stage B, B1): the
+        # `runtime_diagnostics` dict below was keyed by each job's own
+        # Python METHOD name (`_RUNTIME_SCHEDULED_JOB_SCHEDULERS`'s own
+        # keys, e.g. `_update_institution_dormancy`) rather than the
+        # real, friendly `task_id` each dedicated scheduler's one
+        # registered `Task` actually carries (e.g. `institution_
+        # dormancy`) -- every real consumer (this method's own past
+        # doc comment, `scripts/verify_b3_dirty_events.py`) expects the
+        # latter, so `full_diagnostics()['runtime_diagnostics']
+        # ['institution_dormancy']` was silently `None` on every real
+        # call since B5.3 first shipped this dict (v1.34.214). Each
+        # dedicated scheduler holds exactly one task (B0.3's own "one
+        # registry per migrated job" design), so its report's first
+        # (only) `tasks` entry names the real key.
+        _runtime_diagnostics_by_task_id: dict = {}
+        for _job_name, _scheduler_attr in sorted(self._RUNTIME_SCHEDULED_JOB_SCHEDULERS.items()):
+            _report = runtime_diagnostics_report(getattr(self, _scheduler_attr))
+            _task_id = _report["tasks"][0]["task_id"] if _report["tasks"] else _job_name
+            _runtime_diagnostics_by_task_id[_task_id] = _report
         trust_entries = sum(len(a.trust) for a in agents)
         # Movement diagnostics (v0.81.0, see Agent.stuck_ticks): how many
         # agents are mid-way through the stuck-tick counter right now (a
@@ -15931,14 +15950,12 @@ class SimulationEngine:
             # SCHEDULERS` already names all of them (one dedicated
             # `Scheduler` per B0.3-migrated job, per that migration's
             # own no-shared-registry design) — this now reports every
-            # one, keyed by job method name, each a real, cheap,
-            # read-only `runtime_diagnostics_report` call (no new
-            # instrumentation, same already-tracked TaskMetrics/
+            # one, keyed by each job's real task_id (see the fix above
+            # `_runtime_diagnostics_by_task_id` is built), each a real,
+            # cheap, read-only `runtime_diagnostics_report` call (no
+            # new instrumentation, same already-tracked TaskMetrics/
             # SubsystemBudget/TickTrace state every call reads).
-            "runtime_diagnostics": {
-                job_name: runtime_diagnostics_report(getattr(self, scheduler_attr))
-                for job_name, scheduler_attr in sorted(self._RUNTIME_SCHEDULED_JOB_SCHEDULERS.items())
-            },
+            "runtime_diagnostics": _runtime_diagnostics_by_task_id,
             # Tier 5 B7's real control point, cheap "next tier intel"
             # bonus (same batch): the real `HostProbe` reading
             # `_maybe_tune_llm_concurrency` samples at most once a day,

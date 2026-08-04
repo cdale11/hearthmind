@@ -1974,9 +1974,28 @@ cannot state one does not ship.
   end-to-end through the real production write site — see
   `scripts/verify_a3_surprise_overlay.py` (16 checks). **This closes
   Tier 7 HCA Stage A in full** (`A1`→`A2`→`A3`).
-- [ ] **B1** — coalition bidding; one arbitrated winner per cycle;
-  every LLM call site converted to a bid. *Test:* pillar-level call
-  share rises from 1.4% to > 15% **without raising total calls**.
+- [~] **B1 — PARTIAL, v1.34.223.** Coalition bidding; one arbitrated
+  winner per cycle. New `hearthmind/cognition/workspace.py`'s `Bid`/
+  `GlobalWorkspace`: implements L3's own per-cycle mechanism for steps
+  1/4/5/6 (collect bids, pick one winner by score with a deterministic
+  submission-order tie-break — no RNG anywhere, `random` isn't even
+  imported — broadcast to subscribers, log the full competition:
+  winner + every real loser). Step 2 (coalition merge) is `B4`'s own
+  later job, deliberately a no-op pass-through for now; step 3's
+  scoring is the raw bid score alone until `B5`'s seven-factor formula
+  replaces it; step 7 (realised-value credit) is `B7`'s later,
+  `learn()`-dependent addition. See `scripts/verify_b1_global_
+  workspace.py` (17 checks, incl. a real cross-primitive integration
+  proof: A1's own `SurpriseSpecialist` feeding real bids into the
+  workspace, confirming a genuinely novel signal wins arbitration over
+  three chronically-routine specialists even though every one of them
+  bid that cycle). **"Every LLM call site converted to a bid" and the
+  stated 1.4%→>15% test are explicitly NOT attempted this pass** — a
+  real, large, separate site-by-site migration (A2's own count: ~78
+  real call sites), the same "ship the interface, wire the first real
+  consumer next" discipline every prior Stage A/G item here has used,
+  not a big-bang rewrite. Deliberately NOT wired into any real
+  production LLM call site yet.
 - [ ] **B2** — starvation: the *primary* mechanism is competitive
   (unbounded staleness gain, B5 below); B2.2's bounded-deferral floor
   is kept only as a hard backstop beneath it. *Test:*
@@ -2548,8 +2567,11 @@ inventing the interface twice later.
 (`B1`→`B2`→`B3`→`B4`→`B5`→`B6`→`B7`).** The base workspace/arbitration
 engine must exist (`B1`) before its later refinements (`B4`-`B7`, the
 2026-08-02 amendment sub-steps) can attach to anything:
-1. `B1` — coalition bidding; one arbitrated winner per cycle; every LLM
-   call site converted to a bid.
+1. `B1` — **PARTIAL, v1.34.223.** Coalition bidding; one arbitrated
+   winner per cycle. New `hearthmind/cognition/workspace.py`'s `Bid`/
+   `GlobalWorkspace` — see its own checklist entry above for full
+   detail. "Every LLM call site converted to a bid" remains open, real
+   future work.
 2. `B2` — starvation handled competitively (unbounded staleness gain
    primary, the old bounded-deferral floor kept only as a backstop).
 3. `B3` — the broadcast bus, replacing the ten hand-wired inter-pillar

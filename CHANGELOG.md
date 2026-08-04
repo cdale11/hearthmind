@@ -4,6 +4,69 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.223] — HCA Stage B, B1: the Global Workspace primitive, plus a real runtime_diagnostics key-mismatch fix
+
+Explicit user instruction: "Start phase 3 B1 and any parallel task of
+your choice with most importance." Two independent pieces, one batch.
+
+**B1.** The base coalition-bidding/arbitration engine Stage B's later
+refinements (B2-B7) attach to. New `hearthmind/cognition/workspace.py`:
+`Bid` (a coalition proposal -- specialist id, subject, score, an
+execution-agnostic resolver, a reason) and `GlobalWorkspace`
+(`submit()`/`arbitrate()`/`broadcast()`) implementing L3's own per-
+cycle mechanism (docs/COGNITIVE-ARCHITECTURE-2026-08-02.md §3) for
+steps 1/4/5/6: collect bids, pick one winner (highest score, ties
+broken by submission order -- `max()`'s own stability, no RNG anywhere
+in the module), broadcast to every subscriber, log the full
+competition (winner + every real loser). Step 2 (coalition merge) is a
+no-op pass-through until B4; step 3's scoring is the raw bid score
+alone until B5's seven-factor formula; step 7 (realised-value credit)
+is B7's later addition.
+
+New `scripts/verify_b1_global_workspace.py` (17 checks -- basic
+arbitration, the full competition log, a deterministic 20-repeat tie-
+break proof, cycle-counter advancement, real subscriber broadcast, a
+resolver-never-auto-invoked proof, bounded history, and a real cross-
+primitive integration: A1's own `SurpriseSpecialist` feeding real bids
+into the workspace, confirming a genuinely novel signal wins
+arbitration over three chronically-routine specialists) -- all pass,
+first run, no bug found in the module under test.
+
+Deliberately NOT wired into any real production LLM call site this
+pass -- B1's own "every LLM call site converted to a bid" is a real,
+large, separate migration (~78 sites per A2's own count), same "ship
+the interface, wire the first real consumer next" discipline every
+prior Stage A/G item has used, not a big-bang rewrite.
+
+**Parallel task, chosen for most importance: a real `runtime_
+diagnostics` key-mismatch bug**, found while starting B1 and
+re-running the broader verify suite (`scripts/verify_b3_dirty_
+events.py`, which failed on unmodified `origin` -- confirmed via `git
+stash` in the prior session, flagged then, fixed now).
+`full_diagnostics()['runtime_diagnostics']` was keyed by each job's
+own Python METHOD name (`_RUNTIME_SCHEDULED_JOB_SCHEDULERS`'s own
+keys, e.g. `_update_institution_dormancy`) rather than the real,
+friendly `task_id` each dedicated scheduler's one registered `Task`
+actually carries (e.g. `institution_dormancy`) -- every real consumer
+(the method's own doc comment, the verify script) expected the
+latter, so `full_diagnostics()['runtime_diagnostics']
+['institution_dormancy']` was silently `None` on every real call since
+this dict first shipped (v1.34.214). Fixed by deriving each entry's
+real key from its own report's first (only) `tasks` entry -- each
+dedicated scheduler holds exactly one task, per B0.3's "one registry
+per migrated job" design.
+
+Verified: both new scripts; `verify_b3_dirty_events.py` (16 checks, the
+real fix applied) and `verify_runtime_diagnostics.py`/`verify_
+scheduler.py`/`verify_task_graph.py`/`verify_dormancy.py`/`verify_b0_
+runtime_migrations.py`/`verify_surprise_specialist.py`/`verify_a3_
+surprise_overlay.py`/`verify_emergence_surprise_gate.py` re-run clean;
+`pyflakes` clean on all touched/new files (only the six known
+pre-existing forward-ref findings in `engine.py`); `scripts/verify_
+replay_hash.py` (4000 ticks, seed 777, `--in-process`) -- MATCH,
+byte-identical; `scripts/verify_native_soak.py` (3 seeds x 3000
+ticks) -- MATCH.
+
 ## [1.34.222] — HCA Stage A, A3: the surprise map overlay (closes Stage A), plus stale-docs fixes and two A2 regression fixes
 
 Explicit user instruction: "Start A3 and fix stale docs and entries."
