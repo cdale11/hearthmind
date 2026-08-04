@@ -2012,13 +2012,23 @@ cannot state one does not ship.
 - [ ] **B3** — broadcast bus replacing B4's ten hand-wired arrows.
   *Test:* a Nature belief measurably moves an Innovation decision with
   no Nature→Innovation-specific code.
-- [ ] **B4** *(§3.3 step 1, added 2026-08-02)* — coalition formation:
-  bids naming the same subject/region/entity merge, superadditively but
-  sublinearly, counting only genuinely independent bidders (two views
-  of one underlying reading are one bidder, not two). *Test:* five
-  independent mild corroborating bids beat one strong isolated bid on
-  the same cycle, and ten weak ones still lose to a genuine crisis —
-  both thresholds stated in advance.
+- [x] **B4 — SHIPPED, v1.34.226.** *(§3.3 step 1, added 2026-08-02)* —
+  coalition formation. New `Coalition`/`form_coalitions`/`merged_
+  coalition_score` (`hearthmind/cognition/workspace.py`): bids naming
+  the same `subject` merge via noisy-OR (`1 - Π(1 - s_i)`) over only
+  the genuinely independent subset (`Bid.evidence_source`, new field —
+  two bids sharing a source collapse to the higher-scoring one, "one
+  bidder, not two"). Superadditive (real independent corroboration
+  raises the combined score above any single reading) but sublinear/
+  saturating (bounded by 1.0 regardless of term count). Deliberately
+  does NOT change `GlobalWorkspace.arbitrate()`'s own comparison this
+  pass — B1's own docstring already named step 3 (scoring) as B5's
+  job; `form_coalitions` is the standalone mechanism B5 will consume.
+  *Test (passed):* five independent mild (0.35) corroborating bids
+  (merged 0.884) beat one strong isolated (0.85) bid; ten weak (0.1)
+  bids (merged 0.651) still lose to one genuine crisis (0.95) reading
+  — both thresholds computed by hand before writing the assertion —
+  see `scripts/verify_b4_coalition_formation.py` (16 checks).
 - [ ] **B5** *(§3.3 steps 2-3)* — evidence-based scoring: the
   seven-factor bid record (surprise, consequence, confidence,
   uncertainty, urgency, staleness, historical usefulness, each with
@@ -2141,9 +2151,21 @@ cannot state one does not ship.
 - [ ] **E3** — memory-activation and competing-goals panels.
 - [ ] **E4** — the learning chart: deliberative calls per 1,000 ticks
   trended against emergence rate (§8's falsification test, live).
-- [ ] **E5** *(depends on Stage G)* — per-specialist learning curves:
-  live prediction-error-over-time, one line per specialist, with G3's
-  regime-change re-adaptation visibly plotted.
+- [x] **E5 — SHIPPED, v1.34.226.** *(depends on Stage G)* —
+  per-specialist learning curves. `full_diagnostics()['workload_
+  forecaster']` gained `error_history_recent` (G3's own `LearningSpecialist
+  .error_history`, shipped v1.34.219 but never read back out until
+  now — this is its real first consumer). New dev-console "HCA E5:
+  learning specialist curve" panel (`renderLearningSpecialistCurve`,
+  `app.js`): a live text sparkline of `candidate_metric` over the real
+  recent `learn()` cycles, a genuine regime-change spike flagged when
+  detected (error more than doubling vs. the prior cycle), and the ten
+  most recent cycles' baseline/candidate/accepted detail. Scoped to
+  the one real specialist running in production today (G2's
+  `WorkloadForecaster`) — no second specialist exists yet to plot.
+  Same plain-formatted-text presentation discipline `renderAdaptive
+  RuntimeStatus` already established (dev-console depth, not a canvas
+  chart).
 - [ ] **E6** *(depends on Stage H)* — a MACHINE-domain lane in the
   workspace panel: the Runtime's own bids, wins and escalations shown
   beside the world's, on the Machine surface. *Test:* an escalation is

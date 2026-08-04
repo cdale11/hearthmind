@@ -432,6 +432,7 @@ devFullReportBtn.addEventListener("click", async () => {
     renderPillarCognitionStatus(report.engine && report.engine.pillar_cognition_status);
     renderConcurrencyHypothesisResult(report.engine && report.engine.llm_concurrency_hypothesis);
     renderAdaptiveRuntimeStatus(report.engine);
+    renderLearningSpecialistCurve(report.engine);
     try {
       await navigator.clipboard.writeText(text);
       devReportStatus.textContent = "copied to clipboard";
@@ -546,6 +547,53 @@ ${profileLines.join("\n")}
 Automatic concurrency changes (newest first)
 -----------------------------------------------
 ${logLines.join("\n")}`;
+}
+
+// Tier 7 HCA E5 ("per-specialist learning curves... visibly plotted"),
+// v1.34.226. Same plain-formatted-text presentation discipline as
+// renderAdaptiveRuntimeStatus above (this project's Observatory UI
+// convention: dev-console-depth diagnostics get readable text, not a
+// canvas chart) — no new backend mechanism, error_history_recent is a
+// pure read of engine.py's own already-real LearningSpecialist state.
+const SPARKLINE_LEVELS = "▁▂▃▄▅▆▇█";
+
+function sparkline(values) {
+  if (!values.length) return "";
+  const max = Math.max(...values, 1e-9);
+  return values
+    .map((v) => SPARKLINE_LEVELS[Math.min(SPARKLINE_LEVELS.length - 1, Math.floor((v / max) * (SPARKLINE_LEVELS.length - 1)))])
+    .join("");
+}
+
+function renderLearningSpecialistCurve(engineReport) {
+  const el = document.getElementById("learning-specialist-content");
+  if (!el || !engineReport) return;
+  const wf = engineReport.workload_forecaster;
+  const history = (wf && wf.error_history_recent) || [];
+  if (!history.length) {
+    el.textContent = "no real learn() cycle has run yet";
+    return;
+  }
+
+  const candidateMetrics = history.map((e) => e.candidate_metric);
+  const spark = sparkline(candidateMetrics);
+
+  // A genuine regime-change spike (G3's own test shape): a cycle whose
+  // candidate_metric more than doubles the immediately preceding one.
+  const spikeIdx = history.findIndex((e, i) =>
+    i > 0 && history[i - 1].candidate_metric > 0 && e.candidate_metric > history[i - 1].candidate_metric * 2);
+
+  const recentLines = history.slice(-10).reverse().map((e) =>
+    `tick ${e.tick}: baseline ${e.baseline_metric.toFixed(4)} -> candidate ${e.candidate_metric.toFixed(4)} `
+    + (e.accepted ? "[accepted]" : "[rejected — shadow gate held]"));
+
+  el.textContent =
+`Prediction error over the last ${candidateMetrics.length} real learn() cycles (low is better)
+${spark}
+${spikeIdx >= 0 ? `Regime-change spike detected at tick ${history[spikeIdx].tick} (error more than doubled vs. the prior cycle)\n` : ""}
+Most recent cycles (newest first)
+------------------------------------
+${recentLines.join("\n")}`;
 }
 
 concurrencyHypothesisRunBtn?.addEventListener("click", async () => {

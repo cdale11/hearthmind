@@ -1,10 +1,28 @@
-"""Tier 7 HCA Stage B, B1+B2+B3 (docs/COGNITIVE-ARCHITECTURE-2026-08-02.
-md §3, Layer 3 "The Global Workspace"): the base coalition-bidding/
-arbitration engine everything else in Stage B (B4's coalition
-formation, B5's evidence-based scoring, B6's determinism guarantee,
-B7's learned bidding) attaches to. Per the roadmap's own Phase 3
-sequencing: "the base workspace/arbitration engine must exist (B1)
-before its later refinements can attach to anything."
+"""Tier 7 HCA Stage B, B1+B2+B3+B4 (docs/COGNITIVE-ARCHITECTURE-2026-
+08-02.md §3, Layer 3 "The Global Workspace"): the base coalition-
+bidding/arbitration engine everything else in Stage B (B5's evidence-
+based scoring, B6's determinism guarantee, B7's learned bidding)
+attaches to. Per the roadmap's own Phase 3 sequencing: "the base
+workspace/arbitration engine must exist (B1) before its later
+refinements can attach to anything."
+
+**B4, the roadmap's own framing:** "coalition formation: bids naming
+the same subject/region/entity merge, superadditively but sublinearly,
+counting only genuinely independent bidders (two views of one
+underlying reading are one bidder, not two). Test: five independent
+mild corroborating bids beat one strong isolated bid on the same
+cycle, and ten weak ones still lose to a genuine crisis -- both
+thresholds stated in advance." `form_coalitions`/`Coalition`/`merged_
+coalition_score` below are that mechanism -- see their own docstrings.
+Deliberately does NOT change `GlobalWorkspace.arbitrate()`'s own
+comparison this pass: B1's docstring already named step 3 (scoring) as
+B5's job, not B4's ("step 3's scoring is the raw bid score... until
+B5's seven-factor formula replaces it") -- B4 ships the real, tested,
+STANDALONE merge mechanism step 3 will consume once it exists, same
+"ship the interface, wire the first real consumer next" discipline
+every prior Stage A/G/B item here has used. A caller with `bids` in
+hand can call `form_coalitions(bids)` directly today; wiring it INTO
+`arbitrate()`'s own comparison is B5's real integration point.
 
 **B3, the roadmap's own framing:** "broadcast bus replacing B4['s
 predecessor, the original inter-pillar messaging item]'s ten hand-
@@ -75,7 +93,7 @@ scheduler for cognition" the Adaptive Runtime was always meant to have
 the Mind layer, the same way it already is for the deterministic Body.
 
 **Deliberately NOT wired into any real production LLM call site this
-pass.** B1's/B2's/B3's own "every LLM call site converted to a bid" is real,
+pass.** B1's/B2's/B3's/B4's own "every LLM call site converted to a bid" is real,
 large, separate migration work -- this codebase's own A2 finding
 counted ~78 real `_append_emergence`-adjacent call sites, and a
 comparable number of independent `_schedule_llm_job` sites elsewhere,
@@ -112,12 +130,21 @@ class Bid:
     salience for THIS cycle -- B5's seven-factor formula is a distinct,
     later replacement for HOW a bid computes this number, not for
     anything in this module, which only ever compares whatever score
-    it's handed."""
+    it's handed. `evidence_source` (B4) names the underlying reading
+    this bid is ultimately grounded in -- defaults to `None`, which
+    `form_coalitions` below treats as "this bid IS its own source"
+    (falls back to `specialist_id`); set it explicitly when two
+    DIFFERENT specialists would otherwise bid from the exact same raw
+    observation (e.g. two wrappers both reading `population_density`)
+    -- B4's own "two views of one underlying reading are one bidder,
+    not two" only has something real to dedupe against once a caller
+    actually says so."""
     specialist_id: str
     subject: str
     score: float
     resolver: Callable[[], Any] | None = None
     reason: str = ""
+    evidence_source: str | None = None
 
 
 @dataclass
@@ -312,3 +339,88 @@ class PillarBus:
         if winner is not None:
             self.workspace.broadcast(winner, list(self._subscribers.values()))
         return winner
+
+
+def _independent_bids(bids: tuple[Bid, ...]) -> tuple[Bid, ...]:
+    """B4's own dedup step: group by `evidence_source` (falling back to
+    `specialist_id` when unset), keep only the HIGHEST-scoring bid per
+    group. Two bids sharing a source are "two views of one underlying
+    reading" -- the module's own literal phrase -- so only the better
+    of the two survives to count as a real, independent corroborating
+    voice; the weaker duplicate contributes nothing extra."""
+    best_by_source: dict[str, Bid] = {}
+    for bid in bids:
+        source = bid.evidence_source if bid.evidence_source is not None else bid.specialist_id
+        current = best_by_source.get(source)
+        if current is None or bid.score > current.score:
+            best_by_source[source] = bid
+    return tuple(best_by_source.values())
+
+
+def merged_coalition_score(bids: tuple[Bid, ...]) -> float:
+    """B4's own coalition-formation formula, applied only to the
+    genuinely independent subset (`_independent_bids` above) --
+    "superadditively but sublinearly," the roadmap's own two-word
+    spec. Uses noisy-OR combination (Pearl's canonical model for
+    independent evidence toward one conclusion): `1 - product(1 -
+    s_i)` over each independent bid's own score. This is exactly the
+    shape the spec asks for: SUPERADDITIVE (several real independent
+    readings raise the combined score higher than any single one
+    could alone -- real corroboration counts) but SUBLINEAR/saturating
+    (bounded strictly by 1.0 regardless of how many terms multiply in,
+    so a pile of weak evidence has a hard ceiling a single strong,
+    genuine reading can still clear -- "ten weak ones still lose to a
+    genuine crisis"). A lone bid's own "coalition of one" reproduces
+    its raw score exactly (`1 - (1 - s) == s`), matching B1's own
+    documented guarantee that a genuinely single-bidder cycle behaves
+    identically whether or not B4 exists."""
+    independent = _independent_bids(bids)
+    if not independent:
+        return 0.0
+    product_of_complements = 1.0
+    for bid in independent:
+        product_of_complements *= (1.0 - max(0.0, min(1.0, bid.score)))
+    return 1.0 - product_of_complements
+
+
+@dataclass(frozen=True)
+class Coalition:
+    """B4's own real coalition: every pending bid naming the same
+    `subject` this cycle, merged. `members` keeps every raw bid
+    (including a duplicate-source loser, for a full audit trail);
+    `independent_members` is the deduped subset `merged_score` was
+    actually computed from. A single-bid subject is still a real
+    `Coalition` (of one) -- `members == independent_members ==
+    (that one bid,)`, `merged_score == that bid's own raw score`."""
+    subject: str
+    members: tuple[Bid, ...]
+    independent_members: tuple[Bid, ...]
+    merged_score: float
+
+
+def form_coalitions(bids: list[Bid]) -> list[Coalition]:
+    """B4's own step 2 (§3's per-cycle mechanism): group this cycle's
+    pending bids by `subject` -- everything naming the same subject
+    forms one real `Coalition`, scored via `merged_coalition_score`.
+    Bids naming DIFFERENT subjects never merge, regardless of how
+    similar their content might read -- `subject` is the one real
+    grouping key this module has, same as everywhere else in this
+    codebase's own bid-comparison logic (`GlobalWorkspace`'s own
+    staleness tracking is subject-keyed for the identical reason).
+    Order of the returned list matches first-appearance order of each
+    subject among `bids` -- deterministic, no RNG, same standing rule
+    every sibling function in this module already holds to."""
+    grouped: dict[str, list[Bid]] = {}
+    for bid in bids:
+        grouped.setdefault(bid.subject, []).append(bid)
+    coalitions: list[Coalition] = []
+    for subject, members in grouped.items():
+        members_t = tuple(members)
+        independent = _independent_bids(members_t)
+        coalitions.append(Coalition(
+            subject=subject,
+            members=members_t,
+            independent_members=independent,
+            merged_score=merged_coalition_score(members_t),
+        ))
+    return coalitions

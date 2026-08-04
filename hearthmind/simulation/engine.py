@@ -15724,6 +15724,15 @@ class SimulationEngine:
                 "pending_samples": len(self._workload_pending_samples),
                 "training_examples_banked": len(self._workload_training_examples),
                 "learn_log_recent": list(self._workload_learn_log)[-10:],
+                # Tier 7 HCA E5 ("per-specialist learning curves: live
+                # prediction-error-over-time... with G3's regime-change
+                # re-adaptation visibly plotted"), v1.34.226. G3 already
+                # shipped LearningSpecialist.error_history (v1.34.219)
+                # but nothing ever read it back out -- this is the real
+                # first consumer, the one live specialist in production
+                # today. Bounded the same way learn_log_recent is; the
+                # full 200-entry deque stays in-memory, never persisted.
+                "error_history_recent": list(self._workload_specialist.error_history)[-40:],
             },
             # Tier 5 B2's real control point (see `BROADCAST_SUBSYSTEM_
             # BUDGET_SECONDS`'s docstring): real, never-silently-reset

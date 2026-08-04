@@ -742,6 +742,66 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.226)
+
+Explicit user instruction: "Start B4 and build something from parallel
+list as well" — two independent pieces, one batch.
+
+**B4.** New `Coalition`/`form_coalitions`/`merged_coalition_score`
+(`hearthmind/cognition/workspace.py`): bids naming the same `subject`
+merge via noisy-OR (`1 - product(1 - s_i)`) over only the genuinely
+independent subset — new `Bid.evidence_source` field lets two bids
+grounded in the exact same underlying reading collapse to just the
+higher-scoring one ("two views of one underlying reading are one
+bidder, not two"), falling back to `specialist_id` when unset.
+Superadditive (real independent corroboration raises the combined
+score above any single reading alone) but sublinear/saturating
+(bounded strictly by 1.0 regardless of term count). Doesn't change
+`GlobalWorkspace.arbitrate()`'s own comparison this pass — B1's own
+docstring already named step 3 (scoring) as B5's job, so `form_
+coalitions` ships as the standalone mechanism B5 will consume.
+
+New `scripts/verify_b4_coalition_formation.py` (16 checks — both
+roadmap-stated thresholds computed and confirmed by hand before
+writing the assertion: five independent mild (0.35) corroborating
+bids (merged 0.884) beat one strong isolated (0.85) bid; ten weak
+(0.1) bids (merged 0.651) still lose to one genuine crisis (0.95)
+reading; exact formula match; a lone bid reproduces its own raw score;
+shared-evidence_source dedup proven both ways; mixed-subject
+grouping; empty-input safety; the saturation bound genuinely
+approached; deterministic ordering) — all pass, first run, no bug
+found.
+
+**Parallel list item, chosen for genuine buildability: HCA Stage E's
+E5** ("per-specialist learning curves"), one of the roadmap's own
+explicitly-flagged "ship right after Phase 1 closes, don't wait for
+anything later" items — Stage G closed at v1.34.219, and G2's
+`WorkloadForecaster` is a real, live specialist already running in
+production, so this had a genuine real consumer to build against
+rather than fabricated data. G3 already shipped `LearningSpecialist.
+error_history` but nothing ever read it back out; `full_diagnostics()
+['workload_forecaster']` now exposes `error_history_recent` (bounded,
+last 40 entries), and a new dev-console "HCA E5: learning specialist
+curve" panel (`renderLearningSpecialistCurve`, `app.js`) renders a
+live text sparkline of `candidate_metric` over real recent `learn()`
+cycles, a genuine regime-change spike flag, and the ten most recent
+cycles' baseline/candidate/accepted detail — same plain-formatted-
+text presentation discipline `renderAdaptiveRuntimeStatus` already
+established.
+
+Verified: the new B4 script (16 checks); `verify_b1_global_
+workspace.py`/`verify_b2_starvation_gain.py`/`verify_b3_pillar_bus.py`
+re-run clean; `verify_ml_g2_workload_forecaster.py` re-run clean;
+`pyflakes` clean (only the six known pre-existing forward-ref
+findings in `engine.py`); `node --check` clean on `app.js`; a full
+sweep of `scripts/verify_*.py` found zero regressions; `scripts/
+verify_replay_hash.py` (4000 ticks, seed 777, `--in-process`) —
+MATCH, byte-identical; `scripts/verify_native_soak.py` (3 seeds x
+3000 ticks) — MATCH (both required this pass since `simulation/
+engine.py` itself changed). `B5` (evidence-based scoring, the
+seven-factor bid record) is the next open Stage B item — resume only
+on future explicit direction.
+
 ## Current state (v1.34.225)
 
 Explicit user instruction: "Start B3 and any parallel task of your
