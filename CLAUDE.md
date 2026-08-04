@@ -742,6 +742,100 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.222)
+
+Explicit user instruction: "Start A3 and fix stale docs and entries" —
+two independent pieces, one batch.
+
+**A3.** The surprise map overlay — **this closes Tier 7 HCA Stage A in
+full** (`A1`→`A2`→`A3`). New `FieldGrid.step_surprise` (`world/
+fields.py`, region-aggregated via `_normalize_peak`-then-`diffuse`,
+same shape `step_hazard` already established) sourced from a new
+`World.settlement_surprise: dict[(x, y), float]` — keyed by settlement
+CENTER position (unlike every sibling scar dict, which is tile-keyed;
+resolved once at write time from the settlement NAME `_append_
+emergence` already receives), decayed weekly (`terrain_evolution.
+decay_settlement_surprise`, `SETTLEMENT_SURPRISE_DECAY_PER_WEEK=0.15`
+— deliberately faster than every sibling scar dict, ~7 weeks vs.
+13-20, since a surprise reading should read as "recently," not linger
+a season). Written directly by `SimulationEngine._append_emergence`
+right after a candidate observation actually clears A1/A2's gate for a
+settlement-scoped observation — never on a suppressed one, "silence
+isn't surprising" holds for the map too, not just the log. Two
+settlements sharing one coarse region take the MAX surprise reading,
+not a sum, so a second, less-surprising settlement can never inflate a
+region past its single most-surprising settlement's own reading.
+Persisted (unlike `SimulationEngine._emergence_surprise`'s own
+runtime-only Welford statistics — this is a plain derived scalar
+reading, the same class of small restart-safe state `disaster_scars`/
+`ownership_history` already are). Reaches the browser via
+`set_terrain`'s new `surprise` param (both call sites updated
+together, the standing "one call site missing a field" bug class
+checked deliberately this time) riding the existing `week_end` resync
+(no `TERRAIN_CHANGING_CATEGORIES` event of its own, same as `hazard`/
+`storminess`); new 19th "🗺️ fields" overlay mode, own amber-to-
+electric-gold color ramp, legend "predictable → genuinely surprising."
+
+New `scripts/verify_a3_surprise_overlay.py` (16 checks — empty-source
+no-crash; peak/lower-region normalization; the real MAX-not-sum proof
+across two settlements sharing a region; per-week decay + floor
+eviction; `World.to_dict`/`from_dict` round-trip incl. legacy-snapshot
+backfill to `{}`; the real production write site through `_append_
+emergence`; a suppressed candidate leaves `World.settlement_surprise`
+untouched; a settlement with no real site yet is a safe no-op; an
+unresolvable settlement name degrades safely; a real `World.tick()`
+call genuinely steps the field from the dict's own live contents) —
+all pass, first run, no bug found in the module under test.
+
+**Two real pre-existing regressions found and fixed in the same pass,
+both introduced by A2 (v1.34.221) and only now surfaced** — this pass
+was the first to re-run `scripts/verify_b12_emergence_compression.py`/
+`scripts/verify_phase0_runtime_hints.py` since A2 shipped (neither was
+in that turn's own re-run list — a real gap in verification coverage,
+not a defect in A2 itself). Both scripts drove `_append_emergence` with
+a STATIC `(subsystem, kind)` key repeated many times to exercise
+unrelated mechanisms (B12's compression ladder, B5.3's cache-scaled
+emergence cap) — exactly the "routine, repeated candidate" shape A2's
+own gate exists to suppress, so most of those calls silently never
+reached the log once A2 shipped. Fixed by varying `subsystem` per call
+in both scripts (`f"test{i}"` instead of a flat `"test"`) — the correct
+fix, since neither script tests A2's own gating and each needs its OWN
+candidates to reliably reach the log regardless of gate state. One
+further edge case caught in the same pass: a genuinely first-ever
+`(subsystem, kind)` key whose own magnitude is exactly `0.0` scores a
+real (mathematically correct) surprise of `0.0` against a fresh key's
+`0`-prediction/`0`-sigma baseline — `verify_b12_emergence_
+compression.py`'s own `magnitude=float(i % 10) / 10.0` generator hit
+this for `i % 10 == 0`; fixed by shifting the range to never land on
+exactly zero, since a genuinely-zero first observation scoring zero
+surprise is correct behavior, not a gate bug.
+
+**Stale docs fixed.** `docs/ROADMAP-2026-07-REMAINING.md`'s Tier 7
+Stage A checklist (`A1`/`A2`) still read `[ ]` unchecked despite both
+shipping in v1.34.220/.221 — corrected to `[x]` with their real
+shipping detail. Its C++ native-porting backlog section (inherited
+from an older CLAUDE.md snapshot, "not freshly verified" by its own
+admission) claimed `world/weather.py`/`terrain_evolution.py`/
+`hydrology.py`/`hydrology_field.py` were largely unported — a direct
+re-read found `climate_drift_batch`/`forest_neighbor_counts`/`maybe_
+reclaim_tick`/`hydrology_moisture_tick`/`hydrology_groundwater_tick`
+all already shipped and wired since v1.34.218-.220; corrected with
+what's actually still open (`tick_erosion`/`tick_wetlands`, both
+deliberately deferred as the larger-risk-surface class that mutates
+real `Tile`/biome objects) vs. what's genuinely done.
+
+Verified: the new script (16 checks); `verify_b12_emergence_
+compression.py` (23 checks, both real fixes applied) and `verify_
+phase0_runtime_hints.py` (23 checks, real fix applied) both re-run
+clean; `pyflakes` clean on all touched/new files (only the six known
+pre-existing forward-ref findings in `engine.py`); `node --check`
+clean on `app.js`; `scripts/verify_replay_hash.py` (4000 ticks, seed
+777, `--in-process`) — MATCH, byte-identical; `scripts/verify_
+native_soak.py` (3 seeds x 3000 ticks) — MATCH. Tier 7 HCA Stage A is
+now fully shipped; Stage B (coalition bidding/arbitration) is the next
+open item, per the dependency-ordered build sequence above — resume
+only on future explicit direction.
+
 ## Current state (v1.34.221)
 
 Explicit user instruction: "A2 and parallel C++ port" — two

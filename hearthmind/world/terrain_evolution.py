@@ -672,6 +672,29 @@ def decay_carcass_decomposition(decomposition: dict[tuple[int, int], float]) -> 
             del decomposition[pos]
 
 
+SETTLEMENT_SURPRISE_DECAY_PER_WEEK = 0.15
+"""Tier 7 HCA Stage A, A3 (surprise map overlay): faster than every
+sibling scar dict above (~7 weeks vs. `CARCASS_DECOMPOSITION_DECAY_
+PER_WEEK`'s ~13, `MINING_SCAR_DECAY_PER_WEEK`'s ~20) — deliberately, a
+surprise READING should read as "this recently surprised the
+simulation," not linger for a season. A settlement whose surprise
+score keeps re-clearing A2's gate stays lit continuously (re-written
+every tick a fresh candidate clears it); one that goes quiet fades
+within about a month and a half."""
+
+
+def decay_settlement_surprise(surprise: dict[tuple[int, int], float]) -> None:
+    """Called once per week, same cadence as the other scar-shaped
+    dicts. `World.settlement_surprise` is keyed by settlement CENTER
+    position (not a tile-by-tile mark) — same dict shape as every
+    sibling above regardless, since the consumer (`FieldGrid.step_
+    surprise`) already expects `(position, value)` pairs."""
+    for pos in list(surprise.keys()):
+        surprise[pos] -= SETTLEMENT_SURPRISE_DECAY_PER_WEEK
+        if surprise[pos] <= 0.0:
+            del surprise[pos]
+
+
 DEFOREST_CHANCE_PER_TICK = 0.02
 """Rolled only once a tile's heat clears the threshold — deforestation
 isn't instant even under sustained pressure."""

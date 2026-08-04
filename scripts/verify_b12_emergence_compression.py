@@ -53,9 +53,15 @@ def main() -> int:
     eng = make_engine()
 
     # Before the log ever overflows its cap, nothing is evicted -- the
-    # compression ladder stays genuinely empty.
+    # compression ladder stays genuinely empty. `subsystem` varies per
+    # call (post-A2, docs/ROADMAP-2026-07-REMAINING.md's A2/A3 pass) so
+    # each candidate is a genuinely distinct (subsystem, kind) surprise-
+    # gate key -- this script exercises the COMPRESSION LADDER's own
+    # eviction/archiving, not A2's surprise gating, and an identical
+    # repeated candidate would otherwise get suppressed by that real
+    # gate before ever reaching the log at all.
     for i in range(EMERGENCE_LOG_MAX_STORED - 1):
-        eng._append_emergence("opportunity", "test", f"pre-cap {i}", ["humans"], magnitude=0.1)
+        eng._append_emergence("opportunity", f"test{i}", f"pre-cap {i}", ["humans"], magnitude=0.1)
     check("no eviction (and no compression activity) before the log ever exceeds its cap",
           eng._emergence_compression.stage_size(CompressionStage.RAW) == 0
           and eng._emergence_compression.total_archived() == 0)
@@ -63,14 +69,14 @@ def main() -> int:
 
     # The very next append reaches the cap exactly (no eviction yet --
     # `len(...) > EMERGENCE_LOG_MAX_STORED` is a strict inequality).
-    eng._append_emergence("opportunity", "test", "reaches the cap exactly", ["humans"], magnitude=0.1)
+    eng._append_emergence("opportunity", "test-cap", "reaches the cap exactly", ["humans"], magnitude=0.1)
     check("reaching the cap exactly still triggers no eviction",
           len(eng.world.emergence_log) == EMERGENCE_LOG_MAX_STORED
           and eng._emergence_compression.stage_size(CompressionStage.RAW) == 0)
 
     # Crossing the cap evicts exactly one entry per further append, which
     # is genuinely ingested into the ladder rather than discarded outright.
-    eng._append_emergence("opportunity", "test", "the one that tips it over", ["humans"], magnitude=0.1)
+    eng._append_emergence("opportunity", "test-tip", "the one that tips it over", ["humans"], magnitude=0.1)
     check("the live log stays capped at EMERGENCE_LOG_MAX_STORED even past the cap",
           len(eng.world.emergence_log) == EMERGENCE_LOG_MAX_STORED)
     check("the single evicted entry was ingested into the compression ladder's RAW stage",
@@ -79,12 +85,19 @@ def main() -> int:
 
     # Real batched condensation: enough evictions accumulate to cross
     # EMERGENCE_COMPRESSION_RAW_THRESHOLD.max_count and produce a real
-    # archived digest, clearing the RAW bucket.
+    # archived digest, clearing the RAW bucket. `magnitude` deliberately
+    # never lands on exactly 0.0 (post-A2): a brand-new (subsystem, kind)
+    # key's surprise baseline starts at a 0-prediction/0-sigma pair, so a
+    # genuinely first-ever candidate whose OWN magnitude is also exactly
+    # 0.0 scores a real (correct) surprise of 0.0 and gets suppressed by
+    # A2's own gate -- 1/10 of `i % 10 == 0` here, a test-fixture
+    # collision with A2, not a bug in the gate itself.
     eng2 = make_engine()
     total_appends = EMERGENCE_LOG_MAX_STORED + EMERGENCE_COMPRESSION_RAW_THRESHOLD.max_count
     for i in range(total_appends):
         eng2._append_emergence(
-            "opportunity" if i % 2 == 0 else "unexplained_shift", "test", f"entry {i}", ["humans"], magnitude=float(i % 10) / 10.0,
+            "opportunity" if i % 2 == 0 else "unexplained_shift", f"test{i}", f"entry {i}", ["humans"],
+            magnitude=float((i % 10) + 1) / 10.0,
         )
     check("a real batch of evictions produces at least one archived digest", eng2._emergence_compression.total_archived() >= 1)
     check("total_raw_discarded matches the real number of evicted entries",
@@ -117,7 +130,7 @@ def main() -> int:
     eng3 = make_engine()
     overflow_appends = EMERGENCE_LOG_MAX_STORED + EMERGENCE_COMPRESSION_RAW_THRESHOLD.max_count * (EMERGENCE_COMPRESSION_ARCHIVE_MAX + 20)
     for i in range(overflow_appends):
-        eng3._append_emergence("opportunity", "test", f"e{i}", ["humans"], magnitude=0.1)
+        eng3._append_emergence("opportunity", f"test{i}", f"e{i}", ["humans"], magnitude=0.1)
     check("the archive never exceeds its real hard ceiling",
           eng3._emergence_compression.total_archived() <= EMERGENCE_COMPRESSION_ARCHIVE_MAX)
     check("the archive genuinely fills up near the ceiling (real pruning happened, not silent no-op growth)",
@@ -127,7 +140,7 @@ def main() -> int:
     # faults back in through the real TransparentHandle.
     eng4 = make_engine()
     for i in range(EMERGENCE_LOG_MAX_STORED + EMERGENCE_COMPRESSION_RAW_THRESHOLD.max_count):
-        eng4._append_emergence("opportunity", "test", f"e{i}", ["humans"], magnitude=0.1)
+        eng4._append_emergence("opportunity", f"test{i}", f"e{i}", ["humans"], magnitude=0.1)
     key4 = next(iter(eng4._emergence_compression.archive_store))
     handle = eng4._emergence_compression.handle()
     reconstructed = handle.get(key4, eng4.world.clock.tick_count)

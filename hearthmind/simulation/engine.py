@@ -3639,6 +3639,7 @@ class SimulationEngine:
                 beauty=world.fields.ensure_field("beauty"),
                 hazard=world.fields.ensure_field("hazard"),
                 storminess=world.fields.ensure_field("storminess"),
+                surprise=world.fields.ensure_field("surprise"),
                 road_scars=world.road_scars,
                 migration_trails=world.migration_trails,
                 dry_lakebed_scars=world.dry_lakebed_scars,
@@ -14156,6 +14157,15 @@ class SimulationEngine:
         )
         self.world.next_emergence_id += 1
         self.world.emergence_log.append(observation)
+        if settlement is not None:
+            # Tier 7 HCA Stage A, A3: the surprise map overlay's real
+            # source. Only a candidate that actually cleared the gate
+            # above reaches here -- a suppressed (routine) candidate
+            # writes nothing, same "silence isn't surprising" framing
+            # the overlay itself is meant to visualize.
+            stl = next((s for s in self.world.settlements if s.name == settlement), None)
+            if stl is not None and stl.center_x >= 0 and stl.center_y >= 0:
+                self.world.settlement_surprise[(stl.center_x, stl.center_y)] = min(1.0, surprise)
         cap = self._effective_emergence_log_cap()
         if len(self.world.emergence_log) > cap:
             evicted = self.world.emergence_log[:-cap]
@@ -15326,6 +15336,7 @@ class SimulationEngine:
                 beauty=self.world.fields.ensure_field("beauty"),
                 hazard=self.world.fields.ensure_field("hazard"),
                 storminess=self.world.fields.ensure_field("storminess"),
+                surprise=self.world.fields.ensure_field("surprise"),
                 road_scars=self.world.road_scars,
                 migration_trails=self.world.migration_trails,
                 dry_lakebed_scars=self.world.dry_lakebed_scars,

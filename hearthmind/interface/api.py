@@ -86,6 +86,7 @@ class WorldBroadcaster:
         beauty: "list[list[float]] | None" = None,
         hazard: "list[list[float]] | None" = None,
         storminess: "list[list[float]] | None" = None,
+        surprise: "list[list[float]] | None" = None,
         road_scars: dict | None = None,
         migration_trails: dict | None = None,
         dry_lakebed_scars: dict | None = None,
@@ -157,7 +158,15 @@ class WorldBroadcaster:
         visible on this resync even when the change doesn't cross a
         `classify_with_bias` band and therefore leaves `biomes`
         unchanged. `app.js`'s `drawStaticTerrain` blends this into a
-        subtle always-on relief shade, not a separate toggle mode."""
+        subtle always-on relief shade, not a separate toggle mode.
+
+        `surprise` (Tier 7 HCA Stage A, A3): same tiny 3x3 `World.
+        fields` shape as `hazard`/`storminess`, riding the same
+        `week_end` resync (it has no `TERRAIN_CHANGING_CATEGORIES`
+        event of its own either) — "where on the map is something
+        happening the simulation itself doesn't yet have a model for?"
+        as a real map overlay, the direct visual counterpart to A2's
+        `_emergence_surprise` gate."""
         self._terrain_payload = {
             "width": width,
             "height": height,
@@ -256,6 +265,9 @@ class WorldBroadcaster:
             ),
             "storminess": (
                 [[round(v, 3) for v in row] for row in storminess] if storminess else []
+            ),
+            "surprise": (
+                [[round(v, 3) for v in row] for row in surprise] if surprise else []
             ),
         }
 

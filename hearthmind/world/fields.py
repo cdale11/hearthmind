@@ -211,6 +211,17 @@ WILDLIFE_DIFFUSE_RATE = 0.3
 same role as `SCENT_DIFFUSE_RATE`'s spread, for the positive-signal
 sibling field below."""
 
+SURPRISE_DIFFUSE_RATE = 0.3
+"""Tier 7 HCA Stage A, A3 ("surprise map overlay... answers one
+nameable question"): same role as `HAZARD_DIFFUSE_RATE` — a settlement
+whose emergence log just genuinely surprised the simulation reads as
+a little surprising to its immediate neighbors too, not just the exact
+settlement tile. The literal question this overlay answers: "where on
+the map is something happening the town's own attention doesn't yet
+have a model for?" — the direct visual counterpart to A2's now-real
+`SimulationEngine._emergence_surprise` gate, same "predictable is not
+notable" rule made visible rather than only logged."""
+
 
 def _normalize_peak(raw: list[list[float]]) -> list[list[float]]:
     """Scales a raw non-negative grid to 0..1 against its own peak cell
@@ -603,6 +614,26 @@ class FieldGrid:
                     + ws.wind * STORMINESS_WIND_WEIGHT
                 )))
         self.fields["storminess"] = diffuse(raw, STORMINESS_DIFFUSE_RATE)
+
+    def step_surprise(
+        self, settlement_surprise_items: list[tuple[tuple[int, int], float]], width: int, height: int,
+    ) -> None:
+        """Tier 7 HCA Stage A, A3 — the surprise map overlay. Sourced
+        from `World.settlement_surprise` (a small, decaying, per-
+        settlement-position dict, same shape as `disaster_scars`),
+        itself written by `SimulationEngine._append_emergence` whenever
+        a candidate observation actually clears A1/A2's surprise gate
+        for a settlement-scoped observation — never on a suppressed
+        one, since a routine candidate silently leaving no trace is
+        exactly the behavior this overlay exists to make visible.
+        Aggregated per region (same `_normalize_peak`-then-`diffuse`
+        shape `step_hazard` already established) rather than per-tile,
+        matching this module's own coarse-resolution discipline."""
+        raw = [[0.0 for _ in range(FIELD_GRID_SIZE)] for _ in range(FIELD_GRID_SIZE)]
+        for pos, surprise in settlement_surprise_items:
+            rx, ry = self.region_of(pos, width, height)
+            raw[ry][rx] = max(raw[ry][rx], surprise)
+        self.fields["surprise"] = diffuse(_normalize_peak(raw), SURPRISE_DIFFUSE_RATE)
 
     def to_dict(self) -> dict:
         return {name: [list(row) for row in grid] for name, grid in self.fields.items()}

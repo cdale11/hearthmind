@@ -1356,7 +1356,7 @@ detailsToggle.addEventListener("click", () => {
 // naturally faint/rare) — showing them all at once would fight the
 // map's own readability, the same reasoning the Observatory UI
 // direction already applies to the details panel.
-const FIELD_OVERLAY_MODES = ["off", "moisture", "soil_fertility", "population_density", "disease_pressure", "pollution", "traffic", "scarcity", "ownership", "noise", "heat", "nutrients", "scent", "wildlife", "cultural_influence", "fertility", "beauty", "hazard", "storminess"];
+const FIELD_OVERLAY_MODES = ["off", "moisture", "soil_fertility", "population_density", "disease_pressure", "pollution", "traffic", "scarcity", "ownership", "noise", "heat", "nutrients", "scent", "wildlife", "cultural_influence", "fertility", "beauty", "hazard", "storminess", "surprise"];
 const FIELD_OVERLAY_LABELS = {
   off: "off", moisture: "soil moisture", soil_fertility: "soil fertility",
   population_density: "population density", disease_pressure: "disease pressure",
@@ -1367,6 +1367,7 @@ const FIELD_OVERLAY_LABELS = {
   cultural_influence: "cultural influence", fertility: "regional fertility",
   beauty: "beauty (villagers' own opinion)",
   hazard: "disaster hazard", storminess: "storminess",
+  surprise: "surprise (the town's own attention)",
 };
 let fieldOverlayMode = "off";
 const fieldCanvas = document.getElementById("field-canvas");
@@ -1399,6 +1400,7 @@ const FIELD_LEGEND_LABELS = {
   beauty: { min: "no opinion", max: "beloved" },
   hazard: { min: "unscarred", max: "disaster-scarred" },
   storminess: { min: "calm", max: "stormy" },
+  surprise: { min: "predictable", max: "genuinely surprising" },
 };
 const fieldLegend = document.getElementById("field-legend");
 const fieldLegendTitle = document.getElementById("field-legend-title");
@@ -1564,6 +1566,15 @@ const FIELD_COLOR_STOPS = {
   // temperature) and from every danger-red mode above (a storm is
   // hazardous to travel, not to the land itself).
   storminess: [[220, 230, 235], [130, 150, 175], [55, 55, 95]],
+  // Tier 7 HCA Stage A, A3 -- the direct visual answer to "where does
+  // the town's own attention live right now?" Predictable reads as a
+  // neutral pale grey (nothing here needed a second look), genuinely
+  // surprising shifts through a warm amber toward a vivid electric
+  // gold-white -- an "attention/insight" hue family deliberately
+  // distinct from every warning-red mode above (this is cognitive
+  // salience, not physical danger) and from beauty's rose/affection
+  // family (this is "notable," not "loved").
+  surprise: [[205, 200, 195], [225, 175, 90], [255, 225, 120]],
 };
 
 function lerpColorStops(stops, t) {
@@ -1828,7 +1839,7 @@ function renderFieldOverlay() {
         if (!peak || v > peak.value) peak = { x: rx, y: ry, w: regionW * CELL, h: regionH * CELL, value: v };
       }
     }
-  } else if (fieldOverlayMode === "heat" || fieldOverlayMode === "nutrients" || fieldOverlayMode === "scent" || fieldOverlayMode === "wildlife" || fieldOverlayMode === "cultural_influence" || fieldOverlayMode === "fertility" || fieldOverlayMode === "beauty" || fieldOverlayMode === "hazard" || fieldOverlayMode === "storminess") {
+  } else if (fieldOverlayMode === "heat" || fieldOverlayMode === "nutrients" || fieldOverlayMode === "scent" || fieldOverlayMode === "wildlife" || fieldOverlayMode === "cultural_influence" || fieldOverlayMode === "fertility" || fieldOverlayMode === "beauty" || fieldOverlayMode === "hazard" || fieldOverlayMode === "storminess" || fieldOverlayMode === "surprise") {
     const grid = terrain[fieldOverlayMode];
     if (!grid || !grid.length) return;
     const regionW = Math.ceil(terrain.width / grid[0].length);

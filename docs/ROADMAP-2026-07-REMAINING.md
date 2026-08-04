@@ -1690,20 +1690,52 @@ the exact opposite of what `world/ontology.py` exists to do.
 
 ### C++ native-porting backlog (R6/R7)
 
-- [ ] **First step, before any porting:** a direct read pass confirming
-      which of `weather.py`/`terrain_evolution.py`/`disasters.py`/
-      `hydrology_field.py` still run hot per-tick loops in pure Python.
-      This list is inherited from an older CLAUDE.md snapshot, not
-      freshly verified.
-- [ ] `world/weather.py` — spatial-region handling (the blend function
-      is ported).
-- [ ] `world/terrain_evolution.py` — local-activity / climate-drift-
-      adjacent hot loops.
-- [ ] `world/disasters.py` — not ported.
-- [ ] `world/hydrology.py` / `world/hydrology_field.py` — not ported.
-- [ ] `economy/farms.py` — confirm nutrient cycling and the A11
-      moisture-yield coupling haven't reintroduced pure-Python hot path.
-- [ ] `settlement/buildings.py` — confirm ruin-scar / layout-grammar /
+**Stale as of v1.34.221, corrected by a direct re-read of every module
+named below** (the prior version of this section, itself flagged as
+"inherited from an older CLAUDE.md snapshot, not freshly verified,"
+predated most of this session's own opportunistic-port passes — see
+CLAUDE.md's "Current state" history for each module's own shipping
+version):
+
+- [x] `world/weather.py` — the blend function IS ported
+      (`compute_weather_blend`, `weather.cpp`). Spatial-region handling
+      itself (the 3x3 `WEATHER_REGION_GRID` application) was not
+      re-audited this pass — genuinely still open if it turns out to be
+      a real per-tile hot loop, but not confirmed one either; re-check
+      before assuming it needs a port.
+- [x] `world/terrain_evolution.py` — **largely closed.** Climate drift
+      (`climate_drift_batch`), the fallow-eligibility forest-neighbor
+      count (`forest_neighbor_counts`, `terrain_neighbor_count.cpp`,
+      v1.34.220), `maybe_reclaim`'s reclaim roll (`maybe_reclaim_tick`),
+      and the shared roll-batch/bounded-random-walk primitives are all
+      natively ported and wired. What's deliberately left in pure
+      Python: `tick_erosion` (mutates real `Tile`/biome-reclassification
+      objects — the same larger-risk-surface class already excluded
+      from this pass's own `tick_wetlands` candidate, see A2's own
+      "Current state" entry) and the scar-dict bookkeeping (mining/
+      disaster/road/ruin/migration-trail marks — small, sparse,
+      dict-keyed, not full-grid).
+- [ ] `world/disasters.py` — `wilt_farms_tick`/`flat_damage_tick`/
+      `roll_passes_tick` are ported; `compute_forest_contiguity`
+      (wildfire ignition-site weighting) deliberately stays pure Python
+      — it composes with `ca_operators.cellular_step`'s Python-callable
+      `rule` param, which can't cross the pybind11 boundary without
+      per-consumer specialization (the same standing exclusion
+      `ca_operators.py` itself documents).
+- [x] `world/hydrology.py` / `world/hydrology_field.py` — `tick_
+      hydrology`/`tick_groundwater`'s full-grid scalar passes ARE
+      ported (`hydrology_moisture_tick`/`hydrology_groundwater_tick`,
+      `hydrology_tick.cpp`, v1.34.218); `ca_operators.py`'s `diffuse`/
+      `reaction_diffuse` (v1.34.219) transparently gave `tick_snowpack`
+      a native path too, with no changes needed at its own call site.
+      `tick_erosion` and `hydrology.py`'s `tick_wetlands` stay pure
+      Python — both mutate real `Tile`/biome objects, the deliberately-
+      deferred larger-risk-surface class.
+- [ ] `economy/farms.py` — `farm_grid_tick` is ported; confirm nutrient
+      cycling and the A11 moisture-yield coupling haven't reintroduced
+      a pure-Python hot path since.
+- [ ] `settlement/buildings.py` — `building_decay_tick`/`vehicle_decay_
+      tick` are ported; confirm ruin-scar / layout-grammar /
       architecture-grammar additions are metadata-only, not per-tick
       decay math.
 - [ ] **R8** — agent tick *logic* (`population.py`'s methods) is still
@@ -1924,14 +1956,24 @@ cannot state one does not ship.
   moved. Verified directly (old phrase absent, new scale-aware language
   present, `build_prompt` still reports the real count) plus the same
   `verify_*.py` sweep and soak.
-- [ ] **A1** — `predict()`/`error()` on specialists; precision-weighted
-  surprise. *Test:* on the soak's own event stream, "content agent
-  socialises" scores < 0.1 and family-extinction-during-prosperity
-  scores > 2.0.
-- [ ] **A2** — gate `world/emergence.py` on surprise, not occurrence.
-  *Test:* `unexplained_shift` share drops from 93% to < 40%.
-- [ ] **A3** — surprise map overlay (a new Living Map layer meeting
-  that doc's own "answers one nameable question" bar).
+- [x] **A1 — SHIPPED, v1.34.220.** `predict()`/`error()` on
+  specialists; precision-weighted surprise. *Test (passed):* on a
+  synthetic reproduction of the soak's own event stream, "content
+  agent socialises" scores < 0.1 and family-extinction-during-
+  prosperity scores > 2.0 — see `scripts/verify_surprise_
+  specialist.py` (14 checks).
+- [x] **A2 — SHIPPED, v1.34.221.** Gates `world/emergence.py` on
+  surprise, not occurrence. *Test (passed):* `unexplained_shift` share
+  drops from the doc's reported 93.2% to 2.9% on a synthetic
+  reproduction of the same 500-candidate soak shape — see
+  `scripts/verify_emergence_surprise_gate.py` (11 checks).
+- [x] **A3 — SHIPPED, v1.34.222.** Surprise map overlay (a new Living
+  Map layer meeting that doc's own "answers one nameable question"
+  bar — "where on the map is something happening the simulation
+  itself doesn't yet have a model for?"). *Test (passed):* driven
+  end-to-end through the real production write site — see
+  `scripts/verify_a3_surprise_overlay.py` (16 checks). **This closes
+  Tier 7 HCA Stage A in full** (`A1`→`A2`→`A3`).
 - [ ] **B1** — coalition bidding; one arbitrated winner per cycle;
   every LLM call site converted to a bid. *Test:* pillar-level call
   share rises from 1.4% to > 15% **without raising total calls**.
@@ -2424,8 +2466,79 @@ inventing the interface twice later.
    identical (load-bearing — this pass changes what reaches persisted
    `World.emergence_log` state); `scripts/verify_native_soak.py` (3
    seeds x 3000 ticks) — MATCH.
-3. `A3` — the surprise map overlay (a new Living Map layer). Depends
-   on `A2` — nothing to visualize before the signal is real.
+3. `A3` — **SHIPPED, v1.34.222.** The surprise map overlay. New
+   `FieldGrid.step_surprise` (`world/fields.py`, region-aggregated via
+   `_normalize_peak`-then-`diffuse`, same shape `step_hazard` already
+   established) sourced from a new `World.settlement_surprise: dict
+   [(x, y), float]` — keyed by settlement CENTER position (unlike
+   every sibling scar dict, which is tile-keyed; resolved once at
+   write time from the settlement NAME `_append_emergence` already
+   receives), decayed weekly (`terrain_evolution.decay_settlement_
+   surprise`, `SETTLEMENT_SURPRISE_DECAY_PER_WEEK=0.15` — deliberately
+   faster than every sibling scar dict, ~7 weeks vs. 13-20, since a
+   surprise reading should read as "recently," not linger a season).
+   Written directly by `SimulationEngine._append_emergence` right
+   after a candidate observation actually clears A1/A2's gate for a
+   settlement-scoped observation (never on a suppressed one — "silence
+   isn't surprising" holds for the map too, not just the log); two
+   settlements sharing one coarse region take the MAX surprise
+   reading, not a sum, so a second, less-surprising settlement can
+   never inflate a region past what its single most-surprising
+   settlement already reads. Persisted (unlike `SimulationEngine.
+   _emergence_surprise`'s own runtime-only Welford statistics — this
+   is a plain derived scalar reading, the same class of small restart-
+   safe state `disaster_scars`/`ownership_history` already are).
+   Reaches the browser via `set_terrain`'s new `surprise` param (both
+   call sites updated together — the standing "one call site missing a
+   field" bug class checked deliberately this time) riding the
+   existing `week_end` resync (no `TERRAIN_CHANGING_CATEGORIES` event
+   of its own, same as `hazard`/`storminess`); new 19th "🗺️ fields"
+   overlay mode, own amber-to-electric-gold color ramp (an "attention/
+   insight" hue family distinct from every warning-red/affection mode
+   already in use), legend line "predictable → genuinely surprising."
+
+   New `scripts/verify_a3_surprise_overlay.py` (16 checks — empty-
+   source no-crash; peak-region/lower-region normalization; the real
+   MAX-not-sum proof across two settlements sharing a region; real
+   per-week decay + floor eviction; `World.to_dict`/`from_dict` round-
+   trip incl. legacy-snapshot backfill to `{}`; the real production
+   write site through `_append_emergence` — a settlement-scoped
+   candidate that clears the gate writes its position, the value is
+   genuinely clamped to <= 1.0; a routine repeated candidate that the
+   gate itself suppresses leaves `World.settlement_surprise` untouched
+   — no trace from silence; a settlement with no real site yet (-1,-1)
+   is a safe no-op, never a bogus field write; an unresolvable
+   settlement name degrades safely rather than raising; a real `World.
+   tick()` call genuinely steps the field from the dict's own live
+   contents) — all pass, first run, no bug found in the module under
+   test.
+
+   **Two real pre-existing regressions found and fixed in the same
+   pass, both introduced by A2 (last turn) and only now surfaced**
+   because this pass was the first to re-run `scripts/verify_b12_
+   emergence_compression.py`/`scripts/verify_phase0_runtime_hints.py`
+   since A2 shipped (neither was in that turn's own re-run list — a
+   real gap in verification coverage, not a defect in A2 itself). Both
+   scripts drove `_append_emergence` with a STATIC `(subsystem, kind)`
+   key repeated many times to exercise unrelated mechanisms (B12's
+   compression ladder, B5.3's cache-scaled emergence cap) — exactly
+   the "routine, repeated candidate" shape A2's own gate exists to
+   suppress, so most of those calls silently never reached the log
+   once A2 shipped, failing several downstream assertions. Fixed by
+   varying `subsystem` per call in both scripts (`f"test{i}"` instead
+   of a flat `"test"`) so each candidate is a genuinely distinct
+   surprise-gate key — the correct fix, since neither script is
+   testing A2's own gating and each needs its OWN candidates to
+   reliably reach the log regardless of gate state. One further real
+   edge case caught in the same pass: a genuinely first-ever
+   `(subsystem, kind)` key whose OWN magnitude is exactly `0.0` scores
+   a real (mathematically correct) surprise of `0.0` against a fresh
+   key's `0`-prediction/`0`-sigma baseline — `verify_b12_emergence_
+   compression.py`'s own `magnitude=float(i % 10) / 10.0` generator
+   hit this for `i % 10 == 0`; fixed by shifting the range to `(i % 10
+   + 1) / 10.0` (never exactly zero) rather than treating it as a gate
+   bug, since a genuinely-zero first observation scoring zero surprise
+   is correct behavior, not a defect.
    *Stage A fully closes here. Ships: emergence-log entries with a real
    surprise score, a measurably lower `unexplained_shift` share, and a
    genuine new map overlay — independently useful even if nothing later

@@ -4,6 +4,78 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.222] — HCA Stage A, A3: the surprise map overlay (closes Stage A), plus stale-docs fixes and two A2 regression fixes
+
+Explicit user instruction: "Start A3 and fix stale docs and entries."
+Two independent pieces, one batch.
+
+**A3.** The surprise map overlay -- **this closes Tier 7 HCA Stage A in
+full** (`A1`->`A2`->`A3`). New `FieldGrid.step_surprise` (`world/
+fields.py`, region-aggregated via `_normalize_peak`-then-`diffuse`,
+same shape `step_hazard` already established) sourced from a new
+`World.settlement_surprise: dict[(x, y), float]` -- keyed by settlement
+CENTER position (unlike every sibling scar dict, which is tile-keyed;
+resolved once at write time from the settlement NAME `_append_
+emergence` already receives), decayed weekly (`terrain_evolution.
+decay_settlement_surprise`, `SETTLEMENT_SURPRISE_DECAY_PER_WEEK=0.15`
+-- deliberately faster than every sibling scar dict, ~7 weeks vs.
+13-20, since a surprise reading should read as "recently," not linger
+a season). Written directly by `SimulationEngine._append_emergence`
+right after a candidate observation actually clears A1/A2's gate for a
+settlement-scoped observation (never on a suppressed one); two
+settlements sharing one coarse region take the MAX surprise reading,
+not a sum. Persisted (unlike `_emergence_surprise`'s own runtime-only
+Welford statistics -- this is a plain derived scalar reading). Reaches
+the browser via `set_terrain`'s new `surprise` param (both call sites
+updated together); new 19th "fields" overlay mode, own amber-to-gold
+color ramp.
+
+New `scripts/verify_a3_surprise_overlay.py` (16 checks) -- all pass,
+first run, no bug found in the module under test.
+
+**Two real pre-existing regressions found and fixed in the same pass,
+both introduced by A2 (v1.34.221) and only now surfaced** because this
+pass was the first to re-run `scripts/verify_b12_emergence_
+compression.py`/`scripts/verify_phase0_runtime_hints.py` since A2
+shipped -- neither was in that turn's own re-run list, a real gap in
+verification coverage, not a defect in A2 itself. Both scripts drove
+`_append_emergence` with a STATIC `(subsystem, kind)` key repeated many
+times to exercise unrelated mechanisms (B12's compression ladder,
+B5.3's cache-scaled emergence cap) -- exactly the "routine, repeated
+candidate" shape A2's own gate exists to suppress. Fixed by varying
+`subsystem` per call in both scripts so each candidate is a genuinely
+distinct surprise-gate key. One further edge case caught in the same
+pass: a genuinely first-ever `(subsystem, kind)` key whose own
+magnitude is exactly `0.0` scores a real (mathematically correct)
+surprise of `0.0` against a fresh key's `0`-prediction/`0`-sigma
+baseline -- `verify_b12_emergence_compression.py`'s own magnitude
+generator hit this; fixed by shifting its range to never land on
+exactly zero, since a genuinely-zero first observation scoring zero
+surprise is correct behavior, not a gate bug.
+
+**Stale docs fixed.** `docs/ROADMAP-2026-07-REMAINING.md`'s Tier 7
+Stage A checklist (`A1`/`A2`) still read `[ ]` unchecked despite both
+shipping in v1.34.220/.221 -- corrected to `[x]` with their real
+shipping detail. Its C++ native-porting backlog section (inherited
+from an older CLAUDE.md snapshot, "not freshly verified" by its own
+admission) claimed `world/weather.py`/`terrain_evolution.py`/
+`hydrology.py`/`hydrology_field.py` were largely unported -- a direct
+re-read found `climate_drift_batch`/`forest_neighbor_counts`/`maybe_
+reclaim_tick`/`hydrology_moisture_tick`/`hydrology_groundwater_tick`
+all already shipped and wired since v1.34.218-.220; corrected with
+what's actually still open (`tick_erosion`/`tick_wetlands`, both
+deliberately deferred as the larger-risk-surface class that mutates
+real `Tile`/biome objects) vs. what's genuinely done.
+
+Verified: the new script (16 checks); `verify_b12_emergence_
+compression.py` (23 checks, both real fixes applied) and `verify_
+phase0_runtime_hints.py` (23 checks, real fix applied) both re-run
+clean; `pyflakes` clean on all touched/new files (only the six known
+pre-existing forward-ref findings in `engine.py`); `node --check`
+clean on `app.js`; `scripts/verify_replay_hash.py` (4000 ticks, seed
+777, `--in-process`) -- MATCH, byte-identical; `scripts/verify_
+native_soak.py` (3 seeds x 3000 ticks) -- MATCH.
+
 ## [1.34.221] — HCA Stage A, A2: gate the emergence log on surprise, plus a C++ backlog wiring fix
 
 Explicit user instruction: "A2 and parallel C++ port." Two independent

@@ -51,8 +51,15 @@ def strategy(dormancy: str = "normal", cache: str = "normal") -> Strategy:
 
 
 def append_observation(eng: SimulationEngine, i: int) -> None:
+    # `subsystem` varies per call (post-A2, docs/ROADMAP-2026-07-
+    # REMAINING.md's A2/A3 pass): a static (subsystem, kind) key
+    # repeated this many times would eventually get suppressed by A2's
+    # real surprise gate before ever reaching the log at all -- this
+    # helper is exercising B5.3's cache-size-scaled cap, not A2's own
+    # gating, so each candidate needs its own distinct key to reliably
+    # reach the log.
     eng._append_emergence(
-        kind="opportunity", subsystem="test", summary=f"observation {i}",
+        kind="opportunity", subsystem=f"test{i}", summary=f"observation {i}",
         pillars=["village"], magnitude=0.1,
     )
 

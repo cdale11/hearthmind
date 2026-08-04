@@ -43,6 +43,7 @@ from hearthmind.world.terrain_evolution import (
     decay_migration_trails,
     decay_dry_lakebed_scars,
     decay_carcass_decomposition,
+    decay_settlement_surprise,
     maybe_reclaim,
     nature_adaptation_bias,
     tick_climate,
@@ -330,6 +331,22 @@ class World:
     herd's dung while grazing nearby) — this is a discrete, stronger,
     faster-decaying pulse from an actual carcass at the kill site,
     consumed by `economy.farms.apply_carcass_decomposition_bonus`."""
+
+    settlement_surprise: dict[tuple[int, int], float] = field(default_factory=dict)
+    """Tier 7 HCA Stage A, A3 ("surprise map overlay... answers one
+    nameable question"). Keyed by settlement CENTER position, not a
+    tile-by-tile mark like every dict above — same additive-decaying-
+    dict shape regardless (see `terrain_evolution.decay_settlement_
+    surprise`), written directly by `SimulationEngine._append_
+    emergence` whenever a candidate observation clears A1/A2's
+    surprise gate for a settlement-scoped observation. Unlike the
+    `SurpriseSpecialist`'s own running Welford statistics
+    (`SimulationEngine._emergence_surprise`, deliberately runtime-only
+    per A2's own docstring), this derived reading IS persisted — it's
+    a plain scalar "how surprising was the most recent thing logged
+    here," the same class of small, restart-safe state `disaster_
+    scars`/`ownership_history` already are, not the specialist's own
+    internal model. Consumed by `FieldGrid.step_surprise`."""
 
     dry_lakebed_scars: dict[tuple[int, int], float] = field(default_factory=dict)
     """M1/M9 "The Living Map" — the vision doc's own explicit "dried
@@ -1146,6 +1163,9 @@ class World:
             self.mining_scars, self.disaster_scars, self.config.width, self.config.height, beauty_rng,
         )
         self.fields.step_beauty(self.aesthetic_appraisal)
+        self.fields.step_surprise(
+            list(self.settlement_surprise.items()), self.config.width, self.config.height,
+        )
         terrain_events = self._tick_terrain(events)
         self.last_life_events = (
             wildlife_events + settlement_events + population_events + terrain_events
@@ -1369,6 +1389,7 @@ class World:
             decay_dry_lakebed_scars(self.dry_lakebed_scars)
             decay_carcass_decomposition(self.carcass_decomposition)
             decay_battle_scars(self.battle_scars)
+            decay_settlement_surprise(self.settlement_surprise)
 
         if "month_end" in calendar_events:
             climate_rng = _namespaced_rng(self.config.seed, self.clock.tick_count, "climate_drift")
@@ -1534,6 +1555,13 @@ class World:
                 "avg_intensity": (
                     round(sum(self.carcass_decomposition.values()) / len(self.carcass_decomposition), 3)
                     if self.carcass_decomposition else 0.0
+                ),
+            },
+            "settlement_surprise": {
+                "sites": len(self.settlement_surprise),
+                "avg_intensity": (
+                    round(sum(self.settlement_surprise.values()) / len(self.settlement_surprise), 3)
+                    if self.settlement_surprise else 0.0
                 ),
             },
             "disaster_scars": {
@@ -1851,6 +1879,9 @@ class World:
             "carcass_decomposition": {
                 f"{x}:{y}": round(v, 4) for (x, y), v in self.carcass_decomposition.items()
             },
+            "settlement_surprise": {
+                f"{x}:{y}": round(v, 4) for (x, y), v in self.settlement_surprise.items()
+            },
             "mining_scar_sustained_ticks": {
                 f"{x}:{y}": v for (x, y), v in self.mining_scar_sustained_ticks.items()
             },
@@ -2151,6 +2182,11 @@ class World:
             x_str, y_str = key.split(":")
             carcass_decomposition[(int(x_str), int(y_str))] = value
 
+        settlement_surprise: dict[tuple[int, int], float] = {}
+        for key, value in data.get("settlement_surprise", {}).items():
+            x_str, y_str = key.split(":")
+            settlement_surprise[(int(x_str), int(y_str))] = value
+
         mining_scar_sustained_ticks: dict[tuple[int, int], int] = {}
         for key, value in data.get("mining_scar_sustained_ticks", {}).items():
             x_str, y_str = key.split(":")
@@ -2194,6 +2230,7 @@ class World:
             migration_trails=migration_trails,
             dry_lakebed_scars=dry_lakebed_scars,
             carcass_decomposition=carcass_decomposition,
+            settlement_surprise=settlement_surprise,
             mining_scar_sustained_ticks=mining_scar_sustained_ticks,
             flood_recurrence_counts=flood_recurrence_counts,
             construction_history=construction_history,
