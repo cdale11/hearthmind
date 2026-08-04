@@ -742,6 +742,53 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.234)
+
+Explicit user instruction: "Complete W4." B3's ~29 (real count 26)
+`_send_pillar_message` arrows — the older point-to-point pillar-
+messaging mechanism (`Pillar.send_message`/`receive_message`,
+v1.9.0) — migrated onto real `PillarBus` subscriptions (already
+shipped and verified at B3, given its first real production consumer
+here).
+
+New `SimulationEngine._pillar_bus_for(to_name)`: one dedicated
+`PillarBus` per RECEIVING pillar name (`self._pillar_buses`), lazily
+created and subscribed exactly once with a genuinely sender-agnostic
+handler — a NEW sender reaching an EXISTING receiver needs zero new
+wiring. `Bid` gained two additive fields, `message_kind`/`message_
+data` (default `None`, zero call-site changes needed anywhere else,
+same precedent `domain` already set), so the bus can carry a
+message's real typed `kind` through to the receiving handler.
+`_send_pillar_message`'s own 26 real call sites needed ZERO edits —
+only its internal body changed to route delivery through the bus
+instead of a direct `receive_message()` call.
+
+Deliberately point-to-point delivery (one bus, one real subscriber,
+provably a coalition of one every cycle), not the fuller genuine
+broadcast-to-every-subscriber design `PillarBus` already supports and
+B3's own test already proved — flagged as real, distinct, larger
+future work, since it would be a genuine simulation-behavior change
+(today's one specific recipient becoming several) this offline
+environment has no live world to verify the consequence against.
+
+Verified via `scripts/verify_w4_pillar_bus_migration.py`: a structural
+AST proof that all 26 real call sites are unchanged and no direct
+`.receive_message(` call remains outside the bus handler; the shared
+helper's own contract; direct delivery proof (sender's outbox
+unchanged in shape, recipient's inbox receives the real kind/summary/
+data, an unsubscribed pillar receives nothing); a real production call
+site through a fake `LLMAdapter`; a real 8000-tick production soak —
+all pass, first run, no bug found. `scripts/verify_replay_hash.py`/
+`scripts/verify_native_soak.py` — both MATCH. Full existing verify
+suite (B1-B7, W1, H1, W2-batch1, W2-batch2, W3) re-run clean;
+`pyflakes` clean (only the six known pre-existing forward-ref
+findings in `engine.py`).
+
+**This closes Phase 3.5 in full** (W1-W4 all shipped). The fuller
+genuine broadcast-to-every-subscriber design for `PillarBus` (matching
+L3's "not point-to-point" framing) remains real, distinct future work
+— resume only on future explicit direction.
+
 ## Current state (v1.34.233)
 
 Explicit user instruction: "Fix the roadmap's stale '~78+~29' framing

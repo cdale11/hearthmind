@@ -2215,21 +2215,54 @@ cannot state one does not ship.
   `scripts/verify_replay_hash.py`/`scripts/verify_native_soak.py` —
   both MATCH, byte-identical (behavior-preserving by construction,
   same reasoning as every W1/W2 site).
-- [ ] **W4** — B3's ~29 `_send_pillar_message` arrows (the OLDER
-  point-to-point pillar-messaging mechanism, `Pillar.send_message`/
-  `receive_message`, v1.9.0 — e.g. "Nature → Village," a fixed hand-
-  wired sender/receiver pair) onto real `PillarBus` subscriptions
-  (already shipped and verified at B3, zero real consumer wired to it
-  yet). Structurally distinct from W1-W3: those migrate an LLM
-  SCHEDULING decision ("does this job run this cycle?") onto
-  arbitration; W4 migrates an already-decided-content INTER-PILLAR
-  MESSAGING arrow onto the same bus mechanism for a different reason
-  — B3's own stated test ("a real Nature belief, published through the
-  bus's generic subscription, measurably moves a downstream Innovation
-  decision with ZERO Nature-specific code in Innovation's handler") is
-  about decoupling fixed sender/receiver pairs, not about gating
-  whether a call happens. Not started; resume only on future explicit
-  direction.
+- [x] **W4 — SHIPPED, v1.34.234.** B3's ~29 (real count: 26)
+  `_send_pillar_message` arrows (the OLDER point-to-point pillar-
+  messaging mechanism, `Pillar.send_message`/`receive_message`,
+  v1.9.0 — e.g. "Nature → Village," a fixed hand-wired sender/receiver
+  pair) migrated onto real `PillarBus` subscriptions (already shipped
+  and verified at B3, given its first real production consumer here).
+  Structurally distinct from W1-W3, as originally scoped: those
+  migrate an LLM SCHEDULING decision onto arbitration; W4 migrates an
+  already-decided-content INTER-PILLAR MESSAGING arrow onto the same
+  bus mechanism for a different reason.
+
+  New `SimulationEngine._pillar_bus_for(to_name)`: one dedicated
+  `PillarBus` per RECEIVING pillar name (`self._pillar_buses`), lazily
+  created and subscribed exactly ONCE with a genuinely sender-agnostic
+  handler (no branch on `bid.specialist_id`) — so a NEW sender reaching
+  an EXISTING receiver needs zero new wiring, the real generalization
+  `PillarBus`'s own docstring already promised. `Bid` gained two
+  additive fields, `message_kind`/`message_data` (default `None`, zero
+  call-site changes needed anywhere else, same precedent `domain`
+  itself already set), so the bus can carry a message's real typed
+  `kind` (`cognition.pillar.MESSAGE_KINDS`) through to the receiving
+  handler — `_pillar_observe_turn`'s salience ranking has no other way
+  to read it off a bare `Bid`. `_send_pillar_message`'s own 26 real
+  call sites needed ZERO edits — only its internal body changed.
+
+  Deliberately POINT-TO-POINT delivery (one bus, one real subscriber,
+  provably a coalition of one every cycle), NOT the fuller genuine
+  broadcast-to-every-subscribed-pillar design `PillarBus` itself
+  already supports and B3's own test already proved (multi-subscriber
+  broadcast). A real, distinct, larger future step — flagged, not
+  attempted here, since it would be a genuine simulation-behavior
+  change (today's one specific recipient becoming several) this
+  offline environment has no live world to verify the consequence
+  against, the same caution `_w3_workspaces`'s own deferred batched-
+  arbitration extension already gives.
+
+  *Test (passed):* `scripts/verify_w4_pillar_bus_migration.py` — a
+  structural AST proof that all 26 real call sites are unchanged and
+  no direct `.receive_message(` call remains outside the bus handler;
+  the shared helper's own contract (lazy per-receiver bus, exactly one
+  subscriber, no duplicate subscription on repeat calls); direct
+  delivery proof (sender's outbox unchanged in shape, recipient's
+  inbox receives the real kind/summary/data, an unsubscribed pillar
+  receives nothing — point-to-point, not broadcast); a real production
+  call site (innovation→village discovery) through a fake `LLMAdapter`;
+  a real 8000-tick production soak — all pass, first run, no bug found.
+  `scripts/verify_replay_hash.py`/`scripts/verify_native_soak.py` —
+  both MATCH.
 - [ ] **C1** — the four typed impasses as the deliberation trigger.
   *Test:* every LLM call in a soak carries a named impasse.
 - [ ] **C2** — chunking. *Test:* the 591st family extinction consumes
@@ -2932,24 +2965,14 @@ migration pass, not about migrating onto a moving target).
    phase is what makes every "not wired into production" note across
    A1-B7 stop being true for the per-agent/pair share of LLM volume,
    the largest remaining share after W1/W2.
-4. `W4` — the real, separate migration this item's own original text
-   had bundled into W2's wrong sizing estimate: B3's ~29 `_send_
-   pillar_message` arrows (`SimulationEngine._send_pillar_message`,
-   the hand-wired sender→receiver pairs, e.g. "Nature → Village") onto
-   real `PillarBus` subscriptions (`hearthmind/cognition/workspace.py`'s
-   `PillarBus`, already shipped and verified at B3 — a generic
-   publish/subscribe bus wrapping a `GlobalWorkspace`, with zero real
-   consumer wired to it yet). Structurally distinct from W1-W3: those
-   migrate an LLM SCHEDULING decision ("does this job run this
-   cycle?") onto arbitration; W4 migrates an INTER-PILLAR MESSAGING
-   arrow (already-decided content broadcast from one pillar to
-   another) onto the SAME bus mechanism for a different reason —
-   B3's own stated test ("a real Nature belief, published through the
-   bus's generic subscription, measurably moves a downstream
-   Innovation decision with ZERO Nature-specific code in Innovation's
-   handler") is about decoupling fixed sender/receiver pairs, not
-   about gating whether a call happens. Not started; resume only on
-   future explicit direction.
+4. `W4` — SHIPPED, v1.34.234, see this file's own checklist entry
+   above for full detail. B3's ~29 (real count 26) `_send_pillar_
+   message` arrows migrated onto real `PillarBus` subscriptions —
+   structurally distinct from W1-W3 (those migrate an LLM SCHEDULING
+   decision; W4 migrates an already-decided-content messaging arrow).
+   Deliberately point-to-point delivery, not the fuller genuine
+   broadcast-to-every-subscriber design `PillarBus` already supports —
+   that remains real, distinct, larger future work.
 
 **Phase 4 — HCA Stage H: the Runtime (and Player Model) as cognitive
 domains (`H1`→`H2`→`H3`→`H4`).** This is the literal answer to "the

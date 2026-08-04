@@ -100,7 +100,7 @@ from hearthmind.world import culture_aggregate
 from hearthmind.cognition import attention
 from hearthmind.cognition.pillar import make_message
 from hearthmind.cognition.surprise import SurpriseSpecialist
-from hearthmind.cognition.workspace import Bid, GlobalWorkspace
+from hearthmind.cognition.workspace import Bid, GlobalWorkspace, PillarBus
 from hearthmind.world.disasters import FLOOD_PRESSURE_THRESHOLD, GOVERNOR_TUNING_BAND, HEATWAVE_PRESSURE_THRESHOLD, WILDFIRE_CHANCE_PER_WEEK
 from hearthmind.world.terrain_evolution import REFOREST_MIN_FALLOW_WEEKS
 from hearthmind.world.wildlife import (
@@ -2742,6 +2742,35 @@ class SimulationEngine:
         as byte-identical -- no behavior change) that a future batched-
         arbitration pass can build on top of; flagged as real,
         distinct follow-up, not silently glossed over."""
+        self._pillar_buses: dict[str, PillarBus] = {}
+        """W4 (docs/ROADMAP-2026-07-REMAINING.md, Phase 3.5, explicit
+        user instruction "Complete W4"): `_send_pillar_message`'s real
+        migration off a hand-wired direct `Pillar.send_message`/
+        `receive_message` call pair (B3's own ~29-arrow count) onto
+        real `PillarBus` subscriptions. Keyed by RECEIVING pillar name
+        -- one dedicated bus per receiver, lazily created and
+        subscribed exactly once via `self._pillar_bus_for` -- so a
+        NEW sender reaching an EXISTING receiver needs zero new
+        wiring, the real generalization `PillarBus`'s own docstring
+        promises ("any pillar subscribe()s once... a NEW sender
+        pillar reaches every existing subscriber for free"). Each
+        bus has exactly ONE real subscriber (the receiving pillar's
+        own inbox-delivery handler), so every real cycle stays a
+        genuine coalition of one -- provably behavior-preserving by
+        the identical reasoning `_w2_workspaces`/`_w3_workspaces`
+        already give in full: `publish_cycle()`'s broadcast reaches
+        exactly the one subscriber a direct `receive_message()` call
+        would have reached anyway. A further, genuinely BROADCAST-to-
+        every-pillar design (every message reaching every subscribed
+        pillar at once, matching L3's fuller "not point-to-point"
+        framing, and `PillarBus`'s own already-verified multi-
+        subscriber capability) is real, distinct, larger future work
+        -- flagged, not attempted here, since it would be a genuine
+        simulation-behavior change (today's one specific recipient
+        would become several) this offline environment has no live
+        world to verify the consequence against, the same caution
+        `_w3_workspaces`'s own docstring already gives for its own
+        batched-arbitration deferral."""
         self._naming_workspace = GlobalWorkspace()
         """Phase 3.5 W1 (docs/ROADMAP-2026-07-REMAINING.md, explicit
         user instruction "Start phase 3.5 W1"): the real production
@@ -8302,26 +8331,69 @@ class SimulationEngine:
         pillar.set_cycle_stage("observe")
         pillar.last_turn_tick = self.world.clock.tick_count
 
+    def _pillar_bus_for(self, to_name: str) -> PillarBus:
+        """W4's real per-receiver `PillarBus` (see `self._pillar_
+        buses`'s own docstring for the full design). Lazily creates
+        AND subscribes on first use -- `handler` is genuinely sender-
+        agnostic (no branch on `bid.specialist_id`, per B3's own
+        verified discipline): it reads `to_name` from its own closure,
+        not from the bid, and delivers into that one pillar's `inbox`
+        via the real `Pillar.receive_message` -- a NEW sender submitting
+        to this same bus later needs zero code here."""
+        bus = self._pillar_buses.get(to_name)
+        if bus is not None:
+            return bus
+        bus = PillarBus()
+
+        def handler(bid: Bid, to_name: str = to_name) -> None:
+            to_pillar = getattr(self.world, f"{to_name}_pillar")
+            message = make_message(
+                to_pillar.next_message_id, self.world.clock.tick_count,
+                bid.specialist_id, to_name, bid.message_kind or "observation",
+                bid.reason, bid.message_data,
+            )
+            to_pillar.next_message_id += 1
+            to_pillar.receive_message(message)
+
+        bus.subscribe(to_name, handler)
+        self._pillar_buses[to_name] = bus
+        return bus
+
     def _send_pillar_message(
         self, from_name: str, to_name: str, kind: str, summary: str, data: dict | None = None,
     ) -> None:
         """B4 "Inter-pillar consciousness bus" (roadmap Stage III step
-        11): the one call site that actually sends a message — builds
-        it via `cognition.pillar.make_message` (validates `kind` against
-        the closed `MESSAGE_KINDS` vocabulary), records it on the
-        sender's `outbox`, and delivers it into the recipient's `inbox`
-        (`Pillar.send_message`/`receive_message`). The message is NOT
-        immediately visible to the recipient's cognition — it sits in
-        `inbox` until that pillar's own next `observe` turn delivers it
-        into `working_memory` via `_pillar_observe_turn`, competing for
-        that bounded attention by salience like anything else."""
+        11), migrated in Phase 3.5 W4 (docs/ROADMAP-2026-07-REMAINING.md,
+        explicit user instruction "Complete W4") off a hand-wired direct
+        `Pillar.send_message`/`receive_message` call pair onto a real
+        `PillarBus` arbitration cycle. Builds the outbox record via
+        `cognition.pillar.make_message` (validates `kind` against the
+        closed `MESSAGE_KINDS` vocabulary) exactly as before -- the
+        sender's own `outbox` history is unchanged in shape and content.
+        Delivery into the recipient's `inbox` now goes through `self.
+        _pillar_bus_for(to_name)`: submit a real `Bid` carrying `kind`/
+        `summary`/`data` (`Bid.message_kind`/`message_data`, W4's own
+        addition to the shared primitive), then `publish_cycle()` --
+        that bus has exactly one real subscriber (the receiver's own
+        handler), so this is a genuine coalition-of-one cycle, provably
+        delivering to the identical recipient a direct call would have
+        reached, same reasoning every W1-W3 site already gives in full.
+        The message is NOT immediately visible to the recipient's
+        cognition — it sits in `inbox` until that pillar's own next
+        `observe` turn delivers it into `working_memory` via `_pillar_
+        observe_turn`, competing for that bounded attention by salience
+        like anything else, unchanged from before this migration."""
         from_pillar = getattr(self.world, f"{from_name}_pillar")
-        to_pillar = getattr(self.world, f"{to_name}_pillar")
         tick = self.world.clock.tick_count
-        message = make_message(from_pillar.next_message_id, tick, from_name, to_name, kind, summary, data)
+        outbox_message = make_message(from_pillar.next_message_id, tick, from_name, to_name, kind, summary, data)
         from_pillar.next_message_id += 1
-        from_pillar.send_message(dict(message))
-        to_pillar.receive_message(message)
+        from_pillar.send_message(dict(outbox_message))
+        bus = self._pillar_bus_for(to_name)
+        bus.submit(Bid(
+            specialist_id=from_name, subject=to_name, score=1.0, reason=summary,
+            message_kind=kind, message_data=data,
+        ))
+        bus.publish_cycle()
 
     def _maybe_schedule_nature_mind(self, events: list[str]) -> None:
         """Nature's Mind (Body/Mind framing, CLAUDE.md "Design

@@ -225,7 +225,18 @@ class Bid:
     actually says so. `domain` (H1) names which of the three cognitive
     domains this bid belongs to -- see `Domain`'s own docstring;
     defaults to `WORLD`, reproducing every prior bid's real behavior
-    with zero call-site changes needed."""
+    with zero call-site changes needed. `message_kind`/`message_data`
+    (Phase 3.5 W4, docs/ROADMAP-2026-07-REMAINING.md) exist ONLY for
+    `PillarBus`-routed inter-pillar messages -- `message_kind` carries
+    `cognition.pillar.MESSAGE_KINDS` (a message's real typed category,
+    e.g. "warning"/"disagreement", consumed by `SimulationEngine.
+    _pillar_observe_turn`'s salience ranking, which has no other way to
+    read it off a bare `Bid`); `message_data` carries the message's
+    optional structured payload. Every other bid family (LLM-scheduling
+    W1-W3 sites, A1's `SurpriseSpecialist`, every `scripts/verify_b*`
+    fixture) leaves both at their default `None`, reproducing identical
+    behavior -- same "additive field, zero call-site changes needed"
+    precedent `domain` itself already set."""
     specialist_id: str
     subject: str
     score: float
@@ -233,6 +244,8 @@ class Bid:
     reason: str = ""
     evidence_source: str | None = None
     domain: Domain = Domain.WORLD
+    message_kind: str | None = None
+    message_data: dict | None = None
 
 
 @dataclass

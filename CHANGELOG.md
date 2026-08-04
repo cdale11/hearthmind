@@ -4,6 +4,78 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.234] — Phase 3.5 W4: `_send_pillar_message` migrated onto real `PillarBus` subscriptions (Phase 3.5 closed in full)
+
+Explicit user instruction: "Complete W4."
+
+Migrates `SimulationEngine._send_pillar_message`'s 26 real call sites
+(B3's own count, "~29") off a hand-wired direct `Pillar.send_message`/
+`receive_message` call pair onto real `PillarBus` subscriptions —
+already shipped and verified at B3 (v1.34.225), but never given a
+real production consumer until now.
+
+New `SimulationEngine._pillar_bus_for(to_name)`: one dedicated
+`PillarBus` per RECEIVING pillar name (`self._pillar_buses`), lazily
+created and subscribed exactly once with a genuinely sender-agnostic
+handler (no branch on `bid.specialist_id`) — a NEW sender reaching an
+EXISTING receiver needs zero new wiring, the real generalization
+`PillarBus` itself already promised.
+
+`Bid` (`hearthmind/cognition/workspace.py`) gained two additive
+fields, `message_kind: str | None = None` and `message_data: dict |
+None = None`, so the bus can carry a message's real typed `kind`
+(`cognition.pillar.MESSAGE_KINDS`) through to the receiving handler —
+`_pillar_observe_turn`'s salience ranking has no other way to read it
+off a bare `Bid`. Every other bid family (every W1-W3 site, A1's
+`SurpriseSpecialist`, every `scripts/verify_b*` fixture) leaves both
+fields at their default `None`, reproducing identical behavior — same
+"additive field, zero call-site changes needed" precedent `domain`
+(H1) already set.
+
+`_send_pillar_message`'s own 26 real call sites needed ZERO edits —
+only the method's internal body changed: it still builds and records
+the sender's own `outbox` entry exactly as before (unchanged shape),
+then submits a real `Bid` to the recipient's dedicated bus and calls
+`publish_cycle()` instead of calling `receive_message()` directly.
+
+Deliberately POINT-TO-POINT delivery (one bus, one real subscriber,
+provably a coalition of one every cycle) — NOT the fuller genuine
+broadcast-to-every-subscribed-pillar design `PillarBus` itself already
+supports and B3's own test already proved (multi-subscriber
+broadcast). Flagged as real, distinct, larger future work: it would be
+a genuine simulation-behavior change (today's one specific recipient
+becoming several) this offline environment has no live world to
+verify the consequence against, the same caution `_w3_workspaces`'s
+own deferred batched-arbitration extension already gives.
+
+New `scripts/verify_w4_pillar_bus_migration.py`: a structural AST
+proof that all 26 real call sites are unchanged and no direct
+`.receive_message(` call remains outside the bus handler; the shared
+helper's own contract (lazy per-receiver bus, exactly one subscriber,
+no duplicate subscription on repeat calls); direct delivery proof
+(sender's outbox unchanged in shape, recipient's inbox receives the
+real kind/summary/data intact, an unsubscribed pillar receives
+nothing — point-to-point, not broadcast); a real production call site
+(innovation→village discovery, `_maybe_schedule_ontology_proposal`)
+through a fake `LLMAdapter`; a real 8000-tick LLM-disabled production
+soak confirming real inter-pillar traffic flows organically through
+the new mechanism with a real winner every cycle — all pass, first
+run, no bug found.
+
+**This closes Phase 3.5 in full** (W1 v1.34.230, W2 v1.34.231/.232,
+W3 v1.34.233, W4 here) — every one of the roadmap's original W1-W4
+items is now genuinely wired into the live simulation.
+
+Verified: the new script; `verify_b1_global_workspace.py` through
+`verify_b7_learned_bidding.py`, `verify_phase35_w1_naming_workspace.py`,
+`verify_h1_cognitive_domains.py`, `verify_w2_batch1_narrative_jobs.py`,
+`verify_w2_batch2_full_sweep.py`, `verify_w3_settlement_scoped_
+workspaces.py` re-run clean; `pyflakes` clean on both touched files
+(only the six known pre-existing forward-ref findings in `engine.py`);
+`scripts/verify_replay_hash.py` (800 ticks, seed 777, `--in-process`)
+— MATCH; `scripts/verify_native_soak.py` (seeds 1/55, 800 ticks) —
+MATCH (both required — `simulation/engine.py` changed).
+
 ## [1.34.233] — Phase 3.5 W3: settlement-scoped granularity for per-agent traffic, plus a roadmap correction and W4
 
 Explicit user instruction: "Fix the roadmap's stale '~78+~29' framing
