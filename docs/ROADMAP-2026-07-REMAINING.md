@@ -2342,8 +2342,41 @@ No hard dependency on Phase 1, but genuinely stronger for having it:
 deterministic baseline (an existing threshold detector) and a real
 learned specialist (`G2`'s forecaster) in the same pass, rather than
 inventing the interface twice later.
-1. `A1` — `predict()`/`error()` on specialists; precision-weighted
-   surprise scoring.
+1. `A1` — **SHIPPED, v1.34.220.** `predict()`/`error()` on specialists;
+   precision-weighted surprise scoring. New `hearthmind/cognition/
+   surprise.py`'s `SurpriseSpecialist`: one running forward model per
+   string key (Welford's online algorithm — O(1) per observation, no
+   stored history), implementing L1's `predict()`/`observe()`/`error()`
+   trio per the HCA doc's own formula, `surprise = |actual -
+   predicted| / (sigma + eps)` — precision-weighting via the running
+   standard deviation is what lets a chronically noisy channel's
+   typical deviation score LOWER than the same raw gap on a tightly-
+   clustered one, and what lets a recurring severe signal's own
+   surprise genuinely fall once it stops being novel. `bid()`/`learn()`
+   deliberately out of scope — `bid()` needs Stage B's real workspace
+   (unbuilt), and a trained `learn()` forward model is G1/G2's already-
+   shipped `LearningSpecialist` machinery applied to a new specialist
+   family, not reinvented here. New `scripts/verify_surprise_
+   specialist.py` (14 checks — A1's own stated test, reproduced
+   synthetically since no live archive exists in this offline
+   environment to replay: a routine, near-identical repeated signal
+   ["content agent socialises"] scores < 0.1; a rare, severe, first-
+   occurrence signal ["family extinction during prosperity"] scores >
+   2.0; the formula matches the doc's own math by hand; precision-
+   weighting genuinely discounts a chronically noisy channel; a
+   recurring severe signal's own surprise falls once learned; `score()`
+   is atomically equivalent to `error()`-then-`observe()`; the wrong
+   method ordering silently understates surprise, demonstrating why the
+   doc's own ordering note is load-bearing) — all pass, first run, no
+   bug found. Deliberately NOT wired into any real production job this
+   pass — `world/emergence.py`'s own consumer (gating the emergence log
+   on surprise instead of occurrence) is `A2`, a distinct, larger item
+   depending on this primitive existing first, same "ship the
+   interface, wire the first real consumer next" discipline every
+   prior Stage A/G/L item here has used. No native module, persisted
+   `World` state, or `simulation/engine.py` code path touched — pure
+   offline substrate, no replay-hash/native-soak re-run needed for
+   this half.
 2. `A2` — gate `world/emergence.py` on surprise, not occurrence.
    Depends on `A1`'s scores existing.
 3. `A3` — the surprise map overlay (a new Living Map layer). Depends
@@ -2511,36 +2544,58 @@ direct inspection — same standing discipline this file's own history
 already uses (module 24, `biology_ticks.cpp`, was found exactly this
 way at v1.34.207: A14's five per-agent scalar-drift passes had shipped
 with no native port at the time and were only noticed on a later
-audit pass). 26 modules shipped as of `ca_operators.cpp` (v1.34.219 — `world/
-ca_operators.py`'s `diffuse`/`reaction_diffuse`, picked up as the
-exact follow-up `hydrology_tick.cpp`'s own docstring flagged: neither
-function crosses a domain object at all — a plain grid of doubles in,
-a plain grid of doubles out, the simplest port shape in this codebase
-— and `diffuse` alone is called roughly a dozen times every real tick
-(once per `FieldGrid` field). Porting `reaction_diffuse` also
-transparently unblocks `hydrology_field.py`'s `tick_snowpack`, which
-calls it directly — `tick_snowpack` itself needed no changes to pick
-up the native path, since it goes through `ca_operators.reaction_
-diffuse`'s own now-native-backed branch. `cellular_step` (this
-module's third operator) deliberately NOT ported — its `rule`
-parameter is a Python callable that can't cross the pybind11 boundary
-without specializing per consumer, same "resolve callables/objects in
-Python" discipline every prior module in this queue already follows.
-New `scripts/verify_ca_operators_native.py` (9 checks — 2000
-randomized trials each for `ca_diffuse`/`ca_reaction_diffuse` against
-the pure-Python reference, 0 mismatches; edge cases for an empty grid,
-a zero/negative rate, a single tile, a non-square grid, and mass-
-conserving reaction transfer floored at 0.0 on both sides) — all pass,
-first run, no bug found. Preceded by `hydrology_tick.cpp` (v1.34.218 —
-A11 hydrology's full-grid `tick_hydrology`/`tick_groundwater`
-moisture/groundwater passes, picked up per that module's own docstring
-explicitly inviting the port "once the shape is confirmed live,
-following soil_fertility.cpp's precedent" — live since v1.13.0.
-Deliberately scoped to those two functions only at the time:
-`tick_erosion` writes real `Tile`/biome-reclassification objects
-(including the QUARRY-sticky special case) — a materially different,
-larger risk surface, still left flagged); every one of the 26 pairs a
-pybind11 binding with a pure-Python fallback, verified via randomized
+audit pass). 27 modules shipped as of `terrain_neighbor_count.cpp`
+(v1.34.220): `world/terrain_evolution.py`'s `_tick_fallow`, the weekly
+full-grid pass gating reforest eligibility — for every GRASSLAND tile,
+counts how many of its 4 orthogonal neighbors are FOREST, same
+4-neighbor bounds-checked shape `ca_operators.cpp`'s `ca_diffuse`
+already established, just counting booleans instead of averaging
+floats. Distinct from the pre-existing `_native_maybe_reclaim_tick`
+(which does its own, separate, later-pass neighbor recount for the
+actual reclaim roll's real intra-pass dependency) — `_tick_fallow`
+runs first, purely to determine which tiles are even ELIGIBLE this
+week. `_is_developed`'s settlement/farm-position lookups stay in
+Python (position-indexed, not a hot scan); only the pure 4-neighbor
+boolean count crosses the boundary, via a plain forest/not-forest grid
+precomputed once in Python. New `scripts/verify_terrain_neighbor_
+count_native.py` (8 checks — 2000 randomized trials against the
+pure-Python reference, 0 mismatches; edge cases for an empty grid, a
+single forested/non-forested tile, an all-forest 5x5 grid, an
+all-non-forest grid, and two non-square grids) — all pass, first run,
+no bug found.
+
+Preceded by `ca_operators.cpp` (v1.34.219): `world/ca_operators.py`'s
+`diffuse`/`reaction_diffuse`, picked up as the exact follow-up
+`hydrology_tick.cpp`'s own docstring flagged: neither function crosses
+a domain object at all — a plain grid of doubles in, a plain grid of
+doubles out, the simplest port shape in this codebase — and `diffuse`
+alone is called roughly a dozen times every real tick (once per
+`FieldGrid` field). Porting `reaction_diffuse` also transparently
+unblocks `hydrology_field.py`'s `tick_snowpack`, which calls it
+directly — `tick_snowpack` itself needed no changes to pick up the
+native path, since it goes through `ca_operators.reaction_diffuse`'s
+own now-native-backed branch. `cellular_step` (this module's third
+operator) deliberately NOT ported — its `rule` parameter is a Python
+callable that can't cross the pybind11 boundary without specializing
+per consumer, same "resolve callables/objects in Python" discipline
+every prior module in this queue already follows. New `scripts/
+verify_ca_operators_native.py` (9 checks — 2000 randomized trials each
+for `ca_diffuse`/`ca_reaction_diffuse` against the pure-Python
+reference, 0 mismatches; edge cases for an empty grid, a zero/negative
+rate, a single tile, a non-square grid, and mass-conserving reaction
+transfer floored at 0.0 on both sides) — all pass, first run, no bug
+found.
+
+Preceded by `hydrology_tick.cpp` (v1.34.218): A11 hydrology's
+full-grid `tick_hydrology`/`tick_groundwater` moisture/groundwater
+passes, picked up per that module's own docstring explicitly inviting
+the port "once the shape is confirmed live, following soil_fertility.
+cpp's precedent" — live since v1.13.0. Deliberately scoped to those
+two functions only at the time: `tick_erosion` writes real `Tile`/
+biome-reclassification objects (including the QUARRY-sticky special
+case) — a materially different, larger risk surface, still left
+flagged. Every one of the 27 pairs a pybind11 binding with a
+pure-Python fallback, verified via randomized
 native-vs-fallback equivalence plus `scripts/verify_native_soak.py`'s
 full-state-hash soak — never one without the other. `Agent`/`Settlement`/`Population`'s full object-graph port
 (R8's remaining scope beyond the already-wired `AgentTable`/

@@ -4,6 +4,73 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.220] — HCA Stage A, A1: precision-weighted surprise scoring, plus a third C++ porting backlog pickup
+
+Explicit user instruction: "Phase 2 A1 and parallel c++ porting." Two
+independent pieces, one batch.
+
+**A1.** `predict()`/`error()` on specialists; precision-weighted
+surprise scoring -- the first item of Tier 7 HCA Stage A. New
+`hearthmind/cognition/surprise.py`'s `SurpriseSpecialist`: one running
+forward model per string key (Welford's online algorithm -- O(1) per
+observation, no stored history), implementing L1's `predict()`/
+`observe()`/`error()` trio per the HCA doc's own formula, `surprise =
+|actual - predicted| / (sigma + eps)`. Precision-weighting via the
+running standard deviation is what lets a chronically noisy channel's
+typical deviation score LOWER than the same raw gap on a tightly-
+clustered signal, and what lets a recurring severe signal's own
+surprise genuinely fall once it stops being novel. `bid()`/`learn()`
+deliberately out of scope -- `bid()` needs Stage B's real workspace
+(unbuilt), and a trained `learn()` forward model is G1/G2's already-
+shipped `LearningSpecialist` machinery applied to a new specialist
+family, not reinvented here.
+
+New `scripts/verify_surprise_specialist.py` (14 checks -- A1's own
+stated test, reproduced synthetically since no live archive exists in
+this offline environment: a routine, near-identical repeated signal
+["content agent socialises"] scores < 0.1; a rare, severe, first-
+occurrence signal ["family extinction during prosperity"] scores >
+2.0; the formula matches the doc's own math by hand; precision-
+weighting genuinely discounts a chronically noisy channel; a recurring
+severe signal's own surprise falls once learned; `score()` is
+atomically equivalent to `error()`-then-`observe()`; the wrong method
+ordering silently understates surprise) -- all pass, first run, no bug
+found. Deliberately NOT wired into any real production job this pass
+-- `world/emergence.py`'s own consumer (gating the emergence log on
+surprise instead of occurrence) is `A2`, a distinct, larger item
+depending on this primitive existing first.
+
+**C++ porting backlog, parallel track.** New `cpp/src/terrain_
+neighbor_count.cpp`: `world/terrain_evolution.py`'s `_tick_fallow`, the
+weekly full-grid pass gating reforest eligibility -- for every
+GRASSLAND tile, counts how many of its 4 orthogonal neighbors are
+FOREST, same 4-neighbor bounds-checked shape `ca_operators.cpp`'s
+`ca_diffuse` already established, just counting booleans instead of
+averaging floats. Distinct from the pre-existing `_native_maybe_
+reclaim_tick` (its own, separate, later-pass neighbor recount for the
+actual reclaim roll's real intra-pass dependency) -- `_tick_fallow`
+runs first, purely to determine which tiles are even eligible this
+week. `_is_developed`'s settlement/farm-position lookups stay in
+Python (position-indexed, not a hot scan); only the pure 4-neighbor
+boolean count crosses the boundary, via a plain forest/not-forest grid
+precomputed once in Python.
+
+New `scripts/verify_terrain_neighbor_count_native.py` (8 checks -- 2000
+randomized trials against the pure-Python reference, 0 mismatches;
+edge cases for an empty grid, a single forested/non-forested tile, an
+all-forest 5x5 grid, an all-non-forest grid, and two non-square grids)
+-- all pass, first run, no bug found. New toggle entry in `scripts/
+verify_native_soak.py`.
+
+Verified: all four new scripts; `pyflakes` clean on all touched/new
+files; `scripts/verify_replay_hash.py` (4000 ticks, seed 777,
+`--in-process`) -- MATCH, byte-identical (load-bearing this time --
+this pass touches `world/terrain_evolution.py`'s real production tick
+path); `scripts/verify_native_soak.py` (3 seeds x 3000 ticks) -- MATCH.
+A1 touched no native module or `simulation/engine.py` code path (pure
+offline substrate); the `terrain_neighbor_count` port is the only
+native-module change this pass.
+
 ## [1.34.219] — HCA Stage G, G3: regime-change re-adaptation made testable (closing Stage G), plus a second C++ porting backlog pickup
 
 Explicit user instruction: "Continue G3 and c++ backlog." Two

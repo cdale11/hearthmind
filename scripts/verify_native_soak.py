@@ -124,6 +124,10 @@ _NATIVE_TOGGLES = [
     # hydrology_field.py's tick_snowpack reaction_diffuse() call.
     (_ca_operators, "_native_ca_diffuse"),
     (_ca_operators, "_native_ca_reaction_diffuse"),
+    # C++ porting backlog parallel track: _tick_fallow's own forest-
+    # neighbor count (cpp/src/terrain_neighbor_count.cpp), exercised
+    # via the weekly maybe_reclaim -> _tick_fallow call path.
+    (_terrain_evolution, "_native_forest_neighbor_counts"),
 ]
 
 

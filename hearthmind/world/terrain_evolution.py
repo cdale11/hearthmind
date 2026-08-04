@@ -56,6 +56,24 @@ try:
     from hearthmind._native import maybe_reclaim_tick as _native_maybe_reclaim_tick
 except ImportError:
     _native_maybe_reclaim_tick = None
+
+try:
+    from hearthmind._native import forest_neighbor_counts as _native_forest_neighbor_counts
+except ImportError:
+    _native_forest_neighbor_counts = None
+"""Optional compiled fast path for `_tick_fallow`'s own forest-neighbor
+count (C++ porting backlog, docs/ROADMAP-2026-07-REMAINING.md's
+parallel track, see cpp/src/terrain_neighbor_count.cpp) -- distinct
+from `_native_maybe_reclaim_tick`'s own internal neighbor recount
+above, which runs on a different, later pass (the reclaim roll itself,
+which needs a fresh per-reclaim-in-this-pass recount for its genuine
+intra-pass dependency). `_tick_fallow` runs first, every week, over
+the WHOLE grid, purely to determine reclaim ELIGIBILITY -- a plain
+forest/not-forest boolean grid in, a plain neighbor-count grid out,
+same "resolve enums/objects in Python, hand C++ only plain data"
+discipline every module in this queue follows. `None` when the
+extension wasn't built -- falls back to the equivalent pure-Python
+4-neighbor loop in that case."""
 """Optional compiled fast path for maybe_reclaim (module 17) — the
 first native module using a callback-into-Python-RNG design instead of
 pre-drawing, because maybe_reclaim has a genuine same-pass dependency
@@ -942,6 +960,10 @@ def _tick_fallow(
     width = len(terrain[0]) if height else 0
     eligible: set[tuple[int, int]] = set()
     seen: set[tuple[int, int]] = set()
+    neighbor_counts: list[list[int]] | None = None
+    if _native_forest_neighbor_counts is not None and height and width:
+        is_forest_grid = [[tile.biome is Biome.FOREST for tile in row] for row in terrain]
+        neighbor_counts = _native_forest_neighbor_counts(is_forest_grid)
     for y in range(height):
         for x in range(width):
             tile = terrain[y][x]
@@ -949,11 +971,14 @@ def _tick_fallow(
                 continue
             if (x, y) in heat or _is_developed(x, y, settlements, farms, excluded):
                 continue
-            forest_neighbors = 0
-            for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
-                nx, ny = x + dx, y + dy
-                if 0 <= nx < width and 0 <= ny < height and terrain[ny][nx].biome is Biome.FOREST:
-                    forest_neighbors += 1
+            if neighbor_counts is not None:
+                forest_neighbors = neighbor_counts[y][x]
+            else:
+                forest_neighbors = 0
+                for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+                    nx, ny = x + dx, y + dy
+                    if 0 <= nx < width and 0 <= ny < height and terrain[ny][nx].biome is Biome.FOREST:
+                        forest_neighbors += 1
             if forest_neighbors < REFOREST_MIN_FOREST_NEIGHBORS:
                 continue
             seen.add((x, y))
