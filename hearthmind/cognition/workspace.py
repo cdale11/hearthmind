@@ -1,10 +1,26 @@
-"""Tier 7 HCA Stage B, B1+B2 (docs/COGNITIVE-ARCHITECTURE-2026-08-02.md
-§3, Layer 3 "The Global Workspace"): the base coalition-bidding/
-arbitration engine everything else in Stage B (B3's real broadcast bus,
-B4's coalition formation, B5's evidence-based scoring, B6's determinism
-guarantee, B7's learned bidding) attaches to. Per the roadmap's own
-Phase 3 sequencing: "the base workspace/arbitration engine must exist
-(B1) before its later refinements can attach to anything."
+"""Tier 7 HCA Stage B, B1+B2+B3 (docs/COGNITIVE-ARCHITECTURE-2026-08-02.
+md §3, Layer 3 "The Global Workspace"): the base coalition-bidding/
+arbitration engine everything else in Stage B (B4's coalition
+formation, B5's evidence-based scoring, B6's determinism guarantee,
+B7's learned bidding) attaches to. Per the roadmap's own Phase 3
+sequencing: "the base workspace/arbitration engine must exist (B1)
+before its later refinements can attach to anything."
+
+**B3, the roadmap's own framing:** "broadcast bus replacing B4['s
+predecessor, the original inter-pillar messaging item]'s ten hand-
+wired arrows. Test: a Nature belief measurably moves an Innovation
+decision with no Nature->Innovation-specific code." `PillarBus` below
+is that bus: any pillar `subscribe()`s ONCE, generically, to receive
+every future winning bid this bus arbitrates -- no per-sender-pillar
+branch anywhere in a subscriber's own handler, unlike `SimulationEngine
+._send_pillar_message`'s ~29 real call sites (each hand-wiring one
+FIXED sender/receiver PAIR, e.g. "Nature -> Village" specifically).
+That older point-to-point mechanism (`Pillar.send_message`/`receive_
+message`, shipped v1.9.0) is NOT removed or migrated this pass -- same
+"ship the interface, wire the first real consumer next" discipline B1
+used for the ~78 real LLM call sites migrating those ~29 arrows onto a
+real `PillarBus` per settlement/domain is real, separate future work,
+not attempted here.
 
 Scoped to B1+B2's own literal ask only -- "coalition bidding; one
 arbitrated winner per cycle" plus "starvation: the *primary* mechanism
@@ -59,7 +75,7 @@ scheduler for cognition" the Adaptive Runtime was always meant to have
 the Mind layer, the same way it already is for the deterministic Body.
 
 **Deliberately NOT wired into any real production LLM call site this
-pass.** B1's/B2's own "every LLM call site converted to a bid" is real,
+pass.** B1's/B2's/B3's own "every LLM call site converted to a bid" is real,
 large, separate migration work -- this codebase's own A2 finding
 counted ~78 real `_append_emergence`-adjacent call sites, and a
 comparable number of independent `_schedule_llm_job` sites elsewhere,
@@ -234,3 +250,65 @@ class GlobalWorkspace:
         work layered on top, not assumed away here."""
         for subscriber in subscribers:
             subscriber(winner)
+
+
+class PillarBus:
+    """B3's own real broadcast bus. Wraps a single `GlobalWorkspace` --
+    subscription is pillar-GENERIC: any pillar `subscribe()`s once,
+    with one handler that works for ANY sender, and from then on
+    receives every winning bid this bus arbitrates, regardless of
+    which pillar submitted it. This is the direct generalization of
+    `SimulationEngine._send_pillar_message`'s ~29 hand-wired arrows
+    (each one a fixed, dedicated Python call naming a SPECIFIC sender
+    AND a SPECIFIC receiver) into the real thing L3 always described:
+    "broadcast the winner to every subscribed subsystem," a genuinely
+    generic mechanism, not a growing pile of one-off pairs -- a NEW
+    sender pillar reaches every existing subscriber for free, with
+    zero new code at any subscriber, the property a hand-wired arrow
+    can never have (a new sender there needs a brand new arrow written
+    for every receiver that should hear it)."""
+
+    def __init__(self, workspace: GlobalWorkspace | None = None) -> None:
+        self.workspace = workspace if workspace is not None else GlobalWorkspace()
+        self._subscribers: dict[str, Callable[[Bid], None]] = {}
+
+    def submit(self, bid: Bid) -> None:
+        """Pass-through to the underlying workspace's step 1 (collect
+        a bid for the current cycle) -- `PillarBus` adds subscription
+        and broadcast on top, it doesn't reimplement arbitration."""
+        self.workspace.submit(bid)
+
+    def subscribe(self, pillar_name: str, handler: Callable[[Bid], None]) -> None:
+        """A pillar registers ONE handler, ONCE, to receive every
+        future winning bid -- no per-sender arrow, no per-pair code,
+        and critically no branch inside `handler` on `bid.specialist_
+        id` naming who sent it (that would just be a hand-wired arrow
+        wearing a bus's clothing). Re-subscribing under the same name
+        replaces the prior handler -- a pillar holds exactly one live
+        subscription at a time, same "revise in place, don't
+        duplicate" discipline the rest of this codebase already
+        holds to for a pillar's own persisted state."""
+        self._subscribers[pillar_name] = handler
+
+    def unsubscribe(self, pillar_name: str) -> None:
+        self._subscribers.pop(pillar_name, None)
+
+    def subscriber_count(self) -> int:
+        return len(self._subscribers)
+
+    def publish_cycle(self) -> Bid | None:
+        """The one call a caller drives once per real cycle: arbitrate
+        this cycle's pending bids (B1/B2's own real mechanism,
+        untouched), then broadcast the real winner to EVERY subscribed
+        pillar -- INCLUDING the winning bid's own submitter, since a
+        specialist hearing its own broadcast winning is itself real
+        information (L3's "broadcast to every subscribed subsystem,"
+        never "every subsystem except the sender"). Returns the real
+        winner, or `None` on a genuinely empty cycle -- `broadcast()`
+        is never called at all when there's no real winner to
+        broadcast, same "never fabricate a winner just to have one"
+        discipline `GlobalWorkspace.arbitrate()` already holds to."""
+        winner = self.workspace.arbitrate()
+        if winner is not None:
+            self.workspace.broadcast(winner, list(self._subscribers.values()))
+        return winner

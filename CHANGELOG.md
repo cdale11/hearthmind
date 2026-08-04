@@ -4,6 +4,69 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.225] — HCA Stage B, B3: the real broadcast bus, plus two confirmed-clean porting-backlog audits
+
+Explicit user instruction: "Start B3 and any parallel task of your
+choice with most importance." Two independent pieces, one batch.
+
+**B3.** New `hearthmind/cognition/workspace.py`'s `PillarBus`, the
+real broadcast bus replacing `SimulationEngine._send_pillar_message`'s
+~29 hand-wired sender/receiver arrows (each a fixed Python call naming
+one SPECIFIC sender AND one SPECIFIC receiver, e.g. "Nature -> Village"
+only). Wraps a `GlobalWorkspace` (B1/B2, untouched) -- any pillar
+`subscribe()`s ONCE, GENERICALLY, with one handler that carries no
+branch on who sent a bid, and from then on hears every winning bid
+this bus arbitrates regardless of sender; `publish_cycle()` is the one
+call a caller drives once per real cycle (arbitrate, then broadcast to
+every subscriber, including the winner's own submitter, per L3's "every
+subscribed subsystem," never "every subsystem except the sender"). The
+older point-to-point mechanism (`Pillar.send_message`/`receive_message`,
+v1.9.0) is untouched -- migrating the real ~29 arrows onto a real bus
+per settlement/domain is separate, larger future work, same "ship the
+interface, wire the first real consumer next" discipline as B1's own
+~78-site LLM-call-site migration.
+
+New `scripts/verify_b3_pillar_bus.py` (13 checks -- the headline test
+straight from the roadmap's own stated B3 test: a real Nature belief,
+published through the bus's generic subscription, measurably moves a
+downstream Innovation decision (`max(candidates, key=pillar.subject_
+confidence)`, the same real pattern this codebase's own Tier 0 sites
+already use) with ZERO Nature-specific code anywhere in Innovation's
+handler or decision function; the identical unmodified handler then
+correctly serves a second, totally different sender (Village) with no
+code change; multi-subscriber broadcast delivers the same real winner
+to every subscriber; unsubscribe genuinely stops delivery; a genuinely
+empty cycle never invokes any subscriber; `PillarBus` composes with a
+caller-supplied `GlobalWorkspace` rather than reimplementing
+arbitration; re-subscribing the same pillar name replaces, never
+stacks) -- all pass, first run, no bug found in the module under test.
+
+**Parallel task, chosen for most importance: confirmed two flagged
+C++-porting-backlog audit items still hold clean**, following directly
+off last pass's own doc-audit finding -- re-read `economy/farms.py`'s
+`apply_nutrient_cycling`/`apply_carcass_decomposition_bonus` and
+`settlement/buildings.py`'s ruin-scar/layout-grammar/architecture-
+grammar call sites directly against source rather than trusting the
+checklist's own unchecked status. Both confirmed still exactly as
+documented: the two farms functions are sparse (only ever touch tiles
+already present in `soil_fertility`, never a full-grid pass) and
+week_end-cadence, no pure-Python hot path reintroduced; `apply_ruin_
+scar` fires only inside the native decay path's rare building-removal
+branch (once per building's lifetime, not per-tick), and `effective_
+layout_style`/`architecture_grammar.building_descriptor` are both
+cheap on-demand reads (one build-site-scoring/UI-inspector call site
+each), real metadata-only bookkeeping. Checked off with the real
+confirmation detail rather than left dangling as "someone should
+verify this someday."
+
+Verified: the new script (13 checks); `verify_b1_global_workspace.py`
+(17 checks) and `verify_b2_starvation_gain.py` (14 checks) re-run
+clean, confirming B3's addition didn't disturb B1/B2's own tie-break/
+staleness/broadcast/history behavior; `pyflakes` clean on all touched/
+new files; a full sweep of all 60 `scripts/verify_*.py` found zero
+regressions. No native module or `simulation/engine.py` code path
+touched this pass -- no replay-hash/native-soak re-run needed.
+
 ## [1.34.224] — HCA Stage B, B2: unbounded staleness gain, plus a stale-docs fix (G1-G4)
 
 Explicit user instruction: "Start B2 and any parallel task of your

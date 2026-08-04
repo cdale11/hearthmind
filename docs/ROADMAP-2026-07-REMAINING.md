@@ -1731,13 +1731,22 @@ version):
       `tick_erosion` and `hydrology.py`'s `tick_wetlands` stay pure
       Python — both mutate real `Tile`/biome objects, the deliberately-
       deferred larger-risk-surface class.
-- [ ] `economy/farms.py` — `farm_grid_tick` is ported; confirm nutrient
-      cycling and the A11 moisture-yield coupling haven't reintroduced
-      a pure-Python hot path since.
-- [ ] `settlement/buildings.py` — `building_decay_tick`/`vehicle_decay_
-      tick` are ported; confirm ruin-scar / layout-grammar /
-      architecture-grammar additions are metadata-only, not per-tick
-      decay math.
+- [x] `economy/farms.py` — CONFIRMED CLEAN, v1.34.225. `farm_grid_
+      tick` is ported; `apply_nutrient_cycling`/`apply_carcass_
+      decomposition_bonus` re-read directly — both still exactly as
+      their own docstrings state: sparse, iterate only tiles already
+      present in `soil_fertility` (never a full-grid pass), called at
+      week_end cadence only (not every tick). No pure-Python hot path
+      has been reintroduced since A10 shipped either function.
+- [x] `settlement/buildings.py` — CONFIRMED CLEAN, v1.34.225.
+      `building_decay_tick`/`vehicle_decay_tick` are ported;
+      `apply_ruin_scar` is called only inside the native decay path's
+      rare building-removal branch (once per building's lifetime, not
+      per-tick), and `effective_layout_style`/`architecture_grammar.
+      building_descriptor` are both cheap on-demand reads (a build-
+      site-scoring/UI-inspector call site each, not a per-tick or
+      full-grid loop) — real metadata-only bookkeeping, not decay math
+      that needed porting.
 - [ ] **R8** — agent tick *logic* (`population.py`'s methods) is still
       Python reading/writing through the native `AgentStore`. The
       largest remaining port.
