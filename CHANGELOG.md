@@ -4,6 +4,57 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.212] — Tier 6 L1.2's real gameplay consumer + diagnostics; roadmap markdown fix
+
+Explicit user instruction: "Continue that wire everything and expose in
+diagnostics so that I can check it on my own live machine. Ship a
+complete version now. Also fix roadmap remaining rendering issues."
+
+**L1.2's real first gameplay consumer.** New `SimulationEngine._detect_
+social_bridge` mirrors the already-real `_detect_social_hub`/
+`Settlement.social_hub_agent_id` pattern (season cadence, zero LLM
+cost, edge-triggered emergence entry) for `compute_social_features`'s
+`bridge_score` instead of centrality. New `Settlement.social_bridge_
+agent_id` (persisted, legacy-backfilled to `None`) names the living
+agent who genuinely connects otherwise-separate parts of a
+settlement's social graph — `None` while no member has a real
+positive bridge score. New "Social bridge" main-UI stat tile next to
+the existing "Social hub" tile.
+
+**Diagnostics.** `full_diagnostics()['social_features']` now surfaces
+both the persisted per-settlement `social_hub_agent_id`/`social_
+bridge_agent_id` verdicts and a live, on-demand `compute_social_
+features()` sample (`agents_measured`, `top_bridge`, `top_centrality`)
+over the current population — reachable on `/diagnostics` on a live
+deployment without reproducing a run, and confirmed genuinely
+JSON-serializable.
+
+**Roadmap markdown fix.** Found and fixed a real GitHub-rendering
+break in `docs/ROADMAP-2026-07-REMAINING.md`: a `+` sign joining two
+identifiers ("`Settlement.layout_style` + `layout_grammar.drift_
+layout_style`") had word-wrapped so the bare `+` landed at the start
+of a line — GFM interprets a line-leading `+` as a bullet-list marker,
+which CAN interrupt a paragraph, so it rendered as an unwanted
+one-item list breaking the paragraph in two. Reworded to "plus"
+instead. Verified via a systematic automated scan of the whole 5745-
+line document (code-span/paragraph crossings, setext-heading
+collisions, raw HTML-like tags, mixed bullet markers, ordered-list
+paragraph interruption) — no other break found. The doc's length
+(5745 lines) is a separate, known, unresolved concern — already
+flagged in the doc's own "Open-task checklist" section (v1.34.64); a
+full restructuring pass is out of scope for this batch and not
+attempted.
+
+New `scripts/verify_social_bridge_wiring.py` (14 checks) — all pass,
+first run, no bug found.
+
+Verified: the new script; `scripts/verify_social_features.py` (19
+checks)/`scripts/verify_b12_emergence_compression.py` (23 checks)
+re-run clean; full existing verify-script suite re-run clean;
+`pyflakes` clean; `node --check` clean; `scripts/verify_replay_
+hash.py` (4000 ticks, seed 777) — MATCH; `scripts/verify_native_
+soak.py` (3 seeds x 3000 ticks) — MATCH.
+
 ## [1.34.211] — Part B: B12's real first wiring; Tier 6 L1.2 social structure features
 
 Explicit user instruction: "Continue part B and parallely tier 6." Two

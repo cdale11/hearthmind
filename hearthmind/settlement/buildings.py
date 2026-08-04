@@ -2853,6 +2853,19 @@ class SettlementDisposition:
     LLM judgment — zero added LLM volume. `None` until the first
     computation or if the settlement has no living agents with any
     relationship edges yet."""
+    social_bridge_agent_id: str | None = None
+    """Tier 6 L1.2 (docs/ML-ARCHITECTURE-2026-08-01.md): the real first
+    gameplay consumer of `hearthmind/ml/social_features.py`'s
+    `bridge_score` — the living agent whose own contacts mostly don't
+    know each other, i.e. who genuinely connects otherwise-separate
+    parts of this settlement's social graph, the structural-holes
+    counterpart to `social_hub_agent_id`'s centrality. Recomputed on
+    the same season cadence, by the same `_detect_social_hub`-shaped
+    method (`SimulationEngine._detect_social_bridge`) — zero added LLM
+    volume, a structural fact, never an LLM judgment. `None` until the
+    first computation, or if no living member has a genuine positive
+    bridge score (everyone's fully clustered, or too few relationships
+    exist to measure one)."""
 
 
 class Settlement:
@@ -2911,6 +2924,7 @@ class Settlement:
         prophecy: dict | None = None, last_intervention_tick: int = -1,
         predecessor_id: int | None = None,
         social_hub_agent_id: str | None = None,
+        social_bridge_agent_id: str | None = None,
         minerals: dict | None = None,
         explored_tiles: set | list | None = None,
         exploration_findings: list[dict] | None = None,
@@ -3000,6 +3014,7 @@ class Settlement:
             prophecy=prophecy, last_intervention_tick=last_intervention_tick,
             predecessor_id=predecessor_id,
             social_hub_agent_id=social_hub_agent_id,
+            social_bridge_agent_id=social_bridge_agent_id,
         )
         self._position_index: dict | None = None
         """(x, y) -> Building cache behind `at()` — never serialized,
@@ -3675,6 +3690,14 @@ class Settlement:
         self.disposition.social_hub_agent_id = value
 
     @property
+    def social_bridge_agent_id(self) -> str | None:
+        return self.disposition.social_bridge_agent_id
+
+    @social_bridge_agent_id.setter
+    def social_bridge_agent_id(self, value: str | None) -> None:
+        self.disposition.social_bridge_agent_id = value
+
+    @property
     def current_priority(self) -> str:
         return self.disposition.current_priority
 
@@ -4115,6 +4138,7 @@ class Settlement:
             "prophecy": dict(self.prophecy) if self.prophecy is not None else None,
             "predecessor_id": self.predecessor_id,
             "social_hub_agent_id": self.social_hub_agent_id,
+            "social_bridge_agent_id": self.social_bridge_agent_id,
         }
 
     def infrastructure_report(self) -> list[dict]:
@@ -4267,6 +4291,7 @@ class Settlement:
             "last_intervention_tick": self.last_intervention_tick,
             "predecessor_id": self.predecessor_id,
             "social_hub_agent_id": self.social_hub_agent_id,
+            "social_bridge_agent_id": self.social_bridge_agent_id,
         }
 
     @classmethod
@@ -4348,4 +4373,5 @@ class Settlement:
             last_intervention_tick=data.get("last_intervention_tick", -1),
             predecessor_id=data.get("predecessor_id"),
             social_hub_agent_id=data.get("social_hub_agent_id"),
+            social_bridge_agent_id=data.get("social_bridge_agent_id"),
         )

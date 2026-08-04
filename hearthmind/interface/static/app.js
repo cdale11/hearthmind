@@ -4143,6 +4143,17 @@ function renderStats(summary) {
       "changes when someone else becomes more connected than they are.",
     ],
     [
+      "Social bridge",
+      (() => {
+        if (!s.social_bridge_agent_id) return "(none yet)";
+        const bridge = (latest && latest.agents ? latest.agents : []).find((a) => a.id === s.social_bridge_agent_id);
+        return bridge ? bridge.name : "(unknown)";
+      })(),
+      "Who connects otherwise-separate parts of the village's social circles — the agent whose own contacts mostly " +
+      "don't know each other, recomputed each season. The structural-holes counterpart to the social hub above: " +
+      "the hub is who everyone's connected to, the bridge is who links people who'd otherwise never meet.",
+    ],
+    [
       "Skills & tools",
       `farming ${(p.avg_farming_skill || 0).toFixed(2)}, construction ${(p.avg_construction_skill || 0).toFixed(2)}, ` +
       `tools ${(p.avg_tools || 0).toFixed(2)}, medicine ${(p.avg_medicine || 0).toFixed(2)}`,

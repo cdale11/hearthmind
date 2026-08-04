@@ -742,6 +742,61 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.212)
+
+Explicit user instruction: "Continue that wire everything and expose
+in diagnostics so that I can check it on my own live machine. Ship a
+complete version now. Also fix roadmap remaining rendering issues."
+
+**L1.2's real first gameplay consumer.** New `SimulationEngine._
+detect_social_bridge` mirrors the already-real `_detect_social_hub`/
+`Settlement.social_hub_agent_id` pattern (season cadence, zero LLM
+cost, edge-triggered emergence entry) for `hearthmind/ml/social_
+features.py`'s `bridge_score` instead of centrality — new `Settlement.
+social_bridge_agent_id` (persisted, legacy-backfilled to `None`) names
+the living agent who genuinely connects otherwise-separate parts of a
+settlement's social graph; `None` while no member has a real positive
+bridge score (fully clustered, or too few relationships to measure
+one). New "Social bridge" main-UI stat tile beside the existing
+"Social hub" tile.
+
+**Diagnostics — the explicit ask.** `full_diagnostics()['social_
+features']` now surfaces both the persisted per-settlement `social_
+hub_agent_id`/`social_bridge_agent_id` verdicts and a live, on-demand
+`compute_social_features()` sample (`agents_measured`, `top_bridge`,
+`top_centrality`) over the current population — reachable on
+`/diagnostics` on a live deployment without reproducing a run;
+confirmed genuinely JSON-serializable, the actual contract `/
+diagnostics` depends on.
+
+**Roadmap rendering fix.** A systematic automated scan of `docs/
+ROADMAP-2026-07-REMAINING.md` (code spans crossing blank lines, setext-
+heading collisions, raw HTML-like tags outside code spans, mixed
+bullet markers, ordered-list paragraph interruption) found one real
+GitHub-markdown break: a `+` sign joining "`Settlement.layout_style`"
+and "`layout_grammar.drift_layout_style`" had word-wrapped so the bare
+`+` landed at the start of a line — GFM bullet lists CAN interrupt a
+paragraph, so it rendered as an unwanted one-item list splitting the
+paragraph in two. Fixed by rewording to "plus." The doc's length
+(5745 lines, the user's other named concern) is unresolved — already
+flagged in its own "Open-task checklist" section since v1.34.64; a
+full restructuring pass is a separate, larger effort not attempted
+this batch.
+
+New `scripts/verify_social_bridge_wiring.py` (14 checks) — all pass,
+first run, no bug found in the module under test.
+
+Verified: the new script; `scripts/verify_social_features.py` (19
+checks)/`scripts/verify_b12_emergence_compression.py` (23 checks)
+re-run clean; full existing verify-script suite re-run clean;
+`pyflakes` clean on all touched/new files (only the six known
+pre-existing forward-ref findings in `engine.py`); `node --check`
+clean on `app.js`; `scripts/verify_replay_hash.py` (4000 ticks, seed
+777, `--in-process`) — MATCH, byte-identical (this batch touches
+persisted `Settlement` state via the new field, so this check is
+load-bearing); `scripts/verify_native_soak.py` (3 seeds x 3000 ticks)
+— MATCH. No native module touched.
+
 ## Current state (v1.34.211)
 
 Explicit user instruction: "Continue part B and parallely tier 6." Two

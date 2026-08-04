@@ -107,6 +107,7 @@ from hearthmind.world.wildlife import (
 from hearthmind.simulation.sandbox import evaluate_concept_dual_fork, run_counterfactual
 from hearthmind.simulation.dormancy import DormancyManager
 from hearthmind.simulation.history_compression import CompressionLadder, CompressionStage, StageThreshold
+from hearthmind.ml.social_features import compute_social_features
 from hearthmind.simulation.task_graph import PriorityClass, Task, TaskRegistry, TriggerKind
 from hearthmind.simulation.scheduler import Scheduler, SubsystemBudget
 from hearthmind.simulation.tuning import BangBangController, SafetyClass, TunableRegistry, register_llm_pacing_tunables
@@ -4736,6 +4737,7 @@ class SimulationEngine:
         self._maybe_schedule_nature_causal_reasoning()
         if "season_end" in events:
             self._detect_social_hub()
+            self._detect_social_bridge()
         if "week_end" in events:
             # A11 (roadmap Stage IV step 15): riding the same week_end
             # boundary World.tick's own _tick_disasters just updated
@@ -14662,6 +14664,42 @@ class SimulationEngine:
                         data={"agent_id": hub_agent.id},
                     )
 
+    def _detect_social_bridge(self) -> None:
+        """Tier 6 L1.2 (docs/ML-ARCHITECTURE-2026-08-01.md): the real
+        first gameplay consumer of `hearthmind/ml/social_features.py`'s
+        `bridge_score` — same shape as `_detect_social_hub` (season
+        cadence, zero LLM cost, a deterministic structural fact never
+        an LLM judgment) but for the structural-holes axis instead of
+        centrality: the living agent whose own contacts mostly don't
+        know each other, i.e. who genuinely bridges otherwise-separate
+        parts of this settlement's social graph. Edge-triggered on
+        `Settlement.social_bridge_agent_id` actually changing to a new
+        agent with a real positive bridge score — a settlement with no
+        genuine bridge (fully clustered, or too few relationships to
+        measure one) stays silent rather than naming an arbitrary
+        agent whose score is exactly 0.0."""
+        for settlement in self.world.settlements:
+            members = [a for a in self.world.population.agents if a.settlement_id == settlement.id]
+            if not members:
+                continue
+            features = compute_social_features(members)
+            if not features:
+                continue
+            best_id, best = max(features.items(), key=lambda kv: kv[1]["bridge_score"])
+            if best["bridge_score"] <= 0.0:
+                continue
+            if best_id != settlement.social_bridge_agent_id:
+                settlement.social_bridge_agent_id = best_id
+                bridge_agent = next((a for a in members if a.id == best_id), None)
+                if bridge_agent is not None:
+                    self._append_emergence(
+                        "unexplained_shift", "social_graph",
+                        f"{bridge_agent.name} has become the one connecting otherwise-separate "
+                        f"parts of {settlement.name or 'the village'}'s social circles.",
+                        pillars=("humans", "village"), settlement=settlement.name,
+                        data={"agent_id": bridge_agent.id, "bridge_score": round(best["bridge_score"], 3)},
+                    )
+
     def _record_llm_call(self, used_fallback: bool) -> None:
         """Cumulative counters persisted on `World`, for diagnosing LLM
         flakiness (timeouts, unreachable server) from a saved snapshot
@@ -15358,6 +15396,26 @@ class SimulationEngine:
         agents = self.world.population.agents
         pop_total = len(agents)
         relationship_entries = sum(len(a.relationships) for a in agents)
+        # Tier 6 L1.2 (docs/ML-ARCHITECTURE-2026-08-01.md): a live,
+        # on-demand `compute_social_features()` reading over the
+        # current population, reduced to just the two extremes an
+        # operator would actually want at a glance rather than a full
+        # per-agent dump. `agent_id` in the max-key results is a real
+        # int (Agent.id), not a string, despite Settlement.social_hub_
+        # agent_id/social_bridge_agent_id's own `str | None` type hint
+        # (a pre-existing inaccuracy in that hint, unrelated to this).
+        def _social_feature_extreme(features: dict, key: str) -> dict | None:
+            if not features:
+                return None
+            agent_id, values = max(features.items(), key=lambda kv: kv[1][key])
+            return {"agent_id": agent_id, **values}
+
+        _social_features_live = compute_social_features(agents)
+        _social_features_live_sample = {
+            "agents_measured": len(_social_features_live),
+            "top_bridge": _social_feature_extreme(_social_features_live, "bridge_score"),
+            "top_centrality": _social_feature_extreme(_social_features_live, "weighted_centrality"),
+        }
         trust_entries = sum(len(a.trust) for a in agents)
         # Movement diagnostics (v0.81.0, see Agent.stuck_ticks): how many
         # agents are mid-way through the stuck-tick counter right now (a
@@ -15501,6 +15559,26 @@ class SimulationEngine:
                     ]
                     if self._emergence_compression.archive_store else None
                 ),
+            },
+            # Tier 6 L1.2's real first consumer — `_detect_social_hub`/
+            # `_detect_social_bridge`'s own persisted per-settlement
+            # verdicts (already computed each season, not recomputed
+            # here), plus a live, on-demand full `compute_social_
+            # features()` reading over the current living population —
+            # cheap (a single-pass graph computation, no LLM, no
+            # training) and genuinely live: this reflects the real
+            # relationship graph AT THE MOMENT `/diagnostics` is
+            # polled, not a cached snapshot.
+            "social_features": {
+                "settlements": [
+                    {
+                        "name": settlement.name or f"settlement-{settlement.id}",
+                        "social_hub_agent_id": settlement.social_hub_agent_id,
+                        "social_bridge_agent_id": settlement.social_bridge_agent_id,
+                    }
+                    for settlement in self.world.settlements
+                ],
+                "live_sample": _social_features_live_sample,
             },
             # Tier 5 B13's real dev-console/API control point — the
             # most recent manually-requested `HypothesisLoop` attempt

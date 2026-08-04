@@ -1439,9 +1439,16 @@ with three shared components.
       the fraction of an agent's own neighbor pairs NOT themselves
       directly connected). `neighborhood_sentiment` (mean edge weight)
       rounds out the four. `scripts/verify_social_features.py` (19
-      checks) all pass. **Not wired into any real consumer this pass**
-      — L2.1/L2.2 remain the named future consumers. Full end-to-end
-      graph learning stays explicitly deferred.
+      checks) all pass. **Real first gameplay consumer + diagnostics
+      wired, v1.34.212**: `SimulationEngine._detect_social_bridge` +
+      `Settlement.social_bridge_agent_id` mirror the already-real
+      `_detect_social_hub`/`social_hub_agent_id` pattern for `bridge_
+      score`, surfaced as a new "Social bridge" main-UI stat tile and
+      in `full_diagnostics()['social_features']` (persisted per-
+      settlement verdicts plus a live on-demand feature sample).
+      `scripts/verify_social_bridge_wiring.py` (14 checks) all pass.
+      L2.1/L2.2 remain the named future MODEL consumers; full
+      end-to-end graph learning stays explicitly deferred.
 
 **L2 — cognition** (the emergence layer)
 - [x] **L2.1 Value/consequence model** — substrate SHIPPED, v1.34.209,
@@ -4635,7 +4642,7 @@ tick` signature change) — no flagged pieces remain.
 above. Dialect (recursive `steps`, v1.34.63) and architecture (per-
 instance descriptor) already had real generational/varying mechanisms;
 layout was the one with none, now fixed via `Settlement.layout_style`
-+ `layout_grammar.drift_layout_style`. None of the three is a full
+plus `layout_grammar.drift_layout_style`. None of the three is a full
 graph/shape grammar (layout = a real one-step-per-fission production
 rule over a small closed style alphabet, not a rewrite over an
 explicit settlement graph; architecture = fixed three-slot production;

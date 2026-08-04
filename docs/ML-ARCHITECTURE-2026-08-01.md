@@ -165,11 +165,23 @@ documents); importing `Population.faction_of` here would invert it.
 ledger graph, independent of (and complementary to) whatever a
 settlement's own FACTION institutions separately track.
 
-**Not wired into any real consumer this pass** — L2.1/L2.2 remain the
-doc's own named future consumers; no engine.py call site reads `social_
-features.py` yet, same "ship the substrate, wire it once a real
-consumer exists" discipline every other Tier 6 module in this doc has
-shipped under.
+**Real first gameplay consumer + diagnostics wired, v1.34.212.** New
+`SimulationEngine._detect_social_bridge` mirrors the already-real
+`_detect_social_hub`/`Settlement.social_hub_agent_id` pattern (season
+cadence, zero LLM cost, edge-triggered emergence entry) for `bridge_
+score` instead of centrality — the new `Settlement.social_bridge_
+agent_id` names the living agent who genuinely connects otherwise-
+separate parts of the settlement's social graph, `None` when no
+member has a real positive bridge score. Surfaced in the main UI as a
+new "Social bridge" stat tile next to the existing "Social hub" tile,
+and in `full_diagnostics()['social_features']` — both the persisted
+per-settlement `social_hub_agent_id`/`social_bridge_agent_id` verdicts
+and a live, on-demand `compute_social_features()` sample (`agents_
+measured`, `top_bridge`, `top_centrality`) reachable on `/diagnostics`
+without needing to reproduce a run. L2.1/L2.2 remain the doc's own
+named future MODEL consumers (this is a direct structural-fact
+consumer, not a learned one) — full end-to-end graph learning stays
+explicitly deferred.
 
 Verified: `scripts/verify_social_features.py` (19 checks —
 `_neighborhood_sentiment`'s isolated-agent zero case and real mean
