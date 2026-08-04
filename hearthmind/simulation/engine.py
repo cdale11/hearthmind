@@ -99,6 +99,7 @@ from hearthmind.world import spatial_memory
 from hearthmind.world import culture_aggregate
 from hearthmind.cognition import attention
 from hearthmind.cognition.pillar import make_message
+from hearthmind.cognition.surprise import SurpriseSpecialist
 from hearthmind.world.disasters import FLOOD_PRESSURE_THRESHOLD, GOVERNOR_TUNING_BAND, HEATWAVE_PRESSURE_THRESHOLD, WILDFIRE_CHANCE_PER_WEEK
 from hearthmind.world.terrain_evolution import REFOREST_MIN_FALLOW_WEEKS
 from hearthmind.world.wildlife import (
@@ -1933,6 +1934,45 @@ digests represent roughly 20,000 raw observations' worth of condensed
 history — a real, much longer memory than the live log's own 500-entry
 window, at a bounded, fixed storage cost."""
 
+EMERGENCE_SURPRISE_THRESHOLD = 0.3
+"""Tier 7 HCA Stage A, A2 ("gate `world/emergence.py` on surprise, not
+occurrence" -- docs/COGNITIVE-ARCHITECTURE-2026-08-02.md §1.3/§2.3):
+the real fix for the soak-measured problem A1's own module docstring
+names -- 93% of a 64k-tick soak's emergence log was `unexplained_
+shift`, almost all of it "content agent decided to socialize," the
+single most predictable event the simulation can produce. `_append_
+emergence` now scores every candidate observation through `A1`'s
+`SurpriseSpecialist` (`SimulationEngine._emergence_surprise`, keyed by
+`f"{subsystem}:{kind}"`) BEFORE deciding whether to log it -- a
+candidate whose precision-weighted surprise doesn't clear this
+threshold is silently suppressed, never reaching `World.emergence_
+log` at all. The specialist's running model is updated for EVERY
+candidate regardless of whether it's logged (`SurpriseSpecialist.
+score()` always calls `observe()`), so a routine signal's own surprise
+genuinely falls the more it repeats, and a candidate that later
+becomes routine after initially being novel correctly stops clearing
+the gate on its own -- this is precision-weighted learning, not a flat
+occurrence-count cap. A reasoned starting point (not a live
+measurement -- this offline environment has no live archive to tune
+it against), chosen low enough that a moderately novel signal (roughly
+2-3x its own channel's typical deviation) still clears it, matching
+A1's own test that a first-occurrence rare/severe signal scores well
+above 2.0."""
+
+EMERGENCE_SURPRISE_NEUTRAL_MAGNITUDE = 0.4
+"""The value fed to `SurpriseSpecialist.score()` for a candidate
+observation whose `magnitude` is `None` -- most `_append_emergence`
+call sites don't set one (`make_observation`'s own docstring: `None`
+means "a producer has no natural scale for it," not "zero severity").
+A fixed neutral proxy rather than a fabricated per-call number, same
+"reasoned starting point" discipline as `attention.py`'s own
+`DEFAULT_SALIENCE=0.3` -- a channel that always reports this same
+neutral value naturally converges to near-zero surprise once its
+running model has seen enough repeats (the exact "content agent
+socializes" flooding this item exists to suppress), while a channel
+that DOES set a real `magnitude` is scored against its own genuine
+severity reading instead."""
+
 
 def _condense_emergence_entries(items: list) -> dict:
     """The real semantic half B12.1/B12.2 explicitly leave to the
@@ -2583,6 +2623,24 @@ class SimulationEngine:
         archive rather than losing anything the live `emergence_log`
         window itself still holds (the archive is compressed HISTORY
         beyond that window, not a substitute for it)."""
+        self._emergence_surprise = SurpriseSpecialist()
+        """Tier 7 HCA Stage A, A2: the real gate `_append_emergence`
+        scores every candidate observation through before deciding
+        whether it reaches `World.emergence_log` at all — see
+        `EMERGENCE_SURPRISE_THRESHOLD`'s own docstring for the full
+        rationale. Runtime-only, never persisted, same "derived,
+        re-baselines on restart" discipline as `_emergence_compression`
+        above — a restarted world simply starts re-learning what's
+        routine from scratch rather than needing durable per-key
+        statistics across restarts."""
+        self._emergence_surprise_attempted_total = 0
+        self._emergence_surprise_suppressed_total = 0
+        """A2's own dev-console-visible proof the gate is real, not just
+        present — every `_append_emergence` call increments `attempted`;
+        one suppressed by `EMERGENCE_SURPRISE_THRESHOLD` also increments
+        `suppressed`, surfaced via `full_diagnostics()['emergence_
+        surprise']`. Runtime-only counters, same depth as `_last_llm_
+        calls`/`_rumor_retellings_recent` below — not persisted."""
         self._rumor_retellings_recent: list[dict] = []
         """A17's fitness-vs-truth axis (`world.memetics.rumor_fitness`/
         `rumor_truth_score`) — a small capped, transient (not persisted,
@@ -14072,7 +14130,26 @@ class SimulationEngine:
         an evicted entry is no longer simply discarded — it's ingested
         into a real `CompressionLadder`, which condenses it into an
         archived digest once enough have accumulated, rather than
-        losing the stretch's content outright."""
+        losing the stretch's content outright.
+
+        Tier 7 HCA Stage A, A2: gated on SURPRISE, not occurrence (see
+        `EMERGENCE_SURPRISE_THRESHOLD`'s own docstring) — a candidate is
+        always scored through `self._emergence_surprise` (keyed by
+        `f"{subsystem}:{kind}"`, so the specialist's running model
+        updates for every candidate regardless of outcome), and only
+        actually appended once its precision-weighted surprise clears
+        the threshold. A routine, near-identical candidate genuinely
+        stops reaching `emergence_log` once the specialist has learned
+        to expect it — the direct fix for a soak-measured 93%
+        `unexplained_shift` share dominated by 'content agent decided
+        to socialize'."""
+        surprise_key = f"{subsystem}:{kind}"
+        surprise_value = magnitude if magnitude is not None else EMERGENCE_SURPRISE_NEUTRAL_MAGNITUDE
+        surprise = self._emergence_surprise.score(surprise_key, surprise_value)
+        self._emergence_surprise_attempted_total += 1
+        if surprise < EMERGENCE_SURPRISE_THRESHOLD:
+            self._emergence_surprise_suppressed_total += 1
+            return
         observation = emergence.make_observation(
             self.world.next_emergence_id, self.world.clock.tick_count, kind, subsystem, summary,
             pillars, magnitude=magnitude, settlement=settlement, data=data,
@@ -15582,6 +15659,19 @@ class SimulationEngine:
                 {"kind": o["kind"], "subsystem": o["subsystem"], "summary": o["summary"], "pillars": o["pillars"]}
                 for o in self.world.emergence_log[-10:]
             ],
+            # Tier 7 HCA Stage A, A2: the real gate above suppresses a
+            # candidate whose surprise never clears `EMERGENCE_SURPRISE_
+            # THRESHOLD` before it ever reaches `emergence_log` — this
+            # is the direct proof the gate is genuinely active, not just
+            # present, on a live deployment.
+            "emergence_surprise": {
+                "attempted_total": self._emergence_surprise_attempted_total,
+                "suppressed_total": self._emergence_surprise_suppressed_total,
+                "suppressed_fraction": (
+                    round(self._emergence_surprise_suppressed_total / self._emergence_surprise_attempted_total, 4)
+                    if self._emergence_surprise_attempted_total else 0.0
+                ),
+            },
             # B1 Pillar abstraction (roadmap Stage II step 4): same dev-
             # console-only reachability as reflection_notebook/emergence
             # above — Nature's persistent self-model/world-model/memory

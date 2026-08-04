@@ -742,6 +742,95 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.221)
+
+Explicit user instruction: "A2 and parallel C++ port" — two
+independent pieces, one batch, following directly off v1.34.220's A1.
+**Tier 7 HCA Stage A's second item.**
+
+**A2.** "Gate `world/emergence.py` on surprise, not occurrence"
+(docs/COGNITIVE-ARCHITECTURE-2026-08-02.md §1.3/§2.3) — the standing
+"predictable is not notable" rule (see the HCA section above) made
+mechanically real for the first time. The measured problem this exists
+to fix: a real 64k-tick soak's own emergence log was ~93% a single
+repeated `unexplained_shift`/`cognition` entry ("content agent decided
+to socialize"), because `SimulationEngine._append_emergence` — the one
+choke point ~78 call sites across the codebase route through — logged
+every candidate unconditionally. Fixed with A1's `SurpriseSpecialist`
+as a real gate: every candidate is scored via `score(f"{subsystem}:
+{kind}", magnitude or EMERGENCE_SURPRISE_NEUTRAL_MAGNITUDE)` BEFORE any
+`Observation`/id/log-append happens; a score below `EMERGENCE_SURPRISE_
+THRESHOLD=0.3` returns early with zero trace left (no id consumed, no
+log entry, no downstream eviction/compression triggered). `magnitude=
+None` (the common case — most call sites never set it) is scored
+against a fixed neutral proxy constant (`EMERGENCE_SURPRISE_NEUTRAL_
+MAGNITUDE=0.4`) rather than treated as zero severity, honoring
+`emergence.py`'s own documented "`None` means no natural scale, not
+zero" semantics. Runtime-only (`self._emergence_surprise`, never
+persisted — a restarted world re-learns what's routine from scratch,
+same discipline as every `DormancyManager` instance in this codebase).
+New `attempted_total`/`suppressed_total`/`suppressed_fraction` counters,
+surfaced via `full_diagnostics()['emergence_surprise']`.
+
+New `scripts/verify_emergence_surprise_gate.py` (11 checks — cold-start
+always logs; 60 repeated routine candidates suppress to ~1 logged;
+attempted/suppressed counters track correctly; a severe-magnitude
+candidate breaks through regardless of repetition; the headline test —
+a synthetic reproduction of the doc's own reported 500-candidate soak
+shape (466 routine no-magnitude `unexplained_shift`/`cognition`
+candidates + 34 rare distinct-key candidates across `opportunity`/
+`bottleneck`/`anomaly`/`novel_combination`) driven through the REAL
+`_append_emergence` confirms the logged `unexplained_shift` share falls
+to 2.9% of 35 logged entries, well under A2's own <40% target, against
+the doc's reported 93.2% raw occurrence share; every rare candidate
+still logs; `magnitude=None` degrades to the real neutral proxy without
+crashing; `full_diagnostics()` surfaces real counts) — all pass. One
+real test-fixture bug caught and fixed before shipping, not a bug in
+the module under test: the first draft fed the 466 "routine" candidates
+a small cycling magnitude sequence instead of the real production shape
+(no magnitude at all) — the resulting small-but-real variance kept
+surprise hovering near the threshold, letting ~25% spuriously through
+(77.5% of 151 logged were unexplained_shift, failing the bound). Fixed
+by removing the magnitude kwarg from the routine loop entirely, matching
+the real call site exactly.
+
+**C++ porting backlog, parallel track.** A genuine WIRING gap this
+time, not a new `.cpp` module — module count stays at 27. Swept
+`world/`/`economy/`/`settlement/`/`agents/population.py` for a full-
+grid or per-tick pure-arithmetic candidate lacking a native counterpart
+and found `Population._tick_traits`'s H6 monthly per-agent trait mean-
+reversion (`current * reversion + step, clamped to [-1, 1]`) is
+byte-identical to module 12's already-shipped `bounded_random_walk_
+step` (`cpp/src/bounded_random_walk.cpp`) — the exact shared primitive
+already backing `Settlement.tick_temperament`/`tick_player_standing`/
+`tick_relation` and `world/hydrology.py`'s lake-level nudge — but
+`population.py` had simply never imported or called it. Wired directly
+(`_native_bounded_random_walk_step` when the extension is built, the
+identical inline Python arithmetic as a fallback). Other candidates
+investigated and correctly left alone: `world/disasters.py`'s
+`compute_forest_contiguity` composes with `cellular_step`'s Python-
+callable `rule` param, which can't cross the pybind11 boundary without
+per-consumer specialization (same standing exclusion `ca_operators.py`
+itself already documents); `world/hydrology.py`'s `tick_wetlands`
+mutates real `Tile`/biome-reclassification objects, the same larger-
+risk-surface class already deferred for `tick_erosion` — correctly not
+rushed into this pass.
+
+Verified: a direct 5000-trial randomized equivalence test (native call
+vs. `clamp(current*reversion+step, -1.0, 1.0)`) — 0 mismatches; the new
+`verify_emergence_surprise_gate.py` (11 checks); `pyflakes` clean on
+all touched/new files (only the six known pre-existing forward-ref
+findings in `engine.py`); `verify_ml_evolution.py`/`verify_ml_
+specialist.py`/`verify_ml_substrate.py`/`verify_ml_g2_workload_
+forecaster.py`/`verify_ml_g4_genome_evolution.py`/`verify_ml_g3_regime_
+change.py`/`verify_surprise_specialist.py`/`verify_ca_operators_
+native.py`/`verify_terrain_neighbor_count_native.py` re-run clean;
+`scripts/verify_replay_hash.py` (4000 ticks, seed 777, `--in-process`)
+— MATCH, byte-identical; `scripts/verify_native_soak.py` (3 seeds x
+3000 ticks) — MATCH. This closes A2; `A3` (a surprise map overlay, a
+new Living Map layer, depending on A2's now-real signal) is the next
+open Stage A item.
+
 ## Current state (v1.34.220)
 
 Explicit user instruction: "Phase 2 A1 and parallel c++ porting" —

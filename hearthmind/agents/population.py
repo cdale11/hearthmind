@@ -97,6 +97,22 @@ in Python; only the arithmetic moves. `None` when the extension wasn't
 built — each method falls back to the equivalent pure-Python branching
 in that case."""
 
+try:
+    from hearthmind._native import bounded_random_walk_step as _native_bounded_random_walk_step
+except ImportError:
+    _native_bounded_random_walk_step = None
+"""C++ porting backlog, continued (docs/ROADMAP-2026-07-REMAINING.md's
+parallel track): a genuine WIRING gap, not a new module -- module 12's
+already-shipped shared primitive (cpp/src/bounded_random_walk.cpp,
+backing `Settlement.tick_temperament`/`tick_player_standing`/
+`tick_relation` and `world/hydrology.py`'s lake-level nudge) was never
+actually consumed by `Population._tick_traits`, even though H6's
+monthly per-agent trait mean-reversion (`current * reversion + step,
+clamped to [-1, 1]`) is the EXACT same formula every one of those
+sibling call sites already delegates to this function. `None` when the
+extension wasn't built -- falls back to the equivalent inline Python
+arithmetic in that case."""
+
 from hearthmind.agents import agent_store
 from hearthmind.agents.agent import (
     CRITICAL_HUNGER_THRESHOLD,
@@ -4740,7 +4756,10 @@ class Population:
                 current = agent.traits.get(trait, 0.0)
                 step = rng.uniform(-TRAIT_STEP_MAX, TRAIT_STEP_MAX)
                 reversion = _TRAIT_MEAN_REVERSION_BY_TRAIT.get(trait, TRAIT_MEAN_REVERSION)
-                agent.traits[trait] = clamp(current * reversion + step, -1.0, 1.0)
+                if _native_bounded_random_walk_step is not None:
+                    agent.traits[trait] = _native_bounded_random_walk_step(current, reversion, step, 0.0, -1.0, 1.0)
+                else:
+                    agent.traits[trait] = clamp(current * reversion + step, -1.0, 1.0)
             # §1 "deviance loop": ostracism fades on its own over months
             # rather than standing forever — see Agent.standing_penalty.
             if agent.standing_penalty > 0.0:

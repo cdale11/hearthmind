@@ -4,6 +4,71 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.221] — HCA Stage A, A2: gate the emergence log on surprise, plus a C++ backlog wiring fix
+
+Explicit user instruction: "A2 and parallel C++ port." Two independent
+pieces, one batch.
+
+**A2.** Gate `world/emergence.py` on surprise, not occurrence.
+`SimulationEngine._append_emergence` now scores every candidate
+observation through A1's `SurpriseSpecialist` (`self._emergence_
+surprise`, keyed by `f"{subsystem}:{kind}"`) BEFORE deciding whether it
+reaches `World.emergence_log` at all. The specialist's running model
+updates for every candidate regardless of outcome (`SurpriseSpecialist.
+score()` always calls `observe()`), so a routine candidate's own
+surprise genuinely falls the more it repeats, while a candidate lacking
+a natural `magnitude` scale is scored against a fixed neutral proxy
+(`EMERGENCE_SURPRISE_NEUTRAL_MAGNITUDE=0.4`) rather than a fabricated
+per-call number. New `EMERGENCE_SURPRISE_THRESHOLD=0.3` -- a candidate
+whose surprise doesn't clear it is silently suppressed, never appended
+(no id consumed, no eviction/compression triggered). New
+`SimulationEngine._emergence_surprise_attempted_total`/`_emergence_
+surprise_suppressed_total` (runtime-only counters) surfaced via
+`full_diagnostics()['emergence_surprise']`.
+
+New `scripts/verify_emergence_surprise_gate.py` (11 checks -- A2's own
+stated test, reproduced against a real `SimulationEngine`/`_append_
+emergence` with a synthetic candidate stream shaped like the doc's own
+reported soak numbers: 466 of 500 candidates are near-identical
+"content agent decided to socialize"-style `unexplained_shift` entries
+with no set magnitude -- the real production shape -- and 34 are
+genuinely distinct rare `opportunity`/`bottleneck`/`anomaly`/
+`novel_combination` entries; confirmed the LOGGED `unexplained_shift`
+share drops from the doc's reported 93.2% to 2.9% of 35 total logged
+entries, well under the stated < 40% bound, while every genuinely
+rare/distinct candidate still logs) -- all pass. One real test-fixture
+correction made before shipping (not a bug in the module under test):
+the first aggregate-share draft fed the routine candidates a small
+cycling magnitude sequence rather than the real production shape (no
+magnitude at all), which kept re-triggering marginal surprise near the
+threshold and produced a 77.5% logged share instead of the intended
+sub-40% -- fixed by matching the actual call site's real behavior.
+
+**C++ porting backlog, parallel track -- a wiring gap, not a new
+module.** Module 12's already-shipped shared primitive
+(`bounded_random_walk_step`, `cpp/src/bounded_random_walk.cpp`, backing
+`Settlement.tick_temperament`/`tick_player_standing`/`tick_relation`
+and `world/hydrology.py`'s lake-level nudge) was never actually
+consumed by `Population._tick_traits` (H6's monthly per-agent trait
+mean-reversion), even though that method's own formula is the EXACT
+same computation every sibling call site already delegates to this
+function. Wired directly -- no rebuild needed. Verified via a direct
+5000-trial randomized equivalence check against the pure-Python
+fallback (0 mismatches).
+
+Verified: both new/updated checks; `pyflakes` clean on all touched
+files (only the six known pre-existing forward-ref findings in
+`engine.py`); `scripts/verify_ml_evolution.py`/`verify_ml_
+specialist.py`/`verify_ml_substrate.py`/`verify_ml_g2_workload_
+forecaster.py`/`verify_ml_g4_genome_evolution.py`/`verify_ml_g3_
+regime_change.py`/`verify_surprise_specialist.py`/`verify_ca_
+operators_native.py`/`verify_terrain_neighbor_count_native.py` re-run
+clean; `scripts/verify_replay_hash.py` (4000 ticks, seed 777,
+`--in-process`) -- MATCH, byte-identical (load-bearing -- this pass
+changes what reaches persisted `World.emergence_log` state and
+re-wires a persisted-per-agent-trait scalar step); `scripts/verify_
+native_soak.py` (3 seeds x 3000 ticks) -- MATCH.
+
 ## [1.34.220] — HCA Stage A, A1: precision-weighted surprise scoring, plus a third C++ porting backlog pickup
 
 Explicit user instruction: "Phase 2 A1 and parallel c++ porting." Two

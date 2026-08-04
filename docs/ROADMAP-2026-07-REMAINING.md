@@ -2377,8 +2377,53 @@ inventing the interface twice later.
    `World` state, or `simulation/engine.py` code path touched — pure
    offline substrate, no replay-hash/native-soak re-run needed for
    this half.
-2. `A2` — gate `world/emergence.py` on surprise, not occurrence.
-   Depends on `A1`'s scores existing.
+2. `A2` — **SHIPPED, v1.34.221.** Gate `world/emergence.py` on
+   surprise, not occurrence. `SimulationEngine._append_emergence` now
+   scores every candidate observation through `A1`'s `SurpriseSpecialist`
+   (`self._emergence_surprise`, keyed by `f"{subsystem}:{kind}"`) BEFORE
+   deciding whether it reaches `World.emergence_log` at all — the
+   specialist's running model updates for EVERY candidate regardless of
+   outcome (`SurpriseSpecialist.score()` always calls `observe()`), so a
+   routine candidate's own surprise genuinely falls the more it repeats,
+   while a candidate lacking a natural `magnitude` scale is scored
+   against a fixed neutral proxy (`EMERGENCE_SURPRISE_NEUTRAL_
+   MAGNITUDE=0.4`) rather than a fabricated per-call number. New
+   `EMERGENCE_SURPRISE_THRESHOLD=0.3` — a candidate whose surprise
+   doesn't clear it is silently suppressed, never appended (no id
+   consumed, no eviction/compression triggered). New `SimulationEngine.
+   _emergence_surprise_attempted_total`/`_emergence_surprise_
+   suppressed_total` (runtime-only counters) surfaced via
+   `full_diagnostics()['emergence_surprise']` — real proof the gate is
+   active on a live deployment, not just present in code. New `scripts/
+   verify_emergence_surprise_gate.py` (11 checks — A2's own stated
+   test, reproduced against a real `SimulationEngine`/`_append_
+   emergence` with a synthetic candidate stream shaped like the doc's
+   own reported soak numbers: 466 of 500 candidates are near-identical
+   "content agent decided to socialize"-style `unexplained_shift`
+   entries with no set magnitude — the real production shape, matching
+   the actual call site — and 34 are genuinely distinct rare `opportunity`/
+   `bottleneck`/`anomaly`/`novel_combination` entries; confirmed the
+   LOGGED `unexplained_shift` share drops from the doc's reported 93.2%
+   to 2.9% of 35 total logged entries, well under the stated < 40%
+   bound, while every genuinely rare/distinct candidate still logs; plus
+   a cold-start-always-logs case, a routine-stream-genuinely-suppressed
+   case, a real-severe-magnitude-still-breaks-through case, the
+   attempted/suppressed counters, and `full_diagnostics()` surfacing) —
+   all pass, one real test-fixture correction made before shipping (not
+   a bug in the module under test): the first aggregate-share draft fed
+   the routine candidates a small cycling magnitude sequence rather than
+   the real production shape (no magnitude at all), which kept
+   re-triggering marginal surprise near the threshold and produced a
+   77.5% logged share instead of the intended sub-40% — fixed by
+   matching the actual `_append_emergence` call site's real behavior
+   (never sets `magnitude` for this exact observation) rather than
+   inventing synthetic variation the real code never produces. Verified:
+   the new script; `pyflakes` clean (only the six known pre-existing
+   forward-ref findings in `engine.py`); `scripts/verify_replay_
+   hash.py` (4000 ticks, seed 777, `--in-process`) — MATCH, byte-
+   identical (load-bearing — this pass changes what reaches persisted
+   `World.emergence_log` state); `scripts/verify_native_soak.py` (3
+   seeds x 3000 ticks) — MATCH.
 3. `A3` — the surprise map overlay (a new Living Map layer). Depends
    on `A2` — nothing to visualize before the signal is real.
    *Stage A fully closes here. Ships: emergence-log entries with a real
@@ -2544,7 +2589,20 @@ direct inspection — same standing discipline this file's own history
 already uses (module 24, `biology_ticks.cpp`, was found exactly this
 way at v1.34.207: A14's five per-agent scalar-drift passes had shipped
 with no native port at the time and were only noticed on a later
-audit pass). 27 modules shipped as of `terrain_neighbor_count.cpp`
+audit pass). Most recent pickup (v1.34.221) is a genuine WIRING gap,
+not a new module: module 12's already-shipped shared primitive
+(`bounded_random_walk_step`, `cpp/src/bounded_random_walk.cpp`,
+backing `Settlement.tick_temperament`/`tick_player_standing`/
+`tick_relation` and `world/hydrology.py`'s lake-level nudge) was never
+actually consumed by `Population._tick_traits` (H6's monthly per-agent
+trait mean-reversion), even though that method's own formula --
+`current * reversion + step, clamped to [-1, 1]` -- is the EXACT same
+computation every sibling call site already delegates to this
+function. Wired directly, no rebuild needed (the native function
+already existed); verified via a direct 5000-trial randomized
+equivalence check against the pure-Python fallback (0 mismatches) plus
+the full `verify_replay_hash.py`/`verify_native_soak.py` sweep below.
+27 modules shipped as of `terrain_neighbor_count.cpp`
 (v1.34.220): `world/terrain_evolution.py`'s `_tick_fallow`, the weekly
 full-grid pass gating reforest eligibility — for every GRASSLAND tile,
 counts how many of its 4 orthogonal neighbors are FOREST, same
