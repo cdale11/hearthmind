@@ -4,6 +4,35 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.214] — Docs: dependency-ordered Adaptive Runtime + HCA build sequence
+
+Explicit user request: "push this to roadmap, proper sequence of
+building components so nothing is blocked by anything else and each
+step ships a complete usable code... reordering of the previous one."
+Docs-only, no code changed. New `docs/ROADMAP-2026-07-REMAINING.md`
+section, "Adaptive Runtime & HCA — dependency-ordered build sequence,"
+inserted right after the existing Tier 5/6/7 checklists (which remain
+the categorical reference — this section only fixes build order).
+Reorders every currently-open Part B (Adaptive Runtime) item, every
+Tier 6 item HCA's Stage G/H depend on, and all of Tier 7's HCA stages
+into 8 numbered phases (Phase 0 closes four already-flagged Part B
+gaps with zero new design; Phase 1 = Stage G; Phase 2 = Stage A; Phase
+3 = Stage B; Phase 4 = Stage H, the literal "Runtime becomes a mind"
+milestone; Phase 5 = Stage C; Phase 6 = Stage D; Phase 7 = Stage E,
+shipped incrementally per-phase rather than batched) plus two
+parallel/optional tracks (semantic embedding → `F1`; remaining
+independent Part B cleanup) and a third fully-independent Tier 6 list
+(`L2.1`/`L2.2`/`L4.1`). Honors all four dependencies the HCA doc states
+explicitly (`H1` needs Stage B+G, `B7` needs Stage G, `E5` needs Stage
+G, `E6` needs Stage H, `F1` needs `L1.1`) plus one necessary dependency
+the doc implies but doesn't state (`B5`'s surprise-scoring factor needs
+`A1` to exist first, so Stage B's `B5` step specifically follows Stage
+A even though Stage B doesn't wait on it as a whole). Notably, Phase
+1's `G2` (wiring `B8.1`/`L3.2`'s already-trained `WorkloadForecaster`
+to a real retrain cadence) closes three previously-separate flagged
+gaps in one item — Part B's B8.1-B8.3, Tier 6's L3.2, and HCA's own G2
+test case all point at the identical unwired model.
+
 ## [1.34.213] — Adaptive Runtime: automatic hypothesis cadence + a real dev-console panel
 
 Explicit user instruction: "Do both and keep building adaptive runtime

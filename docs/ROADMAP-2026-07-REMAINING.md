@@ -2077,6 +2077,238 @@ specific item.**
 
 ---
 
+## Adaptive Runtime & HCA — dependency-ordered build sequence (filed v1.34.213)
+
+Explicit user request: "push this to roadmap, proper sequence of
+building components so nothing is blocked by anything else and each
+step ships a complete usable code... reordering of the previous one."
+This is **not new scope** — every item below is already catalogued in
+full (what it is, why it exists, its own test) in Tier 5's Part B, Tier
+6's L-layers, and Tier 7's HCA checklist above; cross-reference by code
+(`A1`, `G2`, `B5`, `H2`, ...). This section answers a different
+question those checklists don't: **what order to build them in so no
+step is blocked by a later one, and every phase leaves something real
+and independently verifiable behind** — not a batch of half-wired
+substrate. Two facts drove the ordering: (1) the HCA doc's own text
+states four hard dependencies (`H1` needs Stage B + Stage G; `B7` needs
+Stage G; `E5` needs Stage G; `E6` needs Stage H; `F1` needs Tier 6
+`L1.1`) — honored exactly, not reinterpreted; (2) one necessary
+dependency the HCA doc doesn't state explicitly but which its own text
+implies: `B5`'s seven-factor bid score lists *surprise* as a factor,
+and surprise is literally what `A1` defines — so Stage B's scoring step
+(`B5` specifically, not all of Stage B) cannot be built honestly before
+Stage A exists.
+
+**Phase 0 — close already-flagged Part B gaps. No new design, no
+dependency on anything below, ships immediately.**
+1. Wire `select_strategy`'s three dead `Strategy` fields
+   (`worker_count_hint`/`cache_size_hint`/`dormancy_aggressiveness`) —
+   computed every refresh, surfaced only in diagnostics today, consumed
+   nowhere (confirmed by direct grep, 2026-08-04).
+2. Make `TunableRegistry`'s three inert pacing constants
+   (`llm_pressure_slowdown_start_ratio`/`speedup_start_ratio`/
+   `min_speedup_multiplier`) real — today `engine.py`'s own pacing code
+   reads hardcoded module constants, not the registry, so adjusting
+   them via the registry is currently a no-op (B6.3's own docstring
+   already says so).
+3. `B5.3`'s full `/diagnostics/runtime` aggregate across every real
+   scheduler — today only the `institution_dormancy` scheduler is
+   exposed; every later phase below benefits from this being complete
+   *before* more schedulers exist to audit.
+4. `B14.3`'s `batch_size_for_storage` — unconsulted; the snapshot
+   writer is still one `INSERT` per row with no batched-write path to
+   size for.
+   *Each of these four ships as an independent, immediately-verifiable
+   PR — no ordering between them.*
+
+**Phase 1 — HCA Stage G: learning specialists (`G1`→`G2`→`G4`→`G3`).**
+No dependency beyond Tier 6's `L5`/`L6` substrate, both already
+shipped — this phase is real wiring work, not new design, and it pays
+off multiple tiers at once:
+1. `G1` — the `learn()` interface on the specialist shape, wired
+   directly to `L5`'s `ReplayBuffer`/`continual_train_mlp`/`passes_
+   shadow_gate` (no new mechanism to invent).
+2. `G2` — wire the FIRST real specialist to `G1`: `B8.1`/`L3.2`'s
+   already-trained `WorkloadForecaster`. **This single item closes
+   three previously-separate flagged gaps at once** — Part B's B8.1-
+   B8.3 ("not wired into any real cadence"), Tier 6's L3.2 ("not wired
+   into a live cadence"), and HCA's own G2 test case — because all
+   three names point at the same unwired model.
+3. `G4` — `L6`'s population-level variation (phylogeny) for one
+   specialist family. Independent of `G2`/`G3` (only needs `L6`, not a
+   working `learn()` loop), can genuinely run in parallel with them if
+   two people/passes are available; sequenced here for narrative
+   continuity with the rest of Stage G.
+4. `G3` — "forget obsolete assumptions" under a synthetic regime-
+   change test. Needs `G1`/`G2`'s real `learn()` loop to exist first
+   (there is nothing to re-adapt without one).
+   *Stage G fully closes here. Ships: a genuinely continually-retrained
+   forecaster with a working shadow gate, a real per-species genome
+   population, and a proven catastrophic-forgetting recovery bound —
+   each independently demoable.*
+
+**Phase 2 — HCA Stage A: surprise-gated specialists (`A1`→`A2`→`A3`).**
+No hard dependency on Phase 1, but genuinely stronger for having it:
+`A1`'s `predict()`/`error()` interface can now be proven against BOTH a
+deterministic baseline (an existing threshold detector) and a real
+learned specialist (`G2`'s forecaster) in the same pass, rather than
+inventing the interface twice later.
+1. `A1` — `predict()`/`error()` on specialists; precision-weighted
+   surprise scoring.
+2. `A2` — gate `world/emergence.py` on surprise, not occurrence.
+   Depends on `A1`'s scores existing.
+3. `A3` — the surprise map overlay (a new Living Map layer). Depends
+   on `A2` — nothing to visualize before the signal is real.
+   *Stage A fully closes here. Ships: emergence-log entries with a real
+   surprise score, a measurably lower `unexplained_shift` share, and a
+   genuine new map overlay — independently useful even if nothing later
+   in this sequence is ever built.*
+
+**Phase 3 — HCA Stage B: coalition bidding & arbitration
+(`B1`→`B2`→`B3`→`B4`→`B5`→`B6`→`B7`).** The base workspace/arbitration
+engine must exist (`B1`) before its later refinements (`B4`-`B7`, the
+2026-08-02 amendment sub-steps) can attach to anything:
+1. `B1` — coalition bidding; one arbitrated winner per cycle; every LLM
+   call site converted to a bid.
+2. `B2` — starvation handled competitively (unbounded staleness gain
+   primary, the old bounded-deferral floor kept only as a backstop).
+3. `B3` — the broadcast bus, replacing the ten hand-wired inter-pillar
+   arrows from the older B4 message-bus item (same code letter, older
+   item — see the item's own cross-reference).
+4. `B4` *(2026-08-02 amendment)* — coalition formation: same-subject
+   bids merge superadditively but sublinearly.
+5. `B5` *(2026-08-02 amendment)* — the seven-factor evidence-based bid
+   score. **Needs Phase 2 done** — surprise is one of the seven factors
+   and is undefined without `A1`.
+6. `B6` *(2026-08-02 amendment)* — arbitration determinism + the
+   starvation bound, no RNG anywhere in the path.
+7. `B7` *(2026-08-02 amendment)* — learning to bid from realised
+   outcomes. **Needs Phase 1 done** — this is `learn()` applied to the
+   bidding policy itself, per the HCA doc's own explicit dependency.
+   *Stage B fully closes here. Ships: a real, replayable, deterministic
+   arbitrated workspace — the actual "OS scheduler for cognition" the
+   Adaptive Runtime was always meant to have, independently valuable as
+   the backbone of everything gameplay-facing that follows.*
+
+**Phase 4 — HCA Stage H: the Runtime (and Player Model) as cognitive
+domains (`H1`→`H2`→`H3`→`H4`).** This is the literal answer to "the
+Adaptive Runtime is supposed to be conscious." Explicitly gated by the
+HCA doc itself on Stage B (a workspace to bid into) and Stage G
+(`learn()`) — both done as of Phase 3/Phase 1:
+1. `H1` — the `WORLD`/`MACHINE`/`OBSERVER` domain type, mechanically
+   enforced via an AST check extending `scripts/verify_runtime_
+   invariant.py`.
+2. `H2` — the Adaptive Runtime reinterpreted as a real specialist
+   family: `B8`=`predict()`/`error()`, `B5`=`observe()`, `B15`'s
+   escalation ladder converted from a unilateral actor into a real
+   `bid()`, `B13`'s hypothesis loop as its `learn()`. Depends on `H1`
+   existing to tag its domain.
+3. `H3` — cross-domain isolation (a MACHINE broadcast reaches the
+   WORLD mind's L5 and the Observatory only, never a settlement's own
+   belief formation). Depends on `H1`/`H2`.
+4. `H4` — the Player Model as an OBSERVER-domain specialist,
+   read-only, explicitly distinct from the Town Consciousness's own
+   interventions (which stay exactly as they are). Only needs `H1`'s
+   domain type to exist — independent of `H2`/`H3` otherwise, could run
+   in parallel with them.
+   *Stage H fully closes here. Ships: the Runtime's own scheduling
+   decisions visible in the workspace log as real bids that won against
+   named losers — legible for the first time, mechanically incapable of
+   quietly overruling the world it serves.*
+
+**Phase 5 — HCA Stage C: impasse-gated deliberation + chunking
+(`C1`→`C2`→`C3`).** Needs Phase 3's real arbitrated workspace to detect
+an impasse *within* — there is no "tie/no-change/conflict/novelty" to
+name without one.
+1. `C1` — the four typed impasses as the deliberation trigger.
+2. `C2` — chunking: compile a resolved impasse into a cheap reusable
+   artifact.
+3. `C3` — cheap-resolver dispatch (chunk → learned model → LLM),
+   preferring the cheapest resolver that suffices.
+   *Stage C fully closes here. Ships the project's own headline
+   falsification test becoming measurable for the first time:
+   deliberative cost per unit of emergence, trended over a soak.*
+
+**Phase 6 — HCA Stage D: ACT-R memory activation (`D1`→`D2`).** No hard
+dependency on anything above — could genuinely be pulled forward to run
+in parallel with Phase 2 or Phase 3 if a second, memory-focused pass is
+available; placed here only for narrative continuity with the rest of
+HCA.
+1. `D1` — ACT-R activation replacing four hand-tuned mechanisms
+   (`MEMORY_RETRIEVAL_*` weights, `memory_salience`, `memory_access`,
+   the bag-of-words relevance term).
+2. `D2` — declarative/procedural separation made architectural.
+
+**Phase 7 — HCA Stage E: the Cognitive Observatory (`E1`-`E6`). Ship
+incrementally as each backing phase lands — do not batch this to the
+end.** Each item's real dependency:
+- `E1` (why-reasoning-fired panel) — meaningful as soon as Phase 5
+  (`C1`) exists; ship then, not later.
+- `E2` (workspace + losing coalitions) — needs Phase 3 (`B1`); ship
+  right after Phase 3 closes.
+- `E3` (memory-activation + competing-goals) — needs Phase 6 (`D1`)
+  for the memory half, Phase 3 for the goals half; ship once both are
+  done.
+- `E4` (learning chart: calls/1000 ticks vs. emergence rate) — needs
+  Phase 5 to have any deliberative-cost reduction to chart.
+- `E5` *(HCA-stated: depends on Stage G)* — ship right after Phase 1
+  closes, don't wait for anything later.
+- `E6` *(HCA-stated: depends on Stage H)* — ship right after Phase 4
+  closes.
+
+**Parallel, optional track — semantic embedding (does not block or get
+blocked by anything above).**
+- Tier 6 `L1.1` — semantic embedding of the sim's own vocabulary (6+
+  real potential consumers: memory retrieval, four dedup sites, `pillar.
+  word_overlap`, topic novelty). Not built at all yet.
+- Tier 6 `L2.3` — semantic retrieval scorer, gated behind `L1.1`.
+- HCA `F1` — semantic pointers (concept vectors, bundling/binding).
+  Explicitly gated behind `L1.1` per the HCA doc's own text. Can be
+  picked up any time in parallel with the numbered phases above — it
+  shares no dependency edge with the consciousness/scheduling chain.
+
+**Parallel, optional track — remaining independent Part B cleanup (no
+dependency on the numbered phases; pick up opportunistically).**
+- `B3.3` — the real ~200-site reactivity audit (`ON_DIRTY`/`ON_EVENT`
+  conversion); only one site (`institution_dormancy`) converted so far.
+- `B4.2`'s last candidate, "distant wildlife" — needs a genuinely
+  lossless elapsed-tick reconstruction of stochastic per-tick draws,
+  the one dormancy candidate that touches real Body-deterministic
+  simulation rather than pure Mind-layer attention.
+- `B9.3` — the full ~200-site timescale-mismatch audit.
+- `B11` — hierarchical memory tiering has no real large-persisted-state
+  consumer wired to it yet.
+- `B12`'s remaining cascade stages (EPISODE→SUMMARY→HISTORY→
+  CULTURAL_MEMORY) — only the RAW→archived-digest stage is wired
+  today.
+- `B13.5` — the evolutionary tunable-set search (`tunable_
+  evolution.py`, distinct from HCA's `G4`/Tier 6 `L6` — this evolves
+  RUNTIME CONTROL tunables, not learned-model hyperparameters) is built
+  and verified in isolation but not wired to a real cadence.
+- `B10.2` — confirmed exhausted after four pilots (`Population.get`,
+  `buildings_of_kind`, `vehicles_of_kind`, `institutions_of_kind`); no
+  further action needed, effectively closed.
+- `B15.5` — blocked on a real HearthBench runner existing (Part A
+  track), out of scope until that track resumes.
+
+**Also open, genuinely independent of this whole sequence (Tier 6 —
+pick up any time, no coupling to HCA):**
+- `L2.1` — the value/consequence model; substrate shipped, needs a real
+  accumulated emergence-log/life-events archive from a live world to
+  train against.
+- `L2.2` — the goal-policy flagship (two-phase distillation + outcome-
+  reweighted curriculum); not built at all yet, the largest single
+  remaining Tier 6 item.
+- `L4.1` — belief-confidence calibration; substrate shipped, needs a
+  real settled-hypothesis history from a live archive.
+
+Same standing convention as every vision document here: nothing above
+is implemented by this section's filing — it only fixes the order.
+Work from Phase 0 onward only on future explicit direction naming a
+phase.
+
+---
+
 ## Priority ordering (this document's own read, not gospel)
 
 Ranked by two things: (1) how many *other* open items each one unblocks

@@ -742,6 +742,63 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.214)
+
+Explicit user request: "push this to roadmap, proper sequence of
+building components so nothing is blocked by anything else and each
+step ships a complete usable code... reordering of the previous one."
+**Docs-only, no code changed.** New `docs/ROADMAP-2026-07-REMAINING.md`
+section, "Adaptive Runtime & HCA — dependency-ordered build sequence"
+— reorders every currently-open Part B (Adaptive Runtime) item, every
+Tier 6 model HCA's Stage G/H depend on, and all of Tier 7's HCA stages
+into 8 numbered phases so nothing is blocked by something sequenced
+after it, and each phase ships a complete, independently-verifiable
+piece rather than more half-wired substrate. Existing Tier 5/6/7
+checklists stay the categorical reference (what each item is); this
+section only fixes the order.
+
+Sequence, in one line each: **Phase 0** closes four already-flagged
+Part B gaps with zero new design (wire `select_strategy`'s three dead
+hint fields; make `TunableRegistry`'s three inert pacing constants
+real; `B5.3`'s full runtime-diagnostics aggregate; `B14.3`'s batch
+sizing) — confirmed via direct grep that `worker_count_hint`/
+`cache_size_hint`/`dormancy_aggressiveness` really are computed every
+refresh and consumed nowhere but diagnostics. **Phase 1** = HCA Stage G
+(`G1`→`G2`→`G4`→`G3`, learning specialists wired to Tier 6's already-
+shipped `L5`/`L6` substrate) — `G2` (wiring `B8.1`/`L3.2`'s trained
+`WorkloadForecaster` to a real retrain cadence) closes three
+separately-flagged gaps in one item, since Part B's B8.1-B8.3, Tier
+6's L3.2, and HCA's own G2 test all name the identical unwired model.
+**Phase 2** = Stage A (`A1`→`A2`→`A3`, surprise-gated specialists).
+**Phase 3** = Stage B (`B1`→`B2`→`B3`→`B4`→`B5`→`B6`→`B7`, coalition
+bidding/arbitration) — `B5`'s seven-factor score needs `A1`'s surprise
+signal (a necessary dependency the HCA doc implies but doesn't state
+outright, honored anyway), `B7` needs Stage G per the doc's own
+explicit text. **Phase 4** = Stage H (`H1`→`H2`→`H3`→`H4`, the
+Adaptive Runtime and Player Model as real `WORLD`/`MACHINE`/`OBSERVER`
+cognitive domains) — the literal answer to "the runtime is supposed to
+be conscious," explicitly gated by the HCA doc on Stage B + Stage G,
+both done by this point. **Phase 5** = Stage C (`C1`→`C2`→`C3`,
+impasse-gated deliberation + chunking) — needs Phase 3's real
+arbitrated workspace to detect an impasse within. **Phase 6** = Stage D
+(`D1`→`D2`, ACT-R memory activation) — no hard dependency, flagged as
+independently movable earlier if a parallel pass is available.
+**Phase 7** = Stage E (`E1`-`E6`, the Cognitive Observatory) —
+deliberately NOT batched to the end: each panel ships the moment its
+own backing phase lands (`E5` right after Phase 1, `E2` right after
+Phase 3, `E6` right after Phase 4, etc.). Plus two parallel/optional
+tracks with no dependency on the numbered phases (Tier 6 `L1.1` →
+`L2.3` → HCA `F1`, semantic embedding/pointers; the remaining
+independent Part B cleanup — `B3.3`/`B4.2`'s last candidate/`B9.3`/
+`B11`/`B12`'s remaining cascade stages/`B13.5`'s cadence wiring, with
+`B10.2` confirmed exhausted and `B15.5` blocked on a HearthBench runner
+that doesn't exist yet) and a third fully-independent Tier 6 list
+(`L2.1`/`L2.2`/`L4.1`, no coupling to HCA at all).
+
+Same standing convention as every vision-doc filing: nothing above is
+implemented by this filing — it only fixes the order. Work from Phase 0
+onward only on future explicit direction naming a phase.
+
 ## Current state (v1.34.213)
 
 Explicit user instruction: "Do both and keep building adaptive runtime
