@@ -100,6 +100,7 @@ from hearthmind.world import culture_aggregate
 from hearthmind.cognition import attention
 from hearthmind.cognition.pillar import make_message
 from hearthmind.cognition.surprise import SurpriseSpecialist
+from hearthmind.cognition.workspace import Bid, GlobalWorkspace
 from hearthmind.world.disasters import FLOOD_PRESSURE_THRESHOLD, GOVERNOR_TUNING_BAND, HEATWAVE_PRESSURE_THRESHOLD, WILDFIRE_CHANCE_PER_WEEK
 from hearthmind.world.terrain_evolution import REFOREST_MIN_FALLOW_WEEKS
 from hearthmind.world.wildlife import (
@@ -2691,6 +2692,30 @@ class SimulationEngine:
         standing gap this audit found: `llm_stats.latency_ms_p50/p95`
         was already aggregate-only, with no way to tell whether a slow
         p95 traces to one verbose job type or all of them evenly."""
+        self._naming_workspace = GlobalWorkspace()
+        """Phase 3.5 W1 (docs/ROADMAP-2026-07-REMAINING.md, explicit
+        user instruction "Start phase 3.5 W1"): the real production
+        pilot for wiring Stage B's `GlobalWorkspace` into a live LLM
+        call site, same "small, self-contained, no cross-job coupling
+        to get wrong" selection criterion B0.3's own first migration
+        (`_maybe_schedule_naming` itself) already used. `_maybe_
+        schedule_naming` below now `submit()`s a real `Bid` per
+        eligible settlement and calls `arbitrate()` immediately after
+        (one settlement fully processed -- submit, arbitrate, resolve
+        if it won -- before the next), rather than scheduling the LLM
+        call unconditionally. Deliberately its OWN dedicated workspace,
+        not a shared one: nothing else in this codebase submits to it,
+        so every real cycle is a genuine "coalition of one" (`Bid.
+        score` is a fixed neutral `1.0` -- there is no second bidder
+        for this workspace to weigh it against, so `arbitrate()`'s own
+        `max()` always returns that sole bid) -- a real B1 arbitration
+        cycle runs, but the OUTCOME is provably identical to the old
+        unconditional-call behavior every time, which is exactly what
+        makes this pilot verifiable via a real `scripts/verify_replay_
+        hash.py` byte-identical proof rather than merely "didn't
+        crash." `arbitrate()` itself never invokes a winning bid's own
+        `resolver` (B1's own documented contract) -- `_maybe_schedule_
+        naming` calls it explicitly once `arbitrate()` returns."""
         self._naming_scheduled_ids: set[int] = set()
         """Settlement ids whose one-time background naming job has been
         scheduled (multi-settlement pass: was a single bool). The
@@ -4733,7 +4758,15 @@ class SimulationEngine:
         proposes a better, context-aware name — informed by the
         founding scenario and terrain, not a bare random draw — which
         replaces the placeholder when it resolves. See
-        docs/DECISIONS.md, "naming mechanism follow-up.\""""
+        docs/DECISIONS.md, "naming mechanism follow-up."
+
+        Phase 3.5 W1: the real scheduling decision for each eligible
+        settlement now flows through `self._naming_workspace` — a
+        `Bid` naming this settlement's id is `submit()`ted, `arbitrate
+        ()` is called immediately (this workspace has no other
+        bidder), and the LLM job itself only fires via the winning
+        bid's own `resolver`. See `self._naming_workspace`'s own
+        docstring for why this is provably behavior-preserving."""
         if not self.world.newly_named_settlement_ids:
             return
         if not self._cognition_runner.enabled:
@@ -4773,10 +4806,28 @@ class SimulationEngine:
                         ("village",),
                     )
 
-            self._schedule_llm_job(
-                "naming", prompt, naming.SYSTEM_PROMPT, fallback, apply,
-                structured_input={"founding_scenario": settlement.founding_scenario, "top_biome": top_biome, "era": settlement.era},
-            )
+            def resolver(
+                p: str = prompt, fb: dict = fallback, ap=apply,
+                fs: str = settlement.founding_scenario, tb: str = top_biome, er: str = settlement.era,
+            ) -> None:
+                self._schedule_llm_job(
+                    "naming", p, naming.SYSTEM_PROMPT, fb, ap,
+                    structured_input={"founding_scenario": fs, "top_biome": tb, "era": er},
+                )
+
+            # Phase 3.5 W1: submit + arbitrate immediately, one
+            # settlement at a time — this workspace's own sole bidder
+            # always wins (see self._naming_workspace's docstring), so
+            # `winner` is never None here; the explicit check still
+            # guards the real B1 contract (arbitrate() can return None
+            # on a genuinely empty cycle) rather than assuming it.
+            self._naming_workspace.submit(Bid(
+                specialist_id="naming", subject=f"naming:{settlement_id}",
+                score=1.0, resolver=resolver, reason="a settlement's first building has stood",
+            ))
+            winner = self._naming_workspace.arbitrate()
+            if winner is not None:
+                winner.resolver()
 
     async def run_forever(self) -> None:
         logger.info(

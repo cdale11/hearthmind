@@ -4,6 +4,77 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.230] — Phase 3.5 W1 (real production wiring pilot) + HCA Stage H's H1 (cognitive domains)
+
+Explicit user instruction: "Start phase 3.5 W1 and a parallel task of
+your choice with biggest impact." Two independent pieces, one batch.
+
+**W1.** The real production pilot for wiring Stage B's `GlobalWorkspace`
+into a live LLM call site — closing the gap every prior Phase 3 filing
+named honestly ("no LLM call site is a bid"). `SimulationEngine._maybe_
+schedule_naming` now `submit()`s a real `Bid` to a dedicated `self.
+_naming_workspace` per eligible settlement and calls `arbitrate()`
+immediately after, invoking the winning bid's own `resolver` (the real
+`_schedule_llm_job` call) only when `arbitrate()` returns a winner —
+same "small, self-contained, no cross-job coupling" selection B0.3's
+own first migration (`_maybe_schedule_naming` itself) already used.
+Provably behavior-preserving by construction: this workspace has no
+other bidder, so every real cycle is a genuine "coalition of one"
+(`Bid.score=1.0`, `arbitrate()`'s own `max()` always returns the sole
+bid).
+
+Verified via `scripts/verify_replay_hash.py` (LLM-disabled — the code
+path is correctly unreached, since the early-out `if not self._
+cognition_runner.enabled: return` still gates the whole workspace
+call, confirmed byte-identical) and new `scripts/verify_phase35_w1_
+naming_workspace.py` (11 checks, a minimal fake `LLMAdapter` standing
+in for a live server — a real arbitration cycle genuinely runs and
+logs a `CompetitionRecord`, the winning bid's `resolver` is what
+actually fires the LLM job (not a bypass), the end-to-end outcome
+matches the pre-W1 unconditional-call behavior exactly, and two
+settlements eligible in the SAME call each get their own independent
+arbitration cycle rather than one suppressing the other) — all pass,
+first run, no bug found.
+
+**Parallel task: HCA Stage H's H1**, chosen as the highest-impact
+available slice — the first item this session's own Stage B (v1.34.229)
++ Stage G (v1.34.219) closures genuinely unblock. Cognitive domains as
+a real, mechanically-enforced type. New `hearthmind.cognition.
+workspace.Domain` (`WORLD`/`MACHINE`/`OBSERVER`) + `Bid.domain`
+(defaults to `WORLD`, reproducing every prior/existing bid's behavior
+with zero call-site changes — W1's own naming pilot needed no edits).
+`scripts/verify_runtime_invariant.py` gained `check_domain_write_
+scope()`: a module declaring itself MACHINE/OBSERVER-domain via a
+`SPECIALIST_DOMAIN = Domain.<X>` module-level marker may never import
+from `hearthmind.world`/`.agents`/`.settlement`/`.economy` — the same
+"zero import, not just zero write" scope-isolation discipline `verify_
+hearthbench_isolation.py` already established for a structurally
+identical problem, scanned over the WHOLE `hearthmind/` tree (a
+MACHINE/OBSERVER module is expected to live outside `GOVERNED_DIRS`).
+
+New `scripts/verify_h1_cognitive_domains.py` (10 checks — the real
+tree is clean today, since no MACHINE/OBSERVER-domain module exists in
+production yet (`H2`/`H4`'s later job); a synthetic MACHINE-domain
+file importing real world state IS caught; a synthetic OBSERVER-domain
+file importing real agent state IS caught; the identical import under
+a WORLD-domain marker, or no marker at all, is correctly NOT flagged;
+a real arbitration cycle preserves a bid's own domain unchanged) — all
+pass, first run, no bug found. Marked "partial" in the roadmap:
+per-domain BUDGETS (H1's other named half) aren't built yet — no real
+MACHINE/OBSERVER specialist exists to need one; real future work once
+`H2`/`H4` give the write-scope enforcement something to actually
+govern.
+
+Verified: both new scripts; `verify_b1_global_workspace.py`/`verify_
+b2_starvation_gain.py`/`verify_b3_pillar_bus.py`/`verify_b4_coalition_
+formation.py`/`verify_b5_evidence_scoring.py`/`verify_b6_arbitration_
+determinism.py`/`verify_b7_learned_bidding.py` re-run clean; `pyflakes`
+clean on all touched/new files (only the six known pre-existing
+forward-ref findings in `engine.py`); `scripts/verify_replay_hash.py`
+(800 ticks, seed 777, `--in-process`) — MATCH, byte-identical;
+`scripts/verify_native_soak.py` (seeds 1/55, 800 ticks) — MATCH (both
+required this pass since `simulation/engine.py` itself changed).
+
 ## [1.34.229] — HCA Stage B closes in full (B7), plus a roadmap-status audit
 
 Explicit user instruction: "Start B7 and a parallel task." Two

@@ -2101,12 +2101,33 @@ cannot state one does not ship.
   — Phase 3.5 (`W1`-`W3`, the real production wiring) and `H1` (needs
   Stage B + Stage G, both now closed) are both genuinely unblocked;
   resume either only on future explicit direction.
-- [ ] **W1**-**W3** *(added 2026-08-04, explicit user instruction —
-  "Phase 3.5" in the phase-sequence section above)* — the real
-  production wiring of Stage B's workspace, gated on `B7` (Stage B
-  closing in full): pilot one real call site, sweep the rest in
-  batches (~78 `_append_emergence`-adjacent + ~29 `_send_pillar_
-  message` arrows), settlement-scoped `GlobalWorkspace` granularity for
+- [x] **W1 — SHIPPED, v1.34.230.** *(added 2026-08-04, explicit user
+  instruction — "Start phase 3.5 W1")* — the real production pilot.
+  `SimulationEngine._maybe_schedule_naming` now `submit()`s a real
+  `Bid` to a dedicated `self._naming_workspace` per eligible
+  settlement and calls `arbitrate()` immediately after, invoking the
+  winning bid's own `resolver` (the real `_schedule_llm_job` call)
+  only when `arbitrate()` returns a winner — same "small, self-
+  contained, no cross-job coupling" selection B0.3's own first
+  migration (`_maybe_schedule_naming` itself) already used. Provably
+  behavior-preserving by construction: this workspace has no other
+  bidder, so every real cycle is a genuine "coalition of one" (`Bid.
+  score=1.0`, `arbitrate()`'s own `max()` always returns the sole
+  bid) — confirmed via `scripts/verify_replay_hash.py` (LLM-disabled,
+  the code path is correctly unreached — the early-out `if not self.
+  _cognition_runner.enabled: return` still gates the whole workspace
+  call, byte-identical) and `scripts/verify_phase35_w1_naming_
+  workspace.py` (11 checks, a minimal fake `LLMAdapter` standing in
+  for a live server — a real arbitration cycle genuinely runs and
+  logs, the winning bid's resolver is what actually fires the LLM
+  job, the end-to-end outcome matches the pre-W1 behavior, and two
+  settlements eligible in the SAME call each get their own
+  independent cycle rather than suppressing one another) — all pass,
+  first run.
+- [ ] **W2**-**W3** — the real sweep, gated on `W1`'s pattern being
+  proven safe (it is): convert the remaining call sites in batches
+  (~78 `_append_emergence`-adjacent + ~29 `_send_pillar_message`
+  arrows), settlement-scoped `GlobalWorkspace` granularity for
   per-agent traffic. *Test:* B1's own originally-stated test, finally
   attempted for real — "pillar-level call share rises from 1.4% to
   > 15% without raising total calls." See the phase-sequence section
@@ -2177,14 +2198,32 @@ cannot state one does not ship.
   advance bound of 15 cycles (recovered at real cycle 14) — see
   `scripts/verify_ml_g3_regime_change.py` (8 checks). **This closes
   Tier 7 HCA Stage G in full** (`G1`→`G2`→`G4`→`G3`).
-- [ ] **H1** *(§3.2, added 2026-08-02; depends on Stage B for the
-  workspace and Stage G for `learn()`)* — cognitive domains as a real,
-  mechanically-enforced type: `WORLD`/`MACHINE`/`OBSERVER` on every
-  specialist, coalition and broadcast, with per-domain budgets. *Test:*
-  an AST check (extending `scripts/verify_runtime_invariant.py`) proves
-  no MACHINE- or OBSERVER-domain code path writes `world/`/`agents/`/
-  `settlement/`/`economy/` state, and genuinely catches a synthetic
-  violation rather than merely passing on clean code.
+- [x] **H1 — SHIPPED, v1.34.230 (partial).** *(§3.2, added 2026-08-02;
+  depended on Stage B + Stage G, both now closed)* — cognitive domains
+  as a real, mechanically-enforced type. New `hearthmind.cognition.
+  workspace.Domain` (`WORLD`/`MACHINE`/`OBSERVER`) + `Bid.domain`
+  (defaults to `WORLD`, reproducing every prior bid's real behavior
+  with zero call-site changes). `scripts/verify_runtime_invariant.py`
+  gained `check_domain_write_scope()`: a module declaring itself
+  MACHINE/OBSERVER-domain via a `SPECIALIST_DOMAIN = Domain.<X>`
+  module-level marker may never import from `hearthmind.world`/
+  `.agents`/`.settlement`/`.economy` — the same "zero import" scope-
+  isolation discipline `verify_hearthbench_isolation.py` already
+  established for a structurally identical problem, scanned over the
+  WHOLE `hearthmind/` tree (not just `GOVERNED_DIRS`, since a MACHINE/
+  OBSERVER module is expected to live outside those directories).
+  *Test (passed):* `scripts/verify_h1_cognitive_domains.py` (10
+  checks) — the real tree is clean today (no MACHINE/OBSERVER module
+  exists in production yet, that's `H2`/`H4`'s later job); a synthetic
+  MACHINE-domain file importing real world state IS caught; a
+  synthetic OBSERVER-domain file importing real agent state IS
+  caught; the identical import under a WORLD-domain marker (or no
+  marker at all) is correctly NOT flagged; a real arbitration cycle
+  preserves a bid's own domain unchanged — all pass, first run. Marked
+  "partial": per-domain BUDGETS (the item's other named half) are not
+  yet built — no real MACHINE/OBSERVER specialist exists to need one;
+  flagged as real future work once `H2`/`H4` give the write-scope
+  enforcement a real specialist to actually govern.
 - [ ] **H2** — the Adaptive Runtime as a first-class specialist family:
   B8's forecaster as `predict()`/`error()`, B5's metrics as
   `observe()`, B15's escalation ladder converted from a unilateral

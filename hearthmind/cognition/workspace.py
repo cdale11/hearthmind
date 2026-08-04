@@ -170,7 +170,33 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Callable
+
+
+class Domain(Enum):
+    """Tier 7 HCA Stage H, H1 (§3.2, explicit user instruction: "Start
+    phase 3.5 W1 and a parallel task of your choice with biggest
+    impact" -- H1 is the first item Stage B + Stage G both closing
+    genuinely unblocks): the three cognitive domains named in CLAUDE.md's
+    own HCA amendment -- `WORLD` (the simulated world, read/write),
+    `MACHINE` (computation/scheduling, may write ONLY tunables -- see
+    `simulation/tuning.py`'s `TunableRegistry`, never `world/`/`agents/`/
+    `settlement/`/`economy/` state), `OBSERVER` (the player, read-only).
+    Every `Bid` below carries one -- defaulting to `WORLD`, since every
+    real bid this codebase has ever submitted (Phase 3.5 W1's naming
+    pilot included) is genuinely WORLD-domain, and no MACHINE/OBSERVER
+    specialist exists yet to need a different default. `scripts/verify_
+    runtime_invariant.py`'s new `check_domain_write_scope()` is the real
+    mechanical enforcement of "MACHINE/OBSERVER may never write world
+    state" -- see that function's own docstring for the actual
+    mechanism (a module-level marker + an import-scope AST scan, same
+    technique `scripts/verify_hearthbench_isolation.py` already
+    established for a structurally identical problem: proving one part
+    of this codebase never reaches into another)."""
+    WORLD = "world"
+    MACHINE = "machine"
+    OBSERVER = "observer"
 
 
 @dataclass(frozen=True)
@@ -196,13 +222,17 @@ class Bid:
     observation (e.g. two wrappers both reading `population_density`)
     -- B4's own "two views of one underlying reading are one bidder,
     not two" only has something real to dedupe against once a caller
-    actually says so."""
+    actually says so. `domain` (H1) names which of the three cognitive
+    domains this bid belongs to -- see `Domain`'s own docstring;
+    defaults to `WORLD`, reproducing every prior bid's real behavior
+    with zero call-site changes needed."""
     specialist_id: str
     subject: str
     score: float
     resolver: Callable[[], Any] | None = None
     reason: str = ""
     evidence_source: str | None = None
+    domain: Domain = Domain.WORLD
 
 
 @dataclass

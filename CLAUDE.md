@@ -742,6 +742,62 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.230)
+
+Explicit user instruction: "Start phase 3.5 W1 and a parallel task of
+your choice with biggest impact" — two independent pieces, one batch.
+
+**W1.** The real production wiring pilot, closing the gap every prior
+Phase 3 filing named honestly ("no LLM call site is a bid").
+`SimulationEngine._maybe_schedule_naming` now `submit()`s a real `Bid`
+to a dedicated `self._naming_workspace` per eligible settlement and
+calls `arbitrate()` immediately after, invoking the winning bid's own
+`resolver` (the real `_schedule_llm_job` call) only when `arbitrate()`
+returns a winner. Provably behavior-preserving by construction: this
+workspace has no other bidder, so every real cycle is a genuine
+"coalition of one" — `arbitrate()`'s own `max()` always returns the
+sole bid.
+
+Verified via `scripts/verify_replay_hash.py` (LLM-disabled — the new
+code path is correctly unreached, confirmed byte-identical) and new
+`scripts/verify_phase35_w1_naming_workspace.py` (11 checks, a minimal
+fake `LLMAdapter` standing in for a live server — a real arbitration
+cycle genuinely runs and logs, the winning bid's own resolver is what
+fires the LLM job, the end-to-end outcome matches pre-W1 behavior
+exactly, two settlements eligible in the same call each get their own
+independent cycle) — all pass, first run.
+
+**Parallel task: HCA Stage H's H1**, chosen as the highest-impact
+available slice — the first item this session's own Stage B (v1.34.229)
++ Stage G closures genuinely unblock. Cognitive domains as a real,
+mechanically-enforced type: new `hearthmind.cognition.workspace.Domain`
+(`WORLD`/`MACHINE`/`OBSERVER`) + `Bid.domain` (defaults to `WORLD`,
+zero call-site changes needed anywhere). `scripts/verify_runtime_
+invariant.py` gained `check_domain_write_scope()`: a module declaring
+itself MACHINE/OBSERVER-domain via a `SPECIALIST_DOMAIN = Domain.<X>`
+marker may never import from `hearthmind.world`/`.agents`/`.settlement`/
+`.economy` — the same "zero import" scope-isolation discipline `verify_
+hearthbench_isolation.py` already established, scanned over the whole
+`hearthmind/` tree.
+
+New `scripts/verify_h1_cognitive_domains.py` (10 checks — the real
+tree is clean today; a synthetic MACHINE-domain file importing real
+world state IS caught; a synthetic OBSERVER-domain file importing real
+agent state IS caught; the identical import under WORLD or no marker
+is correctly NOT flagged; a real arbitration cycle preserves a bid's
+domain unchanged) — all pass, first run. Marked "partial" — per-domain
+budgets aren't built yet, since no real MACHINE/OBSERVER specialist
+exists to need one (`H2`/`H4`'s later job).
+
+Verified: both new scripts; `verify_b1_global_workspace.py` through
+`verify_b7_learned_bidding.py` re-run clean; `pyflakes` clean; `scripts/
+verify_replay_hash.py` (800 ticks, seed 777) — MATCH; `scripts/verify_
+native_soak.py` (seeds 1/55, 800 ticks) — MATCH (both required this
+pass since `simulation/engine.py` itself changed). `W2`-`W3` (the real
+call-site sweep) and `H2`-`H4` (real MACHINE/OBSERVER specialists) are
+the next open items in their respective tracks — resume only on future
+explicit direction.
+
 ## Current state (v1.34.229)
 
 Explicit user instruction: "Start B7 and a parallel task" — two
