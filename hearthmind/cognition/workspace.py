@@ -1,10 +1,10 @@
-"""Tier 7 HCA Stage B, B1+B2+B3+B4 (docs/COGNITIVE-ARCHITECTURE-2026-
-08-02.md §3, Layer 3 "The Global Workspace"): the base coalition-
-bidding/arbitration engine everything else in Stage B (B5's evidence-
-based scoring, B6's determinism guarantee, B7's learned bidding)
-attaches to. Per the roadmap's own Phase 3 sequencing: "the base
-workspace/arbitration engine must exist (B1) before its later
-refinements can attach to anything."
+"""Tier 7 HCA Stage B, B1+B2+B3+B4+B5 (docs/COGNITIVE-ARCHITECTURE-
+2026-08-02.md §3, Layer 3 "The Global Workspace"): the base coalition-
+bidding/arbitration engine everything else in Stage B (B6's
+determinism guarantee, B7's learned bidding) attaches to. Per the
+roadmap's own Phase 3 sequencing: "the base workspace/arbitration
+engine must exist (B1) before its later refinements can attach to
+anything."
 
 **B4, the roadmap's own framing:** "coalition formation: bids naming
 the same subject/region/entity merge, superadditively but sublinearly,
@@ -93,7 +93,7 @@ scheduler for cognition" the Adaptive Runtime was always meant to have
 the Mind layer, the same way it already is for the deterministic Body.
 
 **Deliberately NOT wired into any real production LLM call site this
-pass.** B1's/B2's/B3's/B4's own "every LLM call site converted to a bid" is real,
+pass.** B1's/B2's/B3's/B4's/B5's own "every LLM call site converted to a bid" is real,
 large, separate migration work -- this codebase's own A2 finding
 counted ~78 real `_append_emergence`-adjacent call sites, and a
 comparable number of independent `_schedule_llm_job` sites elsewhere,
@@ -108,9 +108,33 @@ stated test ("pillar-level call share rises from 1.4% to > 15% without
 raising total calls"), is real, scoped future work once this primitive
 exists for that migration to land on. Same "ship the interface, wire
 the first real consumer next" discipline every prior Stage A/G item in
-this codebase has used."""
+this codebase has used.
+
+**B5, the roadmap's own framing:** "evidence-based scoring: the
+seven-factor bid record (surprise, consequence, confidence,
+uncertainty, urgency, staleness, historical usefulness, each with
+provenance); historical usefulness as a multiplicative gain, not an
+addend; uncertainty as a `+beta*sqrt(uncertainty)` exploration bonus;
+staleness as an unbounded multiplier." `BidFactors`/`compute_evidence_
+score`/`evidence_bid` below implement six of the seven named factors
+as a real, auditable formula -- staleness, the seventh, is
+deliberately NOT reproduced here: `GlobalWorkspace` already tracks and
+applies it (B2), keyed by subject, at comparison time; a second
+staleness field on `BidFactors` would just be redundant state a caller
+could get out of sync with the workspace's own real tracking, not a
+second real signal. `historical_usefulness` (multiplicative gain,
+default `1.0` = neutral) is a real field a caller supplies -- LEARNING
+what value it should hold from realised outcomes is explicitly B7's
+job (needs Stage G's `learn()`, per the doc's own dependency), not
+this module's; B5 only ships the formula that CONSUMES the value once
+something learns it. `provenance` is a real field on `BidFactors` too
+(a short human-readable reason per factor) -- the Observatory's own
+future "why did this win" panel (E1/E2) reads it directly, so leaving
+it empty is a real authoring gap for a caller, not merely optional
+metadata."""
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -424,3 +448,95 @@ def form_coalitions(bids: list[Bid]) -> list[Coalition]:
             merged_score=merged_coalition_score(members_t),
         ))
     return coalitions
+
+
+EVIDENCE_UNCERTAINTY_BETA = 0.3
+"""B5's own UCB-style exploration weight (Auer et al. 2002, the same
+citation CLAUDE.md's own HCA section names) -- how much a `+beta*sqrt
+(uncertainty)` bonus can add on top of a factor combination that's
+already bounded to [0, 1]. 0.3 is a reasoned starting point (same "no
+live archive to tune against yet" honesty every fresh constant in this
+codebase carries): large enough that a genuinely maximal-uncertainty
+reading (`uncertainty=1.0`, bonus `+0.3`) can meaningfully outweigh a
+real but modest edge in the base factors, small enough that
+uncertainty alone can never manufacture a win over a coalition with a
+clearly stronger, well-understood reading (base factors near 1.0) --
+re-tune from a real future soak the same way every other reasoned-not-
+measured constant here already is."""
+
+
+@dataclass(frozen=True)
+class BidFactors:
+    """B5's own six real, distinct scalars feeding one evidence score
+    (the seventh, staleness, is `GlobalWorkspace`'s own tracked state,
+    not reproduced here -- see the module docstring). `surprise`/
+    `consequence`/`confidence`/`urgency` are each expected in [0, 1]
+    and clamped defensively if not (a caller's own bug should never
+    crash arbitration); `uncertainty` is likewise [0, 1] (0 = fully
+    known, 1 = maximally uncertain); `historical_usefulness` is a
+    positive multiplicative GAIN, not a [0, 1] score -- `1.0` is
+    neutral, `>1.0` amplifies a proven-reliable source, `<1.0`
+    attenuates a chronically-unreliable one, clamped at `0.0` (a gain
+    can never go negative and flip a bid's own sign). `provenance` is
+    a real per-factor audit trail -- one short string per factor name
+    naming WHY it holds this value, not decorative metadata."""
+    surprise: float
+    consequence: float
+    confidence: float
+    urgency: float
+    uncertainty: float = 0.0
+    historical_usefulness: float = 1.0
+    provenance: dict = field(default_factory=dict)
+
+
+def _clamp01(value: float) -> float:
+    return max(0.0, min(1.0, value))
+
+
+def compute_evidence_score(factors: BidFactors, beta: float = EVIDENCE_UNCERTAINTY_BETA) -> float:
+    """B5's own real formula, matching the roadmap's own three stated
+    design rules exactly: (1) the four base factors combine as a plain
+    mean (each already meant to read on the same [0, 1] scale, so
+    averaging keeps the combined base on that same scale rather than
+    letting factor COUNT alone inflate a score); (2) `historical_
+    usefulness` is applied as a multiplicative GAIN on that base, never
+    an added constant -- a proven-reliable source's own factors get
+    amplified, a chronically-unreliable source's get attenuated, but
+    neither can single-handedly manufacture a win the base factors
+    didn't earn; (3) the `uncertainty` exploration bonus is ADDED on
+    top, after the gain, per the doc's own literal `+beta*sqrt
+    (uncertainty)` formula -- deliberately square-rooted (not linear),
+    so the exploration bonus grows fast for a truly novel reading (low
+    uncertainty -> some uncertainty) and saturates for an already-very-
+    uncertain one, the same diminishing-returns shape `merged_
+    coalition_score`'s own noise-OR combination (B4) already uses
+    elsewhere in this module. Staleness is deliberately NOT applied
+    here -- `GlobalWorkspace.arbitrate()` already multiplies whatever
+    raw score this function returns by its own tracked staleness gain
+    (B2) at comparison time; applying it twice would double-count the
+    same signal."""
+    base = (
+        _clamp01(factors.surprise)
+        + _clamp01(factors.consequence)
+        + _clamp01(factors.confidence)
+        + _clamp01(factors.urgency)
+    ) / 4.0
+    gained = base * max(0.0, factors.historical_usefulness)
+    exploration_bonus = beta * math.sqrt(_clamp01(factors.uncertainty))
+    return gained + exploration_bonus
+
+
+def evidence_bid(
+    specialist_id: str, subject: str, factors: BidFactors,
+    resolver: Callable[[], Any] | None = None, reason: str = "",
+    evidence_source: str | None = None, beta: float = EVIDENCE_UNCERTAINTY_BETA,
+) -> Bid:
+    """The one real construction path B5 adds: build a `Bid` whose
+    `score` is `compute_evidence_score(factors, beta)` rather than a
+    caller hand-picking a raw number -- every other `Bid` field (used
+    by B1's arbitration, B2's staleness, B3's broadcast, B4's coalition
+    merge) is untouched and passed straight through."""
+    return Bid(
+        specialist_id=specialist_id, subject=subject, score=compute_evidence_score(factors, beta),
+        resolver=resolver, reason=reason, evidence_source=evidence_source,
+    )

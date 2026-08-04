@@ -2029,14 +2029,25 @@ cannot state one does not ship.
   bids (merged 0.651) still lose to one genuine crisis (0.95) reading
   — both thresholds computed by hand before writing the assertion —
   see `scripts/verify_b4_coalition_formation.py` (16 checks).
-- [ ] **B5** *(§3.3 steps 2-3)* — evidence-based scoring: the
-  seven-factor bid record (surprise, consequence, confidence,
-  uncertainty, urgency, staleness, historical usefulness, each with
-  provenance); historical usefulness as a multiplicative *gain*;
-  uncertainty as a `+β·√(uncertainty)` exploration bonus; staleness as
-  an unbounded multiplier. *Test:* with expected value held equal, the
-  higher-uncertainty coalition wins — the direct proof that exploration
-  is real and is not randomness.
+- [x] **B5 — SHIPPED, v1.34.227.** *(§3.3 steps 2-3)* — evidence-based
+  scoring. New `BidFactors`/`compute_evidence_score`/`evidence_bid`
+  (`hearthmind/cognition/workspace.py`): six of the seven named
+  factors (surprise, consequence, confidence, urgency, uncertainty,
+  historical usefulness) as a real formula — the four base factors
+  average to `[0, 1]`, `historical_usefulness` applies as a
+  multiplicative *gain* (never an addend — halving it exactly halves
+  the gained score), the `uncertainty` exploration bonus adds
+  `+β·√(uncertainty)` on top. Staleness, the seventh factor, is
+  deliberately NOT reproduced here — `GlobalWorkspace` already tracks
+  and applies it (B2) at comparison time; a second field would just be
+  redundant state a caller could desync. `provenance` is a real
+  per-factor audit field for the future Observatory "why did this win"
+  panel (E1/E2). *Test (passed):* with expected value (the base
+  factors) held exactly equal, the higher-uncertainty coalition scores
+  higher — see `scripts/verify_b5_evidence_scoring.py` (13 checks,
+  including exact-formula-match-by-hand, both-directions reliability-
+  gain proof, out-of-range clamping, and a real end-to-end integration
+  through the unmodified `GlobalWorkspace`).
 - [ ] **B6** *(§3.3 step 4)* — arbitration determinism and the
   starvation bound. *Test:* identical evidence produces an identical
   winner across two independent process runs (the `verify_replay_
@@ -2052,6 +2063,16 @@ cannot state one does not ship.
   unreliable specialist and a reliable one, given identical raw bids,
   invert in rank order over a run; and a never-winning specialist's
   staleness gain is verified NOT to have been learned downward.
+- [ ] **W1**-**W3** *(added 2026-08-04, explicit user instruction —
+  "Phase 3.5" in the phase-sequence section above)* — the real
+  production wiring of Stage B's workspace, gated on `B7` (Stage B
+  closing in full): pilot one real call site, sweep the rest in
+  batches (~78 `_append_emergence`-adjacent + ~29 `_send_pillar_
+  message` arrows), settlement-scoped `GlobalWorkspace` granularity for
+  per-agent traffic. *Test:* B1's own originally-stated test, finally
+  attempted for real — "pillar-level call share rises from 1.4% to
+  > 15% without raising total calls." See the phase-sequence section
+  above for full detail.
 - [ ] **C1** — the four typed impasses as the deliberation trigger.
   *Test:* every LLM call in a soak carries a named impasse.
 - [ ] **C2** — chunking. *Test:* the 591st family extinction consumes
@@ -2651,6 +2672,56 @@ engine must exist (`B1`) before its later refinements (`B4`-`B7`, the
    arbitrated workspace — the actual "OS scheduler for cognition" the
    Adaptive Runtime was always meant to have, independently valuable as
    the backbone of everything gameplay-facing that follows.*
+
+**Phase 3.5 — Wire Stage B's workspace into production (added
+2026-08-04, explicit user instruction: "will all B items wire to
+production once we finish this phase? ... add it and update the
+roadmap accordingly").** Every prior Phase 3 filing has said the same
+honest thing: B1-B4 ship a real, standalone, verified arbitration
+primitive that NOTHING in the live simulation actually calls yet — "no
+LLM call site is a bid" was true the whole way through B1-B4 and
+remains true until this phase runs. Nothing anywhere in the roadmap
+previously scheduled the migration itself; it was only ever named as
+"real, separate future work" inside B1's own entry. This phase is that
+scheduling, gated on Stage B closing IN FULL (`B7`) rather than
+starting mid-stage — B5's real seven-factor score and B7's learned bid
+gains will both change how a bid's own score is computed; wiring real
+call sites against an interim scoring formula that's about to change
+twice would mean re-touching every migrated site multiple times,
+against this project's own "never migrate one at a time, but never
+big-bang either" discipline (the discipline is about batch SIZE per
+migration pass, not about migrating onto a moving target).
+
+1. `W1` — the pilot. Same shape as B0.3's own first real subsystem
+   migration (`_maybe_schedule_naming`, chosen specifically for being
+   small and self-contained with no cross-job coupling to get wrong):
+   pick ONE real, low-risk settlement-scoped `_schedule_llm_job` call
+   site, have it `submit()` a real `Bid` to a `PillarBus`/`GlobalWorkspace`
+   instead of scheduling unconditionally, and let the bus's own
+   `publish_cycle()` decide whether it actually runs this cycle. Verify
+   via `scripts/verify_replay_hash.py` that this is a genuine behavior-
+   preserving refactor (same discipline every B0.3 migration used), not
+   just "didn't crash."
+2. `W2` — the real sweep. Once `W1` proves the pattern is safe,
+   convert the remaining real call sites in batches (never one at a
+   time, never all ~78+~29 at once) — A2's own count of ~78 real
+   `_append_emergence`-adjacent sites, plus a comparable number of
+   independent `_schedule_llm_job` sites, plus B3's own ~29
+   `_send_pillar_message` arrows migrating onto real `PillarBus`
+   subscriptions instead of hand-wired pairs.
+3. `W3` — settlement-level vs. per-agent scoping. Per-agent cognition/
+   dialogue call sites (the largest single share of real LLM volume)
+   need their own bid granularity decided before migrating — one
+   `GlobalWorkspace` per settlement is the natural unit (per §3.1's own
+   nesting: "one serial channel per domain"), never one shared across
+   the whole world, so competing agents within a settlement genuinely
+   arbitrate against each other rather than against every settlement's
+   traffic at once.
+   *Test:* B1's own originally-stated test, finally attempted for
+   real — "pillar-level call share rises from 1.4% to > 15% without
+   raising total calls," measured against a real archive/soak once the
+   migration is live. This phase is what makes every "not wired into
+   production" note across A1-B7 stop being true.
 
 **Phase 4 — HCA Stage H: the Runtime (and Player Model) as cognitive
 domains (`H1`→`H2`→`H3`→`H4`).** This is the literal answer to "the

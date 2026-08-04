@@ -742,6 +742,61 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.227)
+
+Explicit user follow-up to a direct question ("Will all B items wire
+to the production once we finish this phase?"): the honest answer was
+no — nothing in the roadmap had ever scheduled the actual migration of
+real LLM call sites onto Stage B's workspace, only named it as "real,
+separate future work" inside B1's own entry. User instruction: "add it
+and update the roadmap accordingly and start B5." Two independent
+pieces, one batch.
+
+**Roadmap addition (docs-only).** New "Phase 3.5 — Wire Stage B's
+workspace into production" (`docs/ROADMAP-2026-07-REMAINING.md`),
+sequenced right after Stage B closes in full (`B7`) rather than
+starting mid-stage — B5's real scoring and B7's learned bid gains both
+change how a bid's score is computed, so wiring real call sites
+against an interim formula about to change twice would mean re-
+touching every migrated site multiple times. Three real steps: `W1`
+(a single low-risk pilot call site, same shape as B0.3's own first
+real subsystem migration), `W2` (the real sweep of ~78 `_append_
+emergence`-adjacent + ~29 `_send_pillar_message` sites, in batches),
+`W3` (settlement-scoped `GlobalWorkspace` granularity for per-agent
+traffic). Its test is B1's own originally-stated one, finally
+scheduled for real: "pillar-level call share rises from 1.4% to
+> 15% without raising total calls."
+
+**B5.** New `BidFactors`/`compute_evidence_score`/`evidence_bid`
+(`hearthmind/cognition/workspace.py`): six of the roadmap's own seven
+named factors (surprise, consequence, confidence, urgency,
+uncertainty, historical usefulness) as a real formula — the four base
+factors average to `[0, 1]`, `historical_usefulness` applies as a
+genuine multiplicative gain (halving it exactly halves the gained
+score, never an addend), the `uncertainty` exploration bonus adds
+`+beta*sqrt(uncertainty)` on top (UCB-style). Staleness, the seventh
+factor, is deliberately not reproduced — `GlobalWorkspace` already
+tracks and applies it (B2) at comparison time. `provenance` is a real
+per-factor audit field for the future Observatory "why did this win"
+panel (E1/E2).
+
+New `scripts/verify_b5_evidence_scoring.py` (13 checks — with expected
+value held exactly equal, the higher-uncertainty coalition scores
+higher, the direct proof exploration is real and not randomness; exact
+formula match by hand; the multiplicative-gain proof both directions;
+out-of-range clamping incl. a negative gain never flipping a bid's
+sign; provenance preservation; a real end-to-end integration through
+the unmodified `GlobalWorkspace`) — all pass, first run, no bug found.
+
+Verified: the new script (13 checks); `verify_b1_global_workspace.py`/
+`verify_b2_starvation_gain.py`/`verify_b3_pillar_bus.py`/`verify_b4_
+coalition_formation.py` re-run clean; `pyflakes` clean; a full sweep of
+`scripts/verify_*.py` found zero regressions. No native module or
+`simulation/engine.py` code path touched — no replay-hash/native-soak
+re-run needed. `B6` (arbitration determinism + the starvation bound)
+is the next open Stage B item — resume only on future explicit
+direction.
+
 ## Current state (v1.34.226)
 
 Explicit user instruction: "Start B4 and build something from parallel
