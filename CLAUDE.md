@@ -742,6 +742,82 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.211)
+
+Explicit user instruction: "Continue part B and parallely tier 6." Two
+independent pieces, one batch, same pattern as v1.34.207-.210.
+
+**Part B: B12's real first wiring.** `World.emergence_log`'s own
+eviction (`SimulationEngine._append_emergence`, capped at `EMERGENCE_
+LOG_MAX_STORED`) previously discarded overflow entries via plain list
+truncation — the exact gap B12's own doc text named ("the DB is
+already ~60 MB... a flat row-count cap but no reconstructable archived
+detail"). New `SimulationEngine._emergence_compression`, a real
+`CompressionLadder` instance (already-shipped B12.1-B12.3 machinery,
+v1.34.179) — deliberately runtime-only, never persisted in `World.
+to_dict()`/`from_dict()`, same discipline every `DormancyManager`
+instance in this codebase already uses ("re-baselines on restart," a
+real design choice for attention/history-compaction state, not an
+oversight). An evicted batch is now `ingest()`-ed into the ladder's
+RAW stage and `maybe_compress` condenses it via a new real
+`condense_fn`, `_condense_emergence_entries` (tick range, per-kind
+tally, the single highest-magnitude entry's own summary as a
+representative sample) — `prune_to_capacity(EMERGENCE_COMPRESSION_
+ARCHIVE_MAX)` enforces B12.2's real hard ceiling on the archive.
+Surfaced via `full_diagnostics()['emergence_compression']`
+(raw-pending count, total archived, total raw discarded, the newest
+digest). Deliberately scoped to ONE stage transition (RAW → archived
+digest), not the full five-stage cascade — wiring EPISODE→SUMMARY→
+HISTORY→CULTURAL_MEMORY onto a real chronicle/documentary/culture-
+digest producer chain per stage remains open, a materially larger
+design needing its own real narrative-job wiring, not attempted this
+pass. New `scripts/verify_b12_emergence_compression.py` (23 checks) —
+all pass; one real off-by-one caught and fixed in the verify script
+itself (reaching `EMERGENCE_LOG_MAX_STORED` exactly still evicts
+nothing — `>` is a strict inequality, only the NEXT append tips it
+over), not a bug in the module under test.
+
+**Tier 6, L1.2 — social structure features.** New `hearthmind/ml/
+social_features.py`'s `compute_social_features(agents)`: reuses
+`world/graph_algorithms.py`'s already-real `build_relationship_graph`/
+`degree_centrality` directly (each called exactly once, shared across
+every per-agent feature, not recomputed per agent) rather than a
+parallel graph representation — per the architecture doc's own
+"downgraded from a full GNN" scoping, closing exactly the gap it names
+("nothing feeds those to the decision models"). `community_id` (a
+real connected-component id via one BFS pass over the same positive-
+weight relationship graph — deliberately graph-only, NOT an
+`Institution`/FACTION lookup, per this project's own "the substrate
+should stay reused UPWARD by Runtime/gameplay code, never the
+reverse" dependency discipline, the same reasoning L3.1's `LLMCost
+Regressor` docstring already documents) and `bridge_score` (a cheap
+structural-holes proxy in the spirit of Burt's constraint: the
+fraction of an agent's own neighbor pairs that are NOT themselves
+directly connected — high score means the agent's contacts mostly
+don't know each other, i.e. genuinely bridges otherwise-separate parts
+of the social graph) are the two named features with no prior
+implementation; `neighborhood_sentiment` (mean edge weight across an
+agent's own real ties) rounds out the four. No training, no message-
+passing iterations, no GNN — every feature is a real, deterministic,
+single-pass graph computation. New `scripts/verify_social_
+features.py` (19 checks) — all pass, first run, no bug found in the
+module under test. Not wired into any real consumer this pass — L2.1/
+L2.2 remain the doc's own named future consumers.
+
+Verified: both new scripts (42 checks total); `verify_task_graph.py`/
+`verify_scheduler.py`/`verify_dormancy.py`/`verify_runtime_
+invariant.py`/`verify_ml_substrate.py`/`verify_value_model.py`/
+`verify_belief_calibration.py`/`verify_b4_settlement_dormancy.py`/
+`verify_b4_tradition_dormancy.py`/`verify_b4_idea_dormancy.py`/
+`verify_b0_runtime_migrations.py`/`verify_b14_snapshot_diff.py`/
+`verify_b14_persistence_scheduling.py` re-run clean; `pyflakes` clean
+on all touched/new files (only the six known pre-existing forward-ref
+findings in `engine.py`); `scripts/verify_replay_hash.py` (4000 ticks,
+seed 777, `--in-process`) — MATCH, byte-identical; `scripts/verify_
+native_soak.py` (3 seeds x 3000 ticks) — MATCH. No native module
+touched by either half of this batch (pure Runtime/ML-substrate work,
+same scope class as every prior parallel-batch pass this session).
+
 ## Current state (v1.34.210)
 
 Explicit user instruction: "Continue Big Bang B and parallel other

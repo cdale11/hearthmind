@@ -596,6 +596,22 @@ starts on an explicit instruction naming an item.
       genuinely pruned key honestly returns nothing rather than
       fabricating content). All three sub-items shipped this pass.
       `scripts/verify_history_compression.py` (29 checks) all pass.
+      **Real first wiring, v1.34.211** (explicit user instruction:
+      "Continue part B and parallely tier 6") — `World.emergence_log`'s
+      own eviction now routes through a real, runtime-only (never
+      persisted, same discipline every `DormancyManager` instance
+      already uses) `CompressionLadder` instance instead of plain
+      truncation: an evicted batch is `ingest()`-ed into the RAW stage,
+      `maybe_compress` condenses it via a new real `condense_fn`
+      (`_condense_emergence_entries` — tick range, per-kind tally,
+      highest-magnitude entry's summary), and `prune_to_capacity`
+      enforces a real hard ceiling on the archive. Surfaced via
+      `full_diagnostics()['emergence_compression']`. Deliberately
+      scoped to one stage transition (RAW → archived digest), not the
+      full five-stage cascade — wiring the remaining stages onto a real
+      chronicle/documentary/culture-digest producer chain per stage
+      stays open. `scripts/verify_b12_emergence_compression.py` (23
+      checks) all pass.
       **B13.1-B13.4 shipped, v1.34.180** (explicit user instruction:
       "Start b13") — new `hearthmind/simulation/optimization_
       hypothesis.py`: `HypothesisLoop.apply_and_measure` (B13.1, a real
@@ -1407,11 +1423,25 @@ with three shared components.
       `pillar.word_overlap`, topic novelty, plan encoding). The
       strongest reuse case in the plan — one shared answer to "do these
       two texts mean the same thing in this world?"
-- [ ] **L1.2 Social structure features** — one round of message passing
-      over the ledger graph. **Downgraded from the audit's full GNN**:
-      `graph_algorithms.py` already computes the structural signal; the
-      real gap is that nothing feeds it to the decision models. Full
-      GNN explicitly deferred.
+- [x] **L1.2 Social structure features** — substrate SHIPPED, v1.34.211,
+      as `hearthmind/ml/social_features.py`'s `compute_social_
+      features(agents)`. **Downgraded from the audit's full GNN**:
+      reuses `graph_algorithms.py`'s already-real `build_relationship_
+      graph`/`degree_centrality` directly (each called once, shared
+      across every per-agent feature) rather than a parallel graph
+      representation. Adds the two named features with no prior
+      implementation as cheap deterministic single-pass computations —
+      `community_id` (a real connected-component BFS over the same
+      positive-weight graph, deliberately graph-only rather than an
+      `Institution`/FACTION lookup, per this project's own "substrate
+      reused upward, never the reverse" dependency discipline) and
+      `bridge_score` (a Burt's-constraint-style structural-holes proxy:
+      the fraction of an agent's own neighbor pairs NOT themselves
+      directly connected). `neighborhood_sentiment` (mean edge weight)
+      rounds out the four. `scripts/verify_social_features.py` (19
+      checks) all pass. **Not wired into any real consumer this pass**
+      — L2.1/L2.2 remain the named future consumers. Full end-to-end
+      graph learning stays explicitly deferred.
 
 **L2 — cognition** (the emergence layer)
 - [x] **L2.1 Value/consequence model** — substrate SHIPPED, v1.34.209,

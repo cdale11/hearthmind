@@ -106,6 +106,7 @@ from hearthmind.world.wildlife import (
 )
 from hearthmind.simulation.sandbox import evaluate_concept_dual_fork, run_counterfactual
 from hearthmind.simulation.dormancy import DormancyManager
+from hearthmind.simulation.history_compression import CompressionLadder, CompressionStage, StageThreshold
 from hearthmind.simulation.task_graph import PriorityClass, Task, TaskRegistry, TriggerKind
 from hearthmind.simulation.scheduler import Scheduler, SubsystemBudget
 from hearthmind.simulation.tuning import BangBangController, SafetyClass, TunableRegistry, register_llm_pacing_tunables
@@ -1838,6 +1839,57 @@ def _settlement_fingerprint(settlement: "Settlement", population_count: int) -> 
     return (population_count, settlement.era, len(settlement.buildings), settlement.tech_level)
 
 
+EMERGENCE_COMPRESSION_RAW_THRESHOLD = StageThreshold(max_count=EMERGENCE_LOG_MAX_STORED // 5, max_age_ticks=1_000_000)
+"""B12's first real consumer: `World.emergence_log`'s own eviction
+(`_append_emergence`, `EMERGENCE_LOG_MAX_STORED`) used to be plain
+truncation — the oldest entries past the cap were simply discarded,
+permanently and without a trace, once the cap was first reached. Now
+an evicted batch is routed through a real `CompressionLadder` instead
+(`SimulationEngine._emergence_compression`) — this threshold decides
+how many evicted RAW entries accumulate before they're actually
+condensed into one archived digest, deliberately smaller than the
+full log cap (a fifth of it) so a real digest forms well before the
+ladder's own in-flight RAW bucket could itself grow unbounded.
+`max_age_ticks` is set high enough to never be the real trigger in
+practice — volume is the intended real signal for this stream, same
+as B12.1's own text allows ("either condition alone is sufficient")."""
+
+EMERGENCE_COMPRESSION_ARCHIVE_MAX = 200
+"""B12.2's real hard ceiling for the emergence-log archive specifically
+— once the ladder's own condensed-digest archive exceeds this many
+entries, the oldest digests are genuinely deleted (`prune_to_
+capacity`), never allowed to grow without bound. At `EMERGENCE_
+COMPRESSION_RAW_THRESHOLD` (100) raw entries per digest, 200 archived
+digests represent roughly 20,000 raw observations' worth of condensed
+history — a real, much longer memory than the live log's own 500-entry
+window, at a bounded, fixed storage cost."""
+
+
+def _condense_emergence_entries(items: list) -> dict:
+    """The real semantic half B12.1/B12.2 explicitly leave to the
+    caller: turns a batch of evicted `world.emergence.Observation`
+    dicts into one condensed digest — tick range, a count, a per-kind
+    tally (which categories of emergence dominated this stretch), and
+    a short representative sample (the single highest-`magnitude`
+    entry's own summary text, the same "what mattered most" signal
+    Tier 6's L2.1 value model targets) rather than concatenating every
+    raw summary verbatim, which would defeat the point of compressing
+    at all."""
+    ticks = [item.get("tick", 0) for item in items]
+    kind_counts: dict = {}
+    for item in items:
+        kind = item.get("kind", "unknown")
+        kind_counts[kind] = kind_counts.get(kind, 0) + 1
+    most_notable = max(items, key=lambda item: item.get("magnitude") or 0.0)
+    return {
+        "tick_start": min(ticks) if ticks else 0,
+        "tick_end": max(ticks) if ticks else 0,
+        "count": len(items),
+        "kind_counts": kind_counts,
+        "notable_summary": most_notable.get("summary", ""),
+    }
+
+
 class SimulationEngine:
     def __init__(
         self, conn: sqlite3.Connection, config: Config, world: World,
@@ -2412,6 +2464,20 @@ class SimulationEngine:
         narrative attention is gated. Runtime scheduling state, never
         persisted — same restart-safe discipline as the three
         siblings."""
+        self._emergence_compression = CompressionLadder()
+        """Tier 5 B12's first real consumer: routes `World.emergence_
+        log`'s own evicted-past-cap entries through a real
+        `CompressionLadder` (see `_append_emergence`) instead of plain
+        truncation — a batch of evicted raw observations condenses into
+        one archived digest (`_condense_emergence_entries`) once
+        `EMERGENCE_COMPRESSION_RAW_THRESHOLD` accumulates, bounded
+        overall by `EMERGENCE_COMPRESSION_ARCHIVE_MAX`. Deliberately
+        runtime-only, never persisted — same "derived, re-baselines on
+        restart" discipline as the four `DormancyManager` instances
+        above; a restarted world simply starts accumulating a fresh
+        archive rather than losing anything the live `emergence_log`
+        window itself still holds (the archive is compressed HISTORY
+        beyond that window, not a substitute for it)."""
         self._rumor_retellings_recent: list[dict] = []
         """A17's fitness-vs-truth axis (`world.memetics.rumor_fitness`/
         `rumor_truth_score`) — a small capped, transient (not persisted,
@@ -13653,7 +13719,13 @@ class SimulationEngine:
         shape contract this validates against. No pillar reads this
         stream yet (Stage II of the roadmap); this is the producer side
         only, exercised by the detectors below so the shape is proven
-        against real signals before anything depends on it."""
+        against real signals before anything depends on it.
+
+        Tier 5 B12's first real consumer (see `_emergence_compression`):
+        an evicted entry is no longer simply discarded — it's ingested
+        into a real `CompressionLadder`, which condenses it into an
+        archived digest once enough have accumulated, rather than
+        losing the stretch's content outright."""
         observation = emergence.make_observation(
             self.world.next_emergence_id, self.world.clock.tick_count, kind, subsystem, summary,
             pillars, magnitude=magnitude, settlement=settlement, data=data,
@@ -13661,7 +13733,15 @@ class SimulationEngine:
         self.world.next_emergence_id += 1
         self.world.emergence_log.append(observation)
         if len(self.world.emergence_log) > EMERGENCE_LOG_MAX_STORED:
+            evicted = self.world.emergence_log[:-EMERGENCE_LOG_MAX_STORED]
             self.world.emergence_log = self.world.emergence_log[-EMERGENCE_LOG_MAX_STORED:]
+            tick = self.world.clock.tick_count
+            for entry in evicted:
+                self._emergence_compression.ingest(entry, tick)
+            self._emergence_compression.maybe_compress(
+                CompressionStage.RAW, tick, EMERGENCE_COMPRESSION_RAW_THRESHOLD, _condense_emergence_entries,
+            )
+            self._emergence_compression.prune_to_capacity(EMERGENCE_COMPRESSION_ARCHIVE_MAX)
 
     def _log_daily_metrics(self) -> None:
         """One compact time-series row per sim-day (see database.py's
@@ -15401,6 +15481,26 @@ class SimulationEngine:
                     }
                     for event in self._escalation_ladder.history[-10:]
                 ],
+            },
+            # Tier 5 B12's real first consumer — the emergence-log
+            # compression ladder's own live state, dev-console/raw-JSON
+            # only (same depth as `host_probe`/`adaptive_tuning_log`):
+            # how many evicted raw entries are still awaiting their next
+            # digest, how many digests have been archived so far, how
+            # many raw entries have been condensed in total, and the
+            # single newest digest itself (if any) — a real, cheap
+            # window into whether compression is actually happening on
+            # a live run, not just present in the code.
+            "emergence_compression": {
+                "raw_pending": self._emergence_compression.stage_size(CompressionStage.RAW),
+                "total_archived": self._emergence_compression.total_archived(),
+                "total_raw_discarded": self._emergence_compression.total_raw_discarded,
+                "newest_digest": (
+                    self._emergence_compression.archive_store[
+                        max(self._emergence_compression.archive_store, key=lambda k: int(k.split("#")[1]))
+                    ]
+                    if self._emergence_compression.archive_store else None
+                ),
             },
             # Tier 5 B13's real dev-console/API control point — the
             # most recent manually-requested `HypothesisLoop` attempt

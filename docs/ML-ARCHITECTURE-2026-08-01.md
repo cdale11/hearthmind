@@ -123,7 +123,7 @@ Bram"* and *"a predator killed my brother"* are the same memory. An NPC
 recalling the thematically right memory instead of the lexically
 overlapping one is the difference between a search index and a mind.
 
-### L1.2 — Social structure features *(not a GNN)*
+### L1.2 — Social structure features *(not a GNN)* [SUBSTRATE SHIPPED, v1.34.211]
 
 One round of message passing over `agents/ledger.py`'s pair graph,
 producing per-agent structural features: neighbourhood sentiment,
@@ -137,6 +137,52 @@ decision models*. Closing that gap is cheap, interpretable, and
 reuses shipped code. End-to-end graph learning is a large complexity
 jump with a diffuse training signal — revisit only if L1.2's features
 prove load-bearing and insufficient.
+
+**Shipped, v1.34.211.** New `hearthmind/ml/social_features.py`'s
+`compute_social_features(agents)` — the closing-the-gap module named
+above, built exactly as scoped: reuses `build_relationship_graph`/
+`degree_centrality` directly (each called exactly once, shared across
+every per-agent feature, not recomputed per agent) rather than a
+parallel graph representation, and adds the two named features with no
+existing implementation — `community_id` (a real connected-component
+id over the same positive-weight relationship graph, one BFS pass) and
+`bridge_score` (a cheap structural-holes proxy in the spirit of Burt's
+constraint: the fraction of an agent's own neighbor pairs that are
+NOT themselves directly connected — high score means the agent
+genuinely bridges otherwise-separate parts of the graph). No training,
+no message-passing iterations, no GNN — every feature is a real,
+deterministic, single-pass graph computation. `neighborhood_sentiment`
+(mean edge weight across an agent's own ties) rounds out the four
+named features.
+
+**Community affiliation is deliberately graph-only, not an
+`Institution`/FACTION lookup** — `hearthmind.ml` sits below
+`hearthmind.agents`/`hearthmind.settlement` in this project's own
+stated dependency direction (substrate reused UPWARD by gameplay code,
+never the reverse, same discipline L3.1's `LLMCostRegressor` already
+documents); importing `Population.faction_of` here would invert it.
+`community_id` is therefore a genuine structural community over the
+ledger graph, independent of (and complementary to) whatever a
+settlement's own FACTION institutions separately track.
+
+**Not wired into any real consumer this pass** — L2.1/L2.2 remain the
+doc's own named future consumers; no engine.py call site reads `social_
+features.py` yet, same "ship the substrate, wire it once a real
+consumer exists" discipline every other Tier 6 module in this doc has
+shipped under.
+
+Verified: `scripts/verify_social_features.py` (19 checks —
+`_neighborhood_sentiment`'s isolated-agent zero case and real mean
+computation; `_connected_components` across two genuinely disjoint
+clusters, a real bridging chain merging three nodes into one
+community, an isolated singleton, and a zero-weight edge correctly
+NOT merging two nodes; `_bridge_score`'s <2-neighbor zero case, a
+real maximally-bridging agent scoring 1.0, a fully clustered agent
+scoring 0.0, and a partially-bridging agent scoring strictly between
+the two; a full production-path `compute_social_features` run against
+a real `Population`/`Agent` set with a forced relationship, confirming
+every feature's shape and value, plus a real non-mutation check) — all
+pass, first run, no bug found in the module under test.
 
 **Consumers:** L2.1 (a socially central agent's state matters more),
 L2.2 (who you're embedded among shapes what you do), dispute/faction

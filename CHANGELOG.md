@@ -4,6 +4,65 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.211] — Part B: B12's real first wiring; Tier 6 L1.2 social structure features
+
+Explicit user instruction: "Continue part B and parallely tier 6." Two
+independent pieces, one batch, same pattern as v1.34.207-.210.
+
+**Part B: B12's real first wiring.** `World.emergence_log`'s own
+eviction (`SimulationEngine._append_emergence`, capped at `EMERGENCE_
+LOG_MAX_STORED`) previously discarded overflow entries via plain list
+truncation — the exact gap B12's own doc text named ("the DB is
+already ~60 MB... a flat row-count cap but no reconstructable archived
+detail"). New `SimulationEngine._emergence_compression`, a real
+`CompressionLadder` instance (already-shipped B12.1-B12.3 machinery,
+v1.34.179) — deliberately runtime-only, never persisted in `World.
+to_dict()`/`from_dict()`, same discipline every `DormancyManager`
+instance in this codebase already uses. An evicted batch is now
+`ingest()`-ed into the RAW stage and `maybe_compress` condenses it via
+a new real `condense_fn`, `_condense_emergence_entries` (tick range,
+per-kind tally, the single highest-magnitude entry's own summary as a
+representative sample) — `prune_to_capacity(EMERGENCE_COMPRESSION_
+ARCHIVE_MAX)` enforces B12.2's real hard ceiling. Surfaced via `full_
+diagnostics()['emergence_compression']`. Scoped to one stage
+transition (RAW → archived digest), not the full five-stage cascade —
+wiring the remaining stages onto a real chronicle/documentary/
+culture-digest producer chain per stage stays open. New `scripts/
+verify_b12_emergence_compression.py` (23 checks) — all pass; one real
+off-by-one caught and fixed in the verify script itself (reaching
+`EMERGENCE_LOG_MAX_STORED` exactly still evicts nothing — `>` is a
+strict inequality), not a bug in the module under test.
+
+**Tier 6, L1.2 — social structure features.** New `hearthmind/ml/
+social_features.py`'s `compute_social_features(agents)`: reuses
+`world/graph_algorithms.py`'s already-real `build_relationship_graph`/
+`degree_centrality` directly (each called once, shared across every
+per-agent feature) rather than a parallel graph representation, per
+the architecture doc's own "downgraded from a full GNN" scoping.
+`community_id` (a real connected-component BFS over the same
+positive-weight graph — deliberately graph-only, not an `Institution`/
+FACTION lookup, per this project's own "substrate reused upward, never
+the reverse" dependency discipline) and `bridge_score` (a Burt's-
+constraint-style structural-holes proxy: the fraction of an agent's
+own neighbor pairs NOT themselves directly connected) are the two
+named features with no prior implementation; `neighborhood_sentiment`
+(mean edge weight) rounds out the four. New `scripts/verify_social_
+features.py` (19 checks) — all pass, first run, no bug found. Not
+wired into any real consumer this pass — L2.1/L2.2 remain the doc's
+own named future consumers.
+
+Verified: both new scripts (42 checks total); `verify_task_graph.py`/
+`verify_scheduler.py`/`verify_dormancy.py`/`verify_runtime_
+invariant.py`/`verify_ml_substrate.py`/`verify_value_model.py`/
+`verify_belief_calibration.py`/`verify_b4_settlement_dormancy.py`/
+`verify_b4_tradition_dormancy.py`/`verify_b4_idea_dormancy.py`/
+`verify_b0_runtime_migrations.py`/`verify_b14_snapshot_diff.py`/
+`verify_b14_persistence_scheduling.py` re-run clean; `pyflakes` clean
+(only the six known pre-existing forward-ref findings in `engine.py`);
+`scripts/verify_replay_hash.py` (4000 ticks, seed 777, `--in-process`)
+— MATCH; `scripts/verify_native_soak.py` (3 seeds x 3000 ticks) —
+MATCH.
+
 ## [1.34.210] — Part B: B4.2's fourth dormancy candidate; Tier 6 L4.1 belief calibration
 
 Explicit user instruction: "Continue Big Bang B and parallel other

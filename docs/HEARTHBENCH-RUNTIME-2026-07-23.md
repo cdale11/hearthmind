@@ -1717,7 +1717,7 @@ smaller bounded/capped structures elsewhere in the codebase don't need
 it) and threading B7's real `HostProbe.sample()` into `pressure_
 response` from an actual scheduling call site.
 
-## B12 — History compression [Hard Rule 13] [PARTIAL — B12.1-B12.3 shipped v1.34.179, not wired into any real control point]
+## B12 — History compression [Hard Rule 13] [PARTIAL — B12.1-B12.3 shipped v1.34.179; real first wiring (World.emergence_log eviction) v1.34.211]
 
 - [x] **B12.1 — The ladder as an automatic pipeline — SHIPPED,
   v1.34.179.** New `hearthmind/simulation/history_compression.py`'s
@@ -1753,18 +1753,48 @@ response` from an actual scheduling call site.
   compression is real information loss only past the retention
   ceiling, never before it.
 
-**Not wired into any real control point** — no import from `history_
-compression.py` exists in `simulation/engine.py`/`server.py`; no real
-event/chronicle/culture-digest pipeline feeds a live `CompressionLadder`
-yet, and `condense_fn` has only ever been exercised with a synthetic
-join function. Real future work: picking a first concrete consumer
-(the doc's own "the DB is already ~60 MB" framing points at `World.
-emergence_log`/`events` table retention as the natural first candidate
-— both already have a flat row-count cap, per CLAUDE.md's memory-leak
-audit history, but neither goes through a real ladder with
-reconstructable archived detail today) and wiring `condense_fn` at
-each stage to a real existing narrative job (chronicle for raw->
-episode, documentary/culture_digest for episode->summary, etc.).
+**Real first wiring — SHIPPED, v1.34.211.** `World.emergence_log`'s own
+eviction (`SimulationEngine._append_emergence`, capped at `EMERGENCE_
+LOG_MAX_STORED`) previously discarded overflow entries via a plain list
+truncation — the exact "the DB is already ~60 MB... row-count cap but
+no reconstructable archived detail" gap this section's own prior text
+named. New `SimulationEngine._emergence_compression`, a real
+`CompressionLadder` instance — deliberately runtime-only, never
+persisted in `World.to_dict()`/`from_dict()`, same discipline the four
+`DormancyManager` instances in this codebase already established
+("re-baselines on restart," a real design choice for attention/
+history-compaction state, not an oversight). Every evicted entry is
+now `ingest()`-ed into the ladder's RAW stage instead of being
+silently dropped; `maybe_compress(RAW, tick, EMERGENCE_COMPRESSION_
+RAW_THRESHOLD, _condense_emergence_entries)` runs on every eviction
+batch — `_condense_emergence_entries` is the real, this-pass-authored
+`condense_fn` (tick range, per-kind tally, and the single highest-
+magnitude entry's own summary as a representative sample), and
+`prune_to_capacity(EMERGENCE_COMPRESSION_ARCHIVE_MAX)` enforces B12.2's
+real hard ceiling on the archive. `full_diagnostics()['emergence_
+compression']` surfaces live state (raw-pending count, total archived,
+total raw discarded, the newest digest) — dev-console-only depth, same
+as every other diagnostics-only Runtime item. Deliberately scoped to
+ONE stage transition (RAW → archived digest), not the full five-stage
+cascade — wiring EPISODE→SUMMARY→HISTORY→CULTURAL_MEMORY onto a real
+chronicle/documentary/culture-digest producer chain remains open, a
+materially larger design needing its own real narrative-job wiring per
+stage, not attempted this pass.
+
+Verified: `scripts/verify_b12_emergence_compression.py` (23 checks —
+no eviction below the cap, the log reaching the cap exactly still
+evicting nothing (a real off-by-one caught and fixed in the verify
+script itself, not the module under test), a single eviction correctly
+ingested, real batched condensation producing a genuine archived
+digest with correct tick range/kind tally/notable summary,
+`_condense_emergence_entries`'s own pure-function correctness, the
+real B12.2 hard ceiling never exceeded and genuinely filling up
+(real pruning, not a silent no-op), B12.3 `TransparentHandle`
+round-trip reconstruction plus an honest `None` for a nonexistent key,
+`full_diagnostics()` surfacing real live state including the honest
+`None` case on a fresh engine, and a real 4000-tick production-path
+smoke test through the actual tick loop) — all pass, first run except
+the one verify-script fixture bug named above.
 
 ## B13 — Optimization hypotheses [Hard Rule 14] [PARTIAL — B13.1-B13.5 shipped v1.34.180/v1.34.183, real first wiring for llm_max_concurrent v1.34.205]
 
