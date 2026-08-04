@@ -21,6 +21,18 @@ Grid = list[list[float]]
 
 _ADJACENT_4 = ((0, -1), (0, 1), (-1, 0), (1, 0))
 
+try:  # C++ porting backlog (docs/ROADMAP-2026-07-REMAINING.md's parallel
+    # track): `diffuse`/`reaction_diffuse` take no domain objects at all
+    # (a plain grid of floats in, a plain grid of floats out), the
+    # simplest port shape in this codebase. `cellular_step` stays
+    # Python-only -- its `rule` callable can't cross the pybind11
+    # boundary without specializing per consumer.
+    from hearthmind._native import ca_diffuse as _native_ca_diffuse
+    from hearthmind._native import ca_reaction_diffuse as _native_ca_reaction_diffuse
+except ImportError:  # pragma: no cover - native extension not built
+    _native_ca_diffuse = None
+    _native_ca_reaction_diffuse = None
+
 
 def diffuse(grid: Grid, rate: float) -> Grid:
     """Each cell moves `rate` (0..1) of the way toward the average of
@@ -35,6 +47,8 @@ def diffuse(grid: Grid, rate: float) -> Grid:
     width = len(grid[0]) if height else 0
     if width == 0 or height == 0 or rate <= 0.0:
         return [row[:] for row in grid]
+    if _native_ca_diffuse is not None:
+        return _native_ca_diffuse(grid, rate)
     result: Grid = [[0.0] * width for _ in range(height)]
     for y in range(height):
         for x in range(width):
@@ -61,6 +75,8 @@ def reaction_diffuse(a: Grid, b: Grid, rate_a_to_b: float, rate_b_to_a: float) -
     shape as `diffuse` — safe against a fixed input snapshot."""
     height = len(a)
     width = len(a[0]) if height else 0
+    if _native_ca_reaction_diffuse is not None:
+        return _native_ca_reaction_diffuse(a, b, rate_a_to_b, rate_b_to_a)
     new_a: Grid = [[0.0] * width for _ in range(height)]
     new_b: Grid = [[0.0] * width for _ in range(height)]
     for y in range(height):

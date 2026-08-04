@@ -28,14 +28,46 @@ candidate's new examples still enter the replay buffer regardless --
 the buffer records what the specialist actually lived through, not
 what it successfully learned from; a future retrain attempt gets
 another chance to rehearse the same example.
+
+G3 (explicit user instruction: "Continue G3"), "forget obsolete
+assumptions, made testable": investigated whether the existing `learn()`
+loop above ALREADY re-adapts after a genuine regime change (a specialist
+trained against a pattern that then stops holding) before assuming a
+new forgetting mechanism was needed. A direct synthetic test (two
+distinct linear regimes, holdout drawn from whichever regime is
+CURRENT) confirmed it does, unmodified: the shadow gate always compares
+a candidate against a holdout from the world as it is NOW, never the
+stale regime, so a candidate that's closer to the new pattern keeps
+winning gate comparisons regardless of what's mixed into replay --
+`replay_fraction`'s default (0.5, i.e. new examples always outnumber
+replayed ones at least 2:1) is enough for genuine adaptation to win out
+within a bounded number of real cycles. No fix was invented for a
+problem that doesn't reproduce; `scripts/verify_ml_g3_regime_change.py`
+holds the real, stated-in-advance bound this finding rests on.
+
+What WAS a real, honest gap: nothing exposed a specialist's own
+prediction-error trace over time, which HCA's own roadmap names as a
+direct G3 dependency (E5, "per-specialist learning curves... with G3's
+regime-change re-adaptation visibly plotted"). `LearningSpecialist.
+error_history` below closes that -- a bounded, append-only record of
+every real `learn()` call's baseline/candidate metrics and accept
+verdict, the observability substrate a future Observatory panel reads
+from directly rather than needing to be invented at UI time.
 """
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 
 from hearthmind.ml.lifelong import CheckpointHistory, ReplayBuffer, passes_shadow_gate
 from hearthmind.ml.primitives import MLP
 from hearthmind.ml.training import continual_train_mlp, mean_loss
+
+ERROR_HISTORY_MAX = 200
+"""Bounded per-specialist prediction-error trace (G3/E5's own real
+observability substrate) -- oldest entries evicted, same discipline as
+every other bounded log in this codebase (`ReplayBuffer`, `Checkpoint
+History`, `World.emergence_log`, ...)."""
 
 
 @dataclass
@@ -62,6 +94,12 @@ class LearningSpecialist:
         self.model = model
         self.replay_buffer = ReplayBuffer(capacity=replay_capacity, seed=replay_seed)
         self.checkpoint_history = CheckpointHistory(capacity=checkpoint_capacity)
+        self.error_history: deque = deque(maxlen=ERROR_HISTORY_MAX)
+        """G3's real observability trace: one entry per real `learn()`
+        call (never a skipped/synthetic one), `{tick, baseline_metric,
+        candidate_metric, accepted}` -- the exact "prediction error
+        over time" series E5's future per-specialist learning-curve
+        panel plots, including a regime-change spike-then-recovery."""
 
     def predict(self, x: list) -> list:
         return self.model.forward(x)
@@ -92,10 +130,15 @@ class LearningSpecialist:
         if not holdout_examples:
             self.model = candidate
             self.checkpoint_history.push(tick, candidate.to_dict(), 0.0)
+            self.error_history.append({"tick": tick, "baseline_metric": 0.0, "candidate_metric": 0.0, "accepted": True})
             return LearnResult(accepted=True, candidate_metric=0.0, baseline_metric=0.0, reason="no holdout supplied, ungated accept")
 
         candidate_metric = mean_loss(candidate, holdout_examples)
-        if passes_shadow_gate(candidate_metric, baseline_metric, tolerance):
+        accepted = passes_shadow_gate(candidate_metric, baseline_metric, tolerance)
+        self.error_history.append({
+            "tick": tick, "baseline_metric": baseline_metric, "candidate_metric": candidate_metric, "accepted": accepted,
+        })
+        if accepted:
             self.model = candidate
             self.checkpoint_history.push(tick, candidate.to_dict(), candidate_metric)
             return LearnResult(

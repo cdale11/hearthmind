@@ -4,6 +4,77 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.219] — HCA Stage G, G3: regime-change re-adaptation made testable (closing Stage G), plus a second C++ porting backlog pickup
+
+Explicit user instruction: "Continue G3 and c++ backlog." Two
+independent pieces, one batch. **This closes Tier 7 HCA Stage G in
+full** (G1 v1.34.216, G2 v1.34.217, G4 v1.34.218, G3 here).
+
+**G3.** "Forget obsolete assumptions," made testable. Investigated
+before writing any new mechanism: does the already-shipped `G1`
+`learn()` loop (`continual_train_mlp` + `ReplayBuffer` + the shadow
+gate) already re-adapt when a pattern genuinely stops holding, or does
+replay rehearsal of stale examples actively resist adaptation? A
+direct synthetic test (two distinct linear regimes with opposite-
+signed coefficients, sharing one input range) confirmed it already
+does -- the shadow gate always compares a candidate against a holdout
+drawn from the world AS IT IS NOW, never the stale regime, so a
+candidate genuinely closer to the new pattern keeps winning gate
+comparisons regardless of what's mixed into replay. No new forgetting
+mechanism was invented for a problem that doesn't reproduce.
+
+The one real gap the investigation found: no specialist exposed its
+own prediction-error trace over time -- HCA's own `E5` item (a future
+per-specialist learning-curve Observatory panel, explicitly gated on
+`G3`) needs exactly that series to plot a regime-change spike-then-
+recovery. New `LearningSpecialist.error_history` (`hearthmind/ml/
+specialist.py`, a bounded `deque`, `ERROR_HISTORY_MAX=200`): one entry
+per real `learn()` call (never a skipped/synthetic one) -- `{tick,
+baseline_metric, candidate_metric, accepted}`.
+
+New `scripts/verify_ml_g3_regime_change.py` (8 checks -- G3's own
+stated test: a real specialist reaches a genuine low steady-state on
+regime A over 6 real `learn()` cycles; the very first post-shift cycle
+on regime B genuinely spikes error past 3x the pre-shift floor; it
+falls back within the stated-in-advance bound of 15 cycles -- recovered
+at real cycle 14 of 15 on the actual run; `error_history`'s own
+recorded values reproduce the real spike at the shift boundary, every
+entry carries the real expected fields, and the history stays
+genuinely bounded over 250 real cycles) -- all pass, first run, no bug
+found in the module under test.
+
+**C++ porting backlog, parallel track.** New `cpp/src/ca_operators.
+cpp`: `world/ca_operators.py`'s `diffuse`/`reaction_diffuse` -- the
+exact follow-up `hydrology_tick.cpp`'s own docstring flagged. Neither
+function crosses a domain object at all (a plain grid of doubles in, a
+plain grid of doubles out, the simplest port shape in this codebase);
+`diffuse` alone is called roughly a dozen times every real tick (once
+per `FieldGrid` field). Porting `reaction_diffuse` also transparently
+unblocks `hydrology_field.py`'s `tick_snowpack`, which calls it
+directly -- `tick_snowpack` needed no changes to pick up the native
+path. `cellular_step` (this module's third operator) deliberately NOT
+ported -- its `rule` parameter is a Python callable that can't cross
+the pybind11 boundary without specializing per consumer, same "resolve
+callables/objects in Python" discipline every prior module in this
+queue already follows. New `scripts/verify_ca_operators_native.py` (9
+checks -- 2000 randomized trials each for `ca_diffuse`/`ca_reaction_
+diffuse` against the pure-Python reference, 0 mismatches; edge cases
+for an empty grid, a zero/negative rate, a single tile, a non-square
+grid, and mass-conserving reaction transfer floored at 0.0 on both
+sides) -- all pass, first run, no bug found. New toggle entries in
+`scripts/verify_native_soak.py`.
+
+Verified: both new scripts; `pyflakes` clean on all touched/new files;
+`verify_ml_evolution.py`/`verify_ml_specialist.py`/`verify_ml_
+substrate.py`/`verify_ml_g2_workload_forecaster.py`/`verify_ml_g4_
+genome_evolution.py` re-run clean (confirming `error_history` doesn't
+disturb any existing `learn()` behavior); `scripts/verify_replay_
+hash.py` (4000 ticks, seed 777, `--in-process`) -- MATCH, byte-
+identical; `scripts/verify_native_soak.py` (3 seeds x 3000 ticks) --
+MATCH. G3 touched no native module or `simulation/engine.py` code path
+(pure offline ML substrate); the `ca_operators` port is the only
+native-module change this pass.
+
 ## [1.34.218] — HCA Stage G, G4: genome evolution wired to a real L1 consumer, plus a C++ porting backlog pickup
 
 Explicit user instruction: "Start G4 and parallels c++ backlog." Two

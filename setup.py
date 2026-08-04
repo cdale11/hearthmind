@@ -120,6 +120,7 @@ try:
                 "cpp/src/mining_scars.cpp",
                 "cpp/src/biology_ticks.cpp",
                 "cpp/src/hydrology_tick.cpp",
+                "cpp/src/ca_operators.cpp",
             ]),
             cxx_std=17,
             extra_compile_args=_EXTRA_COMPILE_ARGS,

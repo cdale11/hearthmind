@@ -47,6 +47,7 @@ import hearthmind.time_system as _time_system  # noqa: E402
 import hearthmind.world.disasters as _disasters  # noqa: E402
 import hearthmind.world.hydrology as _hydrology  # noqa: E402
 import hearthmind.world.hydrology_field as _hydrology_field  # noqa: E402
+import hearthmind.world.ca_operators as _ca_operators  # noqa: E402
 import hearthmind.world.resources as _resources  # noqa: E402
 import hearthmind.world.roads as _roads  # noqa: E402
 import hearthmind.world.terrain as _terrain  # noqa: E402
@@ -117,6 +118,12 @@ _NATIVE_TOGGLES = [
     # moisture/groundwater scalar passes (cpp/src/hydrology_tick.cpp).
     (_hydrology_field, "_native_hydrology_moisture_tick"),
     (_hydrology_field, "_native_hydrology_groundwater_tick"),
+    # C++ porting backlog parallel track: world/ca_operators.py's
+    # diffuse/reaction_diffuse (cpp/src/ca_operators.cpp) -- exercised
+    # via every FieldGrid field's per-tick diffuse() call plus
+    # hydrology_field.py's tick_snowpack reaction_diffuse() call.
+    (_ca_operators, "_native_ca_diffuse"),
+    (_ca_operators, "_native_ca_reaction_diffuse"),
 ]
 
 
