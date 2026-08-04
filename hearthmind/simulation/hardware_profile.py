@@ -261,7 +261,25 @@ def _ema(current: float | None, new: float, alpha: float) -> float:
 @dataclass
 class Strategy:
     """B7.3's output: a generic scheduling policy read from a profile,
-    never a hardware-specific branch in gameplay code."""
+    never a hardware-specific branch in gameplay code.
+
+    Wiring status as of v1.34.214, checked directly rather than left to
+    go stale: `llm_max_concurrent_hint` is consulted both as a
+    downward-only cap on B6's reactive controller (`_maybe_tune_llm_
+    concurrency`) and as the automatic monthly `HypothesisLoop`
+    candidate (v1.34.213); `cache_size_hint` scales `SimulationEngine.
+    _effective_emergence_log_cap`; `dormancy_aggressiveness` scales
+    `SimulationEngine._dormancy_idle_threshold`. `worker_count_hint`
+    is investigated and confirmed to have NO real consumer in this
+    codebase today, not merely unwired yet: B0's prime invariant bans
+    real thread/process pools inside `world/`/`agents/`/`settlement/`/
+    `economy/` outright (the tick loop is deliberately single-threaded
+    and synchronous), and the one real async concurrency knob that
+    does exist (LLM call concurrency) is `llm_max_concurrent_hint`'s
+    own territory, not this field's. Surfaced in diagnostics only
+    until a future async worker pool for non-LLM background work
+    (e.g. batched persistence writes) is deliberately built — same
+    "confirmed exhausted, not silently dropped" precedent as B10.2."""
 
     llm_max_concurrent_hint: int
     worker_count_hint: int

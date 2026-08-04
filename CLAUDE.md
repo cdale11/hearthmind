@@ -742,6 +742,122 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.215)
+
+Explicit user instruction: "Yes full picture in one place and cleanup
+the roadmap as it looks very cluttered and long. Also ship phase 0."
+Three independent pieces, one batch.
+
+**Phase 0 shipped** (v1.34.214's dependency-ordered sequence's first
+step). `select_strategy`'s `dormancy_aggressiveness` hint now scales
+`SimulationEngine._dormancy_idle_threshold`, consumed at all four real
+B4.2 dormancy candidates (institutions/ideas/traditions/settlements) —
+"high" ≈ halves the idle-checks threshold, "low" ≈ doubles it, "normal"
+(or no strategy read yet) reproduces the exact original flat value
+(3), verified both via direct math and a real production-path proof
+(a "high" engine genuinely sleeps an idle institution faster than a
+"normal" one through the actual `_update_institution_dormancy` call
+path). `cache_size_hint` now scales `SimulationEngine._effective_
+emergence_log_cap`, consumed at `World.emergence_log`'s own eviction
+site (flat 500 -> ±2x) — a genuine memory-scaled knob, verified a
+small-cache engine's log never exceeds its own scaled-down cap through
+the real `_append_emergence` path. `worker_count_hint` was
+investigated, not wired: confirmed to have NO real consumer possible
+in this codebase today, not merely unwired yet — B0's prime invariant
+bans real thread/process pools inside `world/`/`agents/`/`settlement/`/
+`economy/` outright, and the one real async concurrency knob that does
+exist (LLM call concurrency) is `llm_max_concurrent_hint`'s own
+territory — documented directly on `Strategy`'s own docstring
+(`hardware_profile.py`) rather than silently left looking unwired
+forever, same "confirmed exhausted" precedent as B10.2.
+
+`TunableRegistry`'s three pacing constants (`llm_pressure_slowdown_
+start_ratio`/`speedup_start_ratio`/`min_speedup_multiplier`) are now
+genuinely live — new `SimulationEngine._pacing_tunable(name, default)`
+reads through the registry instead of the flat module constants at
+both real call sites (`_maybe_advance_escalation_ladder`/`_llm_
+pressure_interval_multiplier`), closing B6.3's own documented
+"metadata only, doesn't rewire the live pacing code" gap. Verified
+end-to-end: adjusting `llm_pressure_speedup_start_ratio` via the
+registry genuinely changes the real computed tick-pacing multiplier,
+not just a stored number nothing reads.
+
+`full_diagnostics()['runtime_diagnostics']` (B5.3) now reports every
+real B0.3-migrated scheduler — iterates `_RUNTIME_SCHEDULED_JOB_
+SCHEDULERS` (~56 entries) instead of exposing only `institution_
+dormancy`, the exact gap the panel's own docstring had flagged since
+it first shipped (v1.34.183).
+
+`B14.3`'s `batch_size_for_storage` was investigated, not wired:
+confirmed the real snapshot writer is still one `INSERT` per row (per
+B14.2/B14.3's own prior filing) — there is genuinely no batched-write
+mechanism yet for a computed batch-byte-size to size FOR. Wiring this
+for real needs that mechanism built first, which is real new design,
+not Phase 0's "no new design, ships immediately" framing — honestly
+reclassified into the roadmap's "remaining independent Part B cleanup"
+list instead of forced through with an unused local variable.
+
+New `scripts/verify_phase0_runtime_hints.py` (23 checks, all
+production-path — direct threshold/cap math plus real end-to-end
+proofs through `_update_institution_dormancy`, `_append_emergence`,
+and `_llm_pressure_interval_multiplier`) — all pass, one real off-by-
+one caught and fixed in the script's own test fixture before shipping
+(the institution-dormancy production-path proof needed 3 calls to
+reach `idle=2`, not 2 — the first call only ever registers a fresh
+baseline at `idle=0`), not a bug in the module under test.
+
+**HearthBench added to the "full picture."** Direct user follow-up
+("What about hearthbench?") caught a real omission: v1.34.214's
+dependency-ordered sequence covered Part B (Adaptive Runtime) and Tier
+7 (HCA) but left out HearthBench (Tier 5 Part A) entirely, even though
+`B15.5` depends on a real HearthBench runner existing. New parallel-
+track section in the roadmap: only `A0`/`A1.1`/`A1.2` have shipped
+(the reusable substrate confirmation + the `hearthbench/` package
+skeleton + its import-isolation firewall); the remaining 11 steps
+ordered internally (`A2` model adapter -> `A3` prompt library -> `A4`
+scoring, the doc's own "central design decision" and the real fork
+point everything downstream waits on -> `A5` the 9 categories -> `A6`
+output validator -> `A7`/`A8`/`A9` metrics/diagnostics/reports -> `A10`
+the actual Score -> `A11` run modes, which unblocks `B15.5` -> `A1.3`
+process isolation (explicitly gated on `A2`+`A11`) -> `A12` web UI ->
+`A13` CI regression guard, needing the whole pipeline first).
+
+**Roadmap decluttered.** Explicit user complaint ("clean up the
+roadmap as it looks very cluttered and long") — previously flagged
+unresolved at v1.34.212, now addressed directly. `docs/ROADMAP-2026-
+07-REMAINING.md`'s "Priority ordering" section carried a ~1,800-line
+verbatim-style duplicate of Tier 0's and Tier 0.5's full turn-by-turn
+slice history (both already fully covered, in far better-consolidated
+form, by this file's own "Current state" log) — Tier 0 itself has been
+CLOSED and reclassified to ongoing opportunistic maintenance since
+v1.34.148, so a full slice-by-slice history no longer earns its place
+in a section whose own stated purpose is "ranking, not detail."
+Collapsed both blocks to two short status paragraphs pointing back
+here. File size: 6,031 -> 4,265 lines from this cut alone (~29%
+smaller) before this pass's own HearthBench/Phase-0 additions. Every
+other section — the A1-A25/B1-B9/C1-C5 per-item technical write-ups,
+the C++ porting backlog, the standing-discipline/scope-trim notes —
+was checked and deliberately left intact: spot-checked several (A1,
+A9) and confirmed they're substantive design reference (real formulas,
+real consumer wiring, real verification detail) rather than duplicate
+history, so cutting them would lose real information rather than
+redundancy. The Tier 1-5 rankings inside "Priority ordering" were
+checked too and found already compact (2-4 lines each, genuine status
+pointers) — left unchanged.
+
+Verified: the new script (23 checks); `pyflakes` clean on all touched
+files (only the six known pre-existing forward-ref findings in
+`engine.py`); the full existing `verify_*.py` regression sweep
+(`verify_b7_hardware_citizenship.py`/`verify_hardware_profile.py`/
+`verify_dormancy.py`/`verify_b4_idea_dormancy.py`/`verify_b4_
+settlement_dormancy.py`/`verify_b4_tradition_dormancy.py`/`verify_
+tuning.py`/`verify_scheduler.py`/`verify_task_graph.py`/`verify_
+runtime_invariant.py`/`verify_runtime_diagnostics.py`/`verify_auto_
+llm_concurrency_hypothesis.py`/`verify_b13_llm_concurrency_
+hypothesis.py`) re-run clean; `scripts/verify_replay_hash.py` (4000
+ticks, seed 777, `--in-process`) MATCH; `scripts/verify_native_soak.py`
+(3 seeds x 3000 ticks) MATCH. No native module touched.
+
 ## Current state (v1.34.214)
 
 Explicit user request: "push this to roadmap, proper sequence of

@@ -3966,7 +3966,9 @@ class SimulationEngine:
         own "only rung 5 does real, visible work" framing."""
         if "day_end" not in events:
             return
-        pressured = self.llm_pressure_ratio() >= LLM_PRESSURE_SLOWDOWN_START_RATIO
+        pressured = self.llm_pressure_ratio() >= self._pacing_tunable(
+            "llm_pressure_slowdown_start_ratio", LLM_PRESSURE_SLOWDOWN_START_RATIO,
+        )
         self._escalation_ladder.observe(self.world.clock.tick_count, pressured)
         self._cognition_budget = self._escalation_ladder.cognition_budget_for_rung(
             ESCALATION_COGNITION_BASE_BUDGET, ESCALATION_COGNITION_REDUCED_BUDGET,
@@ -4006,18 +4008,97 @@ class SimulationEngine:
         the two thresholds (0.15-0.5 by default): exactly 1.0, the
         normal healthy-load rate."""
         ratio = self.llm_pressure_ratio()
-        if ratio > LLM_PRESSURE_SLOWDOWN_START_RATIO:
-            span = LLM_PRESSURE_PAUSE_RATIO - LLM_PRESSURE_SLOWDOWN_START_RATIO
+        slowdown_start = self._pacing_tunable(
+            "llm_pressure_slowdown_start_ratio", LLM_PRESSURE_SLOWDOWN_START_RATIO,
+        )
+        speedup_start = self._pacing_tunable(
+            "llm_pressure_speedup_start_ratio", LLM_PRESSURE_SPEEDUP_START_RATIO,
+        )
+        min_speedup = self._pacing_tunable(
+            "llm_pressure_min_speedup_multiplier", LLM_PRESSURE_MIN_SPEEDUP_MULTIPLIER,
+        )
+        if ratio > slowdown_start:
+            span = LLM_PRESSURE_PAUSE_RATIO - slowdown_start
             if span <= 0:
                 return 1.0
-            progress = min(1.0, (ratio - LLM_PRESSURE_SLOWDOWN_START_RATIO) / span)
+            progress = min(1.0, (ratio - slowdown_start) / span)
             return 1.0 + progress * (LLM_PRESSURE_MAX_SLOWDOWN - 1.0)
-        if ratio < LLM_PRESSURE_SPEEDUP_START_RATIO:
-            if LLM_PRESSURE_SPEEDUP_START_RATIO <= 0:
+        if ratio < speedup_start:
+            if speedup_start <= 0:
                 return 1.0
-            progress = min(1.0, 1.0 - ratio / LLM_PRESSURE_SPEEDUP_START_RATIO)
-            return 1.0 - progress * (1.0 - LLM_PRESSURE_MIN_SPEEDUP_MULTIPLIER)
+            progress = min(1.0, 1.0 - ratio / speedup_start)
+            return 1.0 - progress * (1.0 - min_speedup)
         return 1.0
+
+    def _pacing_tunable(self, name: str, default: float) -> float:
+        """Tier 5 B6.3 closed this gap, v1.34.214: `TunableRegistry`
+        held these three pacing constants as real, adjustable `Tunable`
+        entries since v1.34.168, but `_maybe_advance_escalation_ladder`/
+        `_llm_pressure_interval_multiplier` read the flat module
+        constants directly, so adjusting the registry entry (manually,
+        or from a future controller) was a genuine no-op. Every call
+        site above now reads through here instead. `default` (the
+        module constant) is the fallback only if the tunable is somehow
+        unregistered -- `register_llm_pacing_tunables` always registers
+        it in `__init__`, so this should never trigger in practice."""
+        try:
+            return float(self._tuning_registry.get(name).value)
+        except KeyError:
+            return default
+
+    _DORMANCY_AGGRESSIVENESS_MULTIPLIER = {"low": 2.0, "normal": 1.0, "high": 0.5}
+
+    def _dormancy_idle_threshold(self, base_threshold: int) -> int:
+        """Tier 5 B7.3 closed this gap, v1.34.214: `select_strategy`'s
+        `dormancy_aggressiveness` hint ("low"/"normal"/"high") has been
+        computed every `MachineProfile` refresh since v1.34.173 but was
+        surfaced only in diagnostics, consumed nowhere. Every real B4.2
+        dormancy candidate's own idle-checks threshold (institutions/
+        ideas/traditions/settlements — all currently a flat 3) now
+        scales through here: "high" (memory pressure, swap, thermal
+        throttling, or genuinely modest hardware) sleeps an idle entity
+        roughly twice as fast, "low" (plenty of headroom) waits roughly
+        twice as long before narrowing Mind-layer attention, "normal"
+        (or no strategy read yet) reproduces the exact original flat
+        value. Never below 1 -- a threshold of 0 would sleep on the
+        very first idle check, which is a qualitatively different
+        (and untested) behavior from "faster," not just "more
+        aggressive." Real dormancy semantics (the ACTIVE/DROWSY/
+        DORMANT/ARCHIVED state machine, the lossless elapsed-tick
+        wake contract) are completely untouched -- this only scales
+        how quickly something is considered idle enough to narrow
+        attention on, never whether that's safe to do."""
+        if self._last_strategy is None:
+            return base_threshold
+        multiplier = self._DORMANCY_AGGRESSIVENESS_MULTIPLIER.get(
+            self._last_strategy.dormancy_aggressiveness, 1.0,
+        )
+        return max(1, round(base_threshold * multiplier))
+
+    def _effective_emergence_log_cap(self) -> int:
+        """Tier 5 B7.3 closed this gap, v1.34.214: `select_strategy`'s
+        `cache_size_hint` ("small"/"normal"/"large") has been computed
+        every `MachineProfile` refresh since v1.34.173 but was
+        surfaced only in diagnostics, consumed nowhere. Scales `World.
+        emergence_log`'s own eviction cap (`EMERGENCE_LOG_MAX_STORED`,
+        flat 500) -- a genuinely memory-scaled knob: modest hardware
+        (or one under measured memory/swap/thermal pressure, which
+        `select_strategy` already folds into a smaller cache_size_hint)
+        keeps less raw emergence-log history resident before B12's
+        `_emergence_compression` condenses the overflow, a well-
+        provisioned host keeps more. "normal" (or no strategy read
+        yet) reproduces the exact original flat cap. Never below 50 --
+        the ladder's own RAW-stage threshold is `EMERGENCE_LOG_MAX_
+        STORED // 5`, so a cap much smaller than that would make
+        B12's own batching math degenerate."""
+        if self._last_strategy is None:
+            return EMERGENCE_LOG_MAX_STORED
+        cache = self._last_strategy.cache_size_hint
+        if cache == "small":
+            return max(50, EMERGENCE_LOG_MAX_STORED // 2)
+        if cache == "large":
+            return EMERGENCE_LOG_MAX_STORED * 2
+        return EMERGENCE_LOG_MAX_STORED
 
     def llama_server_restarting(self) -> bool:
         """True while `config.llm_restart_sentinel_path` exists on disk —
@@ -9420,7 +9501,7 @@ class SimulationEngine:
                     continue
                 idle = self._institution_idle_checks.get(dict_key, 0) + 1
                 self._institution_idle_checks[dict_key] = idle
-                if idle >= INSTITUTION_DORMANCY_IDLE_CHECKS_THRESHOLD:
+                if idle >= self._dormancy_idle_threshold(INSTITUTION_DORMANCY_IDLE_CHECKS_THRESHOLD):
                     self._institution_dormancy.sleep(key, self.world.clock.tick_count)
         # An institution that's gone (settlement/institution pruned)
         # leaves no trace to clean up beyond its own small dict entries
@@ -9470,7 +9551,7 @@ class SimulationEngine:
                 continue
             idle = self._idea_idle_checks.get(concept.id, 0) + 1
             self._idea_idle_checks[concept.id] = idle
-            if idle >= IDEA_DORMANCY_IDLE_CHECKS_THRESHOLD:
+            if idle >= self._dormancy_idle_threshold(IDEA_DORMANCY_IDLE_CHECKS_THRESHOLD):
                 self._idea_dormancy.sleep(key, self.world.clock.tick_count)
         # A concept that left `proposed`/`spreading` (established,
         # abandoned, retired) is no longer tracked — bounded by the same
@@ -9518,7 +9599,7 @@ class SimulationEngine:
                     continue
                 idle = self._tradition_idle_checks.get(key, 0) + 1
                 self._tradition_idle_checks[key] = idle
-                if idle >= TRADITION_DORMANCY_IDLE_CHECKS_THRESHOLD:
+                if idle >= self._dormancy_idle_threshold(TRADITION_DORMANCY_IDLE_CHECKS_THRESHOLD):
                     self._tradition_dormancy.sleep(key, self.world.clock.tick_count)
         # A tradition whose settlement was renamed/unfounded, or that no
         # longer appears in `Settlement.traditions` at all, drops out —
@@ -9576,7 +9657,7 @@ class SimulationEngine:
                 continue
             idle = self._settlement_idle_checks.get(settlement.id, 0) + 1
             self._settlement_idle_checks[settlement.id] = idle
-            if idle >= SETTLEMENT_DORMANCY_IDLE_CHECKS_THRESHOLD:
+            if idle >= self._dormancy_idle_threshold(SETTLEMENT_DORMANCY_IDLE_CHECKS_THRESHOLD):
                 self._settlement_dormancy.sleep(key, self.world.clock.tick_count)
         # A settlement that lost its name (shouldn't happen in practice,
         # settlements are never unnamed once named) drops out — bounded
@@ -13826,9 +13907,10 @@ class SimulationEngine:
         )
         self.world.next_emergence_id += 1
         self.world.emergence_log.append(observation)
-        if len(self.world.emergence_log) > EMERGENCE_LOG_MAX_STORED:
-            evicted = self.world.emergence_log[:-EMERGENCE_LOG_MAX_STORED]
-            self.world.emergence_log = self.world.emergence_log[-EMERGENCE_LOG_MAX_STORED:]
+        cap = self._effective_emergence_log_cap()
+        if len(self.world.emergence_log) > cap:
+            evicted = self.world.emergence_log[:-cap]
+            self.world.emergence_log = self.world.emergence_log[-cap:]
             tick = self.world.clock.tick_count
             for entry in evicted:
                 self._emergence_compression.ingest(entry, tick)
@@ -15555,10 +15637,21 @@ class SimulationEngine:
             # on every non-month_end tick, `ran` only on month_end).
             # On-demand only (full_diagnostics, not the per-tick
             # snapshot) — cheap, but no reason to compute it every tick.
+            # Tier 5 B5.3 closed this gap, v1.34.214: this used to
+            # expose only `institution_dormancy` (the one scheduler
+            # that existed when the panel first shipped), with the
+            # method's own docstring flagging every other real
+            # scheduler as unexposed. `_RUNTIME_SCHEDULED_JOB_
+            # SCHEDULERS` already names all of them (one dedicated
+            # `Scheduler` per B0.3-migrated job, per that migration's
+            # own no-shared-registry design) — this now reports every
+            # one, keyed by job method name, each a real, cheap,
+            # read-only `runtime_diagnostics_report` call (no new
+            # instrumentation, same already-tracked TaskMetrics/
+            # SubsystemBudget/TickTrace state every call reads).
             "runtime_diagnostics": {
-                "institution_dormancy": runtime_diagnostics_report(
-                    self._runtime_scheduler_institution_dormancy,
-                ),
+                job_name: runtime_diagnostics_report(getattr(self, scheduler_attr))
+                for job_name, scheduler_attr in sorted(self._RUNTIME_SCHEDULED_JOB_SCHEDULERS.items())
             },
             # Tier 5 B7's real control point, cheap "next tier intel"
             # bonus (same batch): the real `HostProbe` reading

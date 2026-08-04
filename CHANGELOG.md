@@ -4,6 +4,68 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.215] — Phase 0 shipped, HearthBench added to the build sequence, roadmap decluttered
+
+Explicit user instruction: "Yes full picture in one place and cleanup
+the roadmap as it looks very cluttered and long. Also ship phase 0."
+Three independent pieces, one batch.
+
+**Phase 0 shipped.** Three of the four originally-scoped cheap Part B
+gaps wired for real; the fourth investigated and honestly reclassified
+rather than forced. `select_strategy`'s `dormancy_aggressiveness` hint
+now scales `SimulationEngine._dormancy_idle_threshold`, applied at all
+four real B4.2 dormancy candidates' idle-checks thresholds
+(institutions/ideas/traditions/settlements). `cache_size_hint` now
+scales `SimulationEngine._effective_emergence_log_cap`, applied at
+`World.emergence_log`'s own eviction cap. `worker_count_hint` was
+investigated and confirmed to have no real consumer possible in this
+codebase today (B0's prime invariant bans real thread/process pools in
+gameplay code, and the one real async concurrency knob is `llm_max_
+concurrent_hint`'s own territory) — documented directly on `Strategy`'s
+docstring rather than silently left to look unwired. `TunableRegistry`'s
+three pacing constants (`llm_pressure_slowdown_start_ratio`/`speedup_
+start_ratio`/`min_speedup_multiplier`) are now genuinely live via a new
+`SimulationEngine._pacing_tunable` helper, closing B6.3's own "metadata
+only" gap. `full_diagnostics()['runtime_diagnostics']` now reports
+every real B0.3-migrated scheduler (~56 entries), not just `institution_
+dormancy`. `B14.3`'s `batch_size_for_storage` was investigated and found
+to need a real batched-write mechanism first (the snapshot writer is
+still one `INSERT` per row) — honestly moved to the roadmap's
+"remaining independent Part B cleanup" list rather than wired to a fake
+consumer.
+
+New `scripts/verify_phase0_runtime_hints.py` (23 checks, all pass,
+production-path). Verified: `pyflakes` clean; the full existing
+`verify_*.py` regression sweep re-run clean; `scripts/verify_replay_
+hash.py` (4000 ticks, seed 777, `--in-process`) MATCH; `scripts/verify_
+native_soak.py` MATCH. No native module touched.
+
+**HearthBench added to the "full picture."** The dependency-ordered
+build sequence filed in v1.34.214 covered Part B (Adaptive Runtime) and
+Tier 7 (HCA) but omitted HearthBench (Tier 5 Part A) entirely — a real
+gap, since `B15.5` above depends on a HearthBench runner existing. New
+parallel-track section in `docs/ROADMAP-2026-07-REMAINING.md`: only
+`A0`/`A1.1`/`A1.2` shipped; the remaining 11 steps (`A2` model adapter
+through `A13` CI regression guard) ordered internally, `A4`'s scoring
+decision named as the real fork point everything downstream waits on.
+
+**Roadmap decluttered.** Explicit user complaint ("looks very
+cluttered and long"), previously flagged unresolved at v1.34.212.
+`docs/ROADMAP-2026-07-REMAINING.md`'s own "Priority ordering" section
+carried a ~1,800-line verbatim duplicate of Tier 0/Tier 0.5's full
+turn-by-turn slice history — already fully covered, in better-
+consolidated form, by CLAUDE.md's own "Current state" log, and Tier 0
+itself has been closed/reclassified to ongoing opportunistic
+maintenance since v1.34.148 (no longer blocks anything, so a full
+slice-by-slice history no longer earns its place in a section whose
+own stated purpose is ranking, not detail). Collapsed to two short
+paragraphs pointing at CLAUDE.md. File size: 6,031 -> 4,265 lines
+before this pass's HearthBench/Phase-0 additions (~29% smaller); every
+other section (the A1-A25/B1-B9/C1-C5 per-item technical detail, the
+C++ porting backlog, the standing-discipline/scope-trim notes) was
+checked and left intact — that content is substantive design reference,
+not duplicate history, and cutting it would lose real information.
+
 ## [1.34.214] — Docs: dependency-ordered Adaptive Runtime + HCA build sequence
 
 Explicit user request: "push this to roadmap, proper sequence of
