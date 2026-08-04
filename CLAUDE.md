@@ -742,6 +742,66 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.224)
+
+Explicit user instruction: "Start B2 and any parallel task of your
+choice with most importance" — two independent pieces, one batch.
+
+**B2.** `GlobalWorkspace.arbitrate()` (`hearthmind/cognition/
+workspace.py`) now weights every bid's raw score by a real,
+deliberately UNBOUNDED staleness gain before comparing
+(`STALENESS_GAIN_PER_CYCLE = 0.15`): a `subject` that keeps bidding and
+losing gets its effective score multiplied by an ever-growing `(1 +
+0.15 * cycles_stale)`, so it always eventually outscores a merely-
+higher-raw-score rival, however large the gap — "nothing starves on
+merit," the roadmap's own framing for B2 ("the *primary* mechanism is
+competitive... B2.2's bounded-deferral floor is kept only as a hard
+backstop beneath it" — B2.2 here is the Adaptive Runtime's own already-
+shipped, untouched priority-class mechanism, a different system).
+Staleness resets to 0 the instant its subject wins; a subject that
+doesn't bid this cycle is neither penalized nor rewarded, its clock
+simply freezes while silent. `Bid.score` itself is never mutated —
+gain is comparison-only. New `GlobalWorkspace.staleness_for(subject)`
+accessor.
+
+New `scripts/verify_b2_starvation_gain.py` (14 checks — a chronically
+9x-outscored real subject eventually wins purely from staleness gain
+within the constant's own reasoned design horizon; reset-on-win and
+resume-from-zero; the gain formula matches hand computation; a 20x gap
+is still overcome; the staleness COUNT itself never caps even after
+500 straight losses; a silent subject's clock freezes rather than
+ticking; `Bid.score` is never mutated; the deterministic tie-break
+still holds with equal staleness on both sides) — all pass, first run
+except two test-design bugs caught and fixed in the script itself
+before shipping (an unbroken 200-cycle loop can't assert staleness is
+0 at the end, since the winner keeps oscillating periodically as
+staleness rebuilds; a "gained score dwarfs a million-times-larger
+rival" assertion was arithmetically wrong for the linear growth formula
+at only 500 cycles), not bugs in the module under test.
+
+**Parallel task, chosen for most importance: a real stale-docs
+finding**, caught while re-reading the roadmap's own consolidated Tier
+7 checklist (the same list this session's own A1/A2/A3/B1 entries live
+in) to scope B2 — `G1`-`G4` were still shown `[ ]` unchecked, even
+though CLAUDE.md has recorded all four as SHIPPED since v1.34.216-.219
+(closing HCA Stage G in full), well before B1 (v1.34.223) landed above
+them in this exact same list. Re-confirmed each is genuinely shipped by
+re-running its own verify script fresh (`verify_ml_specialist.py` 12
+checks, `verify_ml_g2_workload_forecaster.py` 23 checks, `verify_ml_
+g4_genome_evolution.py` 9 checks, `verify_ml_g3_regime_change.py` 8
+checks — all still pass) before correcting the checkboxes with the
+real shipped detail and version numbers.
+
+Verified: the new script (14 checks); `verify_b1_global_workspace.py`
+(17 checks) re-run clean, confirming B2's staleness gain didn't disturb
+B1's own tie-break/broadcast/history behavior; `pyflakes` clean on both
+touched/new files; a full sweep of all 60 `scripts/verify_*.py` found
+zero regressions. No native module or `simulation/engine.py` code path
+touched this pass — no replay-hash/native-soak re-run needed. `B3`
+(broadcast bus replacing B4's ten hand-wired arrows) is the next open
+Stage B item per the dependency-ordered build sequence — resume only
+on future explicit direction.
+
 ## Current state (v1.34.223)
 
 Explicit user instruction: "Start phase 3 B1 and any parallel task of

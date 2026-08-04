@@ -1,27 +1,51 @@
-"""Tier 7 HCA Stage B, B1 (docs/COGNITIVE-ARCHITECTURE-2026-08-02.md
+"""Tier 7 HCA Stage B, B1+B2 (docs/COGNITIVE-ARCHITECTURE-2026-08-02.md
 §3, Layer 3 "The Global Workspace"): the base coalition-bidding/
-arbitration engine everything else in Stage B (B2's competitive
-starvation, B3's real broadcast bus, B4's coalition formation, B5's
-evidence-based scoring, B6's determinism guarantee, B7's learned
-bidding) attaches to. Per the roadmap's own Phase 3 sequencing: "the
-base workspace/arbitration engine must exist (B1) before its later
-refinements can attach to anything."
+arbitration engine everything else in Stage B (B3's real broadcast bus,
+B4's coalition formation, B5's evidence-based scoring, B6's determinism
+guarantee, B7's learned bidding) attaches to. Per the roadmap's own
+Phase 3 sequencing: "the base workspace/arbitration engine must exist
+(B1) before its later refinements can attach to anything."
 
-Scoped to B1's own literal ask only -- "coalition bidding; one
-arbitrated winner per cycle" -- deliberately NOT the full 2026-08-02
-arbitration amendment's seven-factor evidence scoring (B5), coalition
-MERGING of same-subject bids (B4), or learned bid gains (B7); those are
-distinct, later items layered on top of this one, per the doc's own
-explicit sequencing (§3.3's steps 2/3/5 vs. this module's step 1).
-What ships here implements L3's own per-cycle mechanism (§3) for
-steps 1, 4, 5, 6 verbatim: collect bids, pick one winner, broadcast to
-subscribers, log the full competition (winner + every loser). Step 2
-(coalition merge) is a no-op pass-through until B4 exists -- every bid
-competes individually, so a genuinely single-bidder cycle already
-behaves exactly as B4 will special-case it. Step 3's scoring is the
-raw bid score alone until B5's seven-factor formula replaces it. Step
-7 (measure realised value, credit it back to bidders) is B7's own
-later, `learn()`-dependent addition.
+Scoped to B1+B2's own literal ask only -- "coalition bidding; one
+arbitrated winner per cycle" plus "starvation: the *primary* mechanism
+is competitive (unbounded staleness gain)" -- deliberately NOT the full
+2026-08-02 arbitration amendment's seven-factor evidence scoring (B5),
+coalition MERGING of same-subject bids (B4), or learned bid gains (B7);
+those are distinct, later items layered on top of this one, per the
+doc's own explicit sequencing (§3.3's steps 2/3/5 vs. this module's
+step 1). What ships here implements L3's own per-cycle mechanism (§3)
+for steps 1, 4, 5, 6 verbatim: collect bids, pick one winner (now
+staleness-weighted, B2), broadcast to subscribers, log the full
+competition (winner + every loser). Step 2 (coalition merge) is a
+no-op pass-through until B4 exists -- every bid competes individually,
+so a genuinely single-bidder cycle already behaves exactly as B4 will
+special-case it. Step 3's scoring is the raw bid score, staleness-
+gained (B2), until B5's full seven-factor formula replaces it. Step 7
+(measure realised value, credit it back to bidders) is B7's own later,
+`learn()`-dependent addition.
+
+**B2's staleness gain, the roadmap's own framing:** "the *primary*
+mechanism is competitive (unbounded staleness gain); B2.2's bounded-
+deferral floor is kept only as a hard backstop beneath it." B2.2 here
+means the Adaptive Runtime's OWN already-shipped bounded-deferral
+priority classes (`simulation/scheduler.py`'s `PriorityClass`/
+`DEFAULT_MAX_DEFERRALS`) -- an entirely separate, untouched mechanism;
+this module doesn't call into it. What ships here is the *primary*
+guarantee referenced above it: a `subject` that keeps bidding and
+losing has its effective score multiplied by an ever-growing,
+deliberately UNBOUNDED gain (`STALENESS_GAIN_PER_CYCLE`), so it always
+eventually outscores a merely-higher-raw-score rival, no matter how
+large the gap -- "nothing starves on merit" (the HCA doc's own phrase,
+CLAUDE.md's HCA section). The gain resets to zero the moment its
+subject wins; it only accrues for a subject that actually competed and
+lost THIS cycle (a subject that submits no bid this cycle is neither
+penalized nor rewarded -- its staleness clock freezes, it doesn't tick
+while absent). Two non-negotiable guardrails from the same HCA
+amendment, both trivially honored by this module's own current scope:
+staleness gain is never learnable (there is no `learn()` hook anywhere
+in this module to make it one), and nothing here credits a bid's
+outcome without it being measured (B7's own later, distinct concern --
+this module never attempts to).
 
 **No RNG anywhere in arbitration** -- a standing HCA rule repeated at
 every later stage (B6 states it as a hard determinism requirement),
@@ -35,7 +59,7 @@ scheduler for cognition" the Adaptive Runtime was always meant to have
 the Mind layer, the same way it already is for the deterministic Body.
 
 **Deliberately NOT wired into any real production LLM call site this
-pass.** B1's own "every LLM call site converted to a bid" is real,
+pass.** B1's/B2's own "every LLM call site converted to a bid" is real,
 large, separate migration work -- this codebase's own A2 finding
 counted ~78 real `_append_emergence`-adjacent call sites, and a
 comparable number of independent `_schedule_llm_job` sites elsewhere,
@@ -102,10 +126,26 @@ bounded, never grows without limit" discipline every other runtime-
 only history in this codebase already holds to (e.g. `Scheduler.
 tick_traces`, `AdaptationHistory`)."""
 
+STALENESS_GAIN_PER_CYCLE = 0.15
+"""B2's own starvation-prevention rate: each consecutive cycle a
+`subject` bids and loses multiplies its NEXT effective score by an
+extra `(1 + STALENESS_GAIN_PER_CYCLE)` -- deliberately unbounded (no
+cap anywhere in this module), so a chronically-losing-but-real subject
+always eventually outscores a rival, however large the raw-score gap,
+rather than merely getting more likely to. 0.15 is a reasoned starting
+point (same "no live archive to tune against yet" honesty every other
+fresh constant in this codebase carries) chosen so a subject scoring
+~9x below a chronic winner overtakes it within roughly 3-4 dozen
+cycles, not 2 (too twitchy, corroboration would never get a fair
+hearing) and not 200+ (too slow to matter against the doc's own
+64k-tick soak horizon) -- re-tune from a real future soak the same way
+every other reasoned-not-measured constant in this codebase already
+is."""
+
 
 class GlobalWorkspace:
-    """L3's own per-cycle mechanism (§3), scoped to B1's literal ask.
-    "One serial channel per domain" (§3.2) -- this module doesn't
+    """L3's own per-cycle mechanism (§3), scoped to B1+B2's literal
+    ask. "One serial channel per domain" (§3.2) -- this module doesn't
     itself enforce domain typing (that's H1's later job); a caller
     wanting per-domain isolation just constructs one `GlobalWorkspace`
     per domain, same as it would construct one per settlement or one
@@ -115,6 +155,7 @@ class GlobalWorkspace:
         self._pending: list[Bid] = []
         self._cycle = 0
         self.history: list[CompetitionRecord] = []
+        self._cycles_stale: dict[str, int] = {}
 
     def submit(self, bid: Bid) -> None:
         """Step 1: collect a bid for the CURRENT cycle. Never resolves
@@ -126,25 +167,51 @@ class GlobalWorkspace:
     def pending_count(self) -> int:
         return len(self._pending)
 
+    def staleness_for(self, subject: str) -> int:
+        """B2's own state, made externally readable for diagnostics/
+        testing without reaching into a private attribute: how many
+        CONSECUTIVE cycles `subject` has bid and lost, with zero wins
+        in between. `0` for a subject that has never bid, just won, or
+        simply hasn't been seen yet -- all three read identically,
+        since none of them is "starved" in the sense this exists to
+        catch."""
+        return self._cycles_stale.get(subject, 0)
+
     def arbitrate(self) -> Bid | None:
         """Steps 4-6: pick exactly one winner among this cycle's
-        pending bids (highest `score`; ties broken by submission
-        order via `max()`'s own stability -- the first-submitted bid
-        among equal scores always wins, never `random.choice`, per the
-        standing "no RNG in arbitration" rule), clear the pending
-        queue for the next cycle, and log the full competition (winner
-        plus every loser). Returns `None` on a genuinely empty cycle --
-        never fabricates a winner just to have one. Does NOT invoke the
-        winner's `resolver` -- that decision belongs to the caller
-        driving this cycle, since resolution may need to be awaited."""
+        pending bids -- highest STALENESS-GAINED score (B2: `bid.score
+        * (1 + STALENESS_GAIN_PER_CYCLE * cycles_stale[bid.subject])`,
+        never the raw score alone); ties broken by submission order via
+        `max()`'s own stability (the first-submitted bid among equal
+        gained scores always wins, never `random.choice`, per the
+        standing "no RNG in arbitration" rule) -- clears the pending
+        queue for the next cycle, and logs the full competition (winner
+        plus every loser, `Bid.score` itself untouched -- gain is
+        applied only for THIS comparison, never written back onto the
+        bid). The winning subject's staleness resets to 0; every real
+        loser's staleness this cycle increments by 1 -- a subject that
+        didn't bid at all this cycle is neither reset nor incremented,
+        its clock simply doesn't run while it's silent. Returns `None`
+        on a genuinely empty cycle -- never fabricates a winner just to
+        have one, and touches no staleness state either. Does NOT
+        invoke the winner's `resolver` -- that decision belongs to the
+        caller driving this cycle, since resolution may need to be
+        awaited."""
         bids = self._pending
         self._pending = []
         self._cycle += 1
         if not bids:
             self._append_history(CompetitionRecord(cycle=self._cycle, winner=None, losers=()))
             return None
-        winner = max(bids, key=lambda b: b.score)
+
+        def _gained_score(b: Bid) -> float:
+            return b.score * (1.0 + STALENESS_GAIN_PER_CYCLE * self._cycles_stale.get(b.subject, 0))
+
+        winner = max(bids, key=_gained_score)
         losers = tuple(b for b in bids if b is not winner)
+        self._cycles_stale[winner.subject] = 0
+        for loser in losers:
+            self._cycles_stale[loser.subject] = self._cycles_stale.get(loser.subject, 0) + 1
         self._append_history(CompetitionRecord(cycle=self._cycle, winner=winner, losers=losers))
         return winner
 

@@ -2044,32 +2044,61 @@ cannot state one does not ship.
   bag-of-words relevance). *Test:* retrieval quality holds on the
   recorder archive while four constants are deleted.
 - [ ] **D2** — declarative/procedural separation made architectural.
-- [ ] **G1** *(§2.5a, added 2026-08-02 — "every subsystem should itself
-  be capable of adaptation")* — the `learn()` interface on the
-  specialist shape, wired to Tier 6 L5's `ReplayBuffer`/`continual_
-  train_mlp`/`passes_shadow_gate` directly (no new learning mechanism).
-  *Test:* a specialist's own prediction error trends down over its
-  lifetime on a stationary synthetic signal, using the real shadow
-  gate, not a mock.
-- [ ] **G2** — wire one real, already-existing L1 specialist to G1 —
-  B8's `WorkloadForecaster` (already a small trained MLP with no
-  continual-retrain loop attached). *Test:* forecast error on held-out
-  real workload data falls after a real `learn()` cycle, and the
-  shadow gate provably rejects a retrain that would have made it
-  worse.
-- [ ] **G3** — "forget obsolete assumptions," made testable: a
-  specialist trained against a pattern that then genuinely stops
-  holding should measurably re-adapt within a bounded, stated-in-
-  advance number of `learn()` cycles, not keep predicting the stale
-  pattern indefinitely. *Test:* a synthetic regime-change scenario —
-  pre-shift error low, post-shift error spikes then falls back down
-  within N cycles.
-- [ ] **G4** — L6 population-level variation for one specialist family
-  (the *phylogeny* half of §2.5a, distinct from G1-G3's *ontogeny*).
-  *Test:* a genome population's mean fitness climbs over generations
-  on a real specialist's own task, using the real `GenomePopulation.
-  evaluate_and_select` against a real L1 consumer (verified in
-  isolation only so far).
+- [x] **G1 — SHIPPED, v1.34.216.** *(§2.5a, added 2026-08-02 — "every
+  subsystem should itself be capable of adaptation")* — `hearthmind/
+  ml/specialist.py`'s `LearningSpecialist`: the `learn()` interface on
+  the specialist shape, wired to Tier 6 L5's `ReplayBuffer`/`continual_
+  train_mlp`/`passes_shadow_gate` directly (no new learning mechanism —
+  real orchestration only, clones the live model before training so
+  the shadow gate has a genuine shadow to compare against, never trains
+  in place). *Test (passed):* a specialist's own held-out loss falls
+  >30% over 8 real `learn()` cycles on a stationary synthetic signal,
+  using the real shadow gate, not a mock; a deliberately-sabotaged
+  retrain is proven rejected (live weights byte-identical before/
+  after) — see `scripts/verify_ml_specialist.py` (12 checks).
+- [x] **G2 — SHIPPED, v1.34.217.** Wires B8's already-trained
+  `WorkloadForecaster` (a small MLP with no retrain loop attached) to
+  G1's real `learn()` cycle: a new daily `SimulationEngine._maybe_
+  tick_workload_forecaster` job samples the forecaster's own real
+  feature vector, resolves each sample into a real `(features,
+  observed_call_volume)` training example against the REAL delta in
+  `CognitionRunner.calls_attempted`, and retrains monthly through
+  `LearningSpecialist.learn` once enough examples are banked. *Test
+  (passed):* a real training example's target matches the real
+  observed delta exactly; the real shadow gate provably REJECTS a
+  deliberately-sabotaged retrain (live weights byte-identical before/
+  after); a real 3000-tick production run through `_tick_once` with
+  the job live in `_TICK_JOBS` never crashes — see `scripts/verify_ml_
+  g2_workload_forecaster.py` (23 checks).
+- [x] **G4 — SHIPPED, v1.34.218.** L6 population-level variation (the
+  *phylogeny* half of §2.5a, distinct from G1-G3's *ontogeny*): new
+  `train_and_score_genome_via_specialist` scores a genome through the
+  EXACT same `learn()` → shadow-gate cycle a live specialist would use,
+  not a parallel bare-SGD evaluation path — fitness is read from the
+  real `candidate_metric` regardless of whether the shadow gate
+  accepted the candidate. *Test (passed):* a real `GenomePopulation`'s
+  mean fitness climbs monotonically across 8 real generations via
+  `evaluate_and_select` against a real "workload_forecaster"-species L1
+  consumer, and a deliberately-sabotaged retrain is genuinely rejected
+  by the real shadow gate — see `scripts/verify_ml_g4_genome_
+  evolution.py` (9 checks).
+- [x] **G3 — SHIPPED, v1.34.219.** "Forget obsolete assumptions," made
+  testable — investigated first rather than building a new mechanism
+  for a problem that might not reproduce: a direct synthetic test (two
+  distinct linear regimes with opposite-signed coefficients, sharing
+  one input range) confirmed G1's already-shipped shadow gate ALREADY
+  re-adapts correctly, since it always compares a candidate against a
+  holdout drawn from the world as it is NOW, never a stale regime — no
+  new forgetting mechanism was invented. The one real gap found: no
+  specialist exposed its own prediction-error trace over time (needed
+  by E5's future learning-curve panel) — new bounded `LearningSpecialist
+  .error_history` closes it. *Test (passed):* a real specialist reaches
+  a genuine low steady-state on regime A over 6 real `learn()` cycles;
+  the very first post-shift cycle on regime B genuinely spikes error
+  past 3x the pre-shift floor; it falls back within the stated-in-
+  advance bound of 15 cycles (recovered at real cycle 14) — see
+  `scripts/verify_ml_g3_regime_change.py` (8 checks). **This closes
+  Tier 7 HCA Stage G in full** (`G1`→`G2`→`G4`→`G3`).
 - [ ] **H1** *(§3.2, added 2026-08-02; depends on Stage B for the
   workspace and Stage G for `learn()`)* — cognitive domains as a real,
   mechanically-enforced type: `WORLD`/`MACHINE`/`OBSERVER` on every
