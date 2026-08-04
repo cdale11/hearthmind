@@ -99,7 +99,7 @@ from hearthmind.world import spatial_memory
 from hearthmind.world import culture_aggregate
 from hearthmind.cognition import attention
 from hearthmind.cognition.pillar import make_message
-from hearthmind.world.disasters import GOVERNOR_TUNING_BAND, WILDFIRE_CHANCE_PER_WEEK
+from hearthmind.world.disasters import FLOOD_PRESSURE_THRESHOLD, GOVERNOR_TUNING_BAND, HEATWAVE_PRESSURE_THRESHOLD, WILDFIRE_CHANCE_PER_WEEK
 from hearthmind.world.terrain_evolution import REFOREST_MIN_FALLOW_WEEKS
 from hearthmind.world.wildlife import (
     HARDINESS_VARIANT_BUMP, MAX_SPECIES_VARIANTS_STORED, SpeciesVariant, WILDLIFE_SEARCH_RADIUS,
@@ -113,7 +113,10 @@ from hearthmind.simulation.scheduler import Scheduler, SubsystemBudget
 from hearthmind.simulation.tuning import BangBangController, SafetyClass, TunableRegistry, register_llm_pacing_tunables
 from hearthmind.simulation.runtime_diagnostics import runtime_diagnostics_report
 from hearthmind.simulation.hardware_profile import GoodCitizenPolicy, HostProbe, MachineProfile, host_fingerprint, select_strategy
-from hearthmind.simulation.forecasting import is_quiet_window
+from hearthmind.simulation.forecasting import (
+    ForecastAccuracyTracker, WorkloadForecaster, is_quiet_window, make_training_example,
+)
+from hearthmind.ml.specialist import LearningSpecialist
 from hearthmind.simulation.persistence_scheduling import SnapshotPolicy, SnapshotScheduler
 from hearthmind.simulation.escalation import CognitionBudget, EscalationLadder, Rung
 from hearthmind.llm.client import build_llm_client, fetch_llama_server_metrics
@@ -1136,6 +1139,48 @@ ADAPTIVE_TUNING_LOG_MAX = 200
 log` — same cap-and-append discipline as every other unbounded-growth-
 prone list in this codebase (traditions/inventions/events/etc.)."""
 
+WORKLOAD_REPLAY_CAPACITY = 300
+"""Tier 7 HCA G2: the `LearningSpecialist` wrapping B8.1/L3.2's
+`WorkloadForecaster` rehearses this many past real (features, observed
+call volume) examples alongside each new batch — same reservoir-sample
+sizing order of magnitude as every other `ReplayBuffer` this codebase
+constructs."""
+
+WORKLOAD_CHECKPOINT_CAPACITY = 10
+"""Bounded `CheckpointHistory` size for the workload forecaster's
+`LearningSpecialist` — small since a rollback target rarely needs to
+reach further back than a few accepted retrains."""
+
+WORKLOAD_SAMPLE_HORIZON_DAYS = 1
+"""How long after sampling a real feature snapshot before it's paired
+with the REAL observed call-volume delta since then — one day, matching
+this forecaster's own "near-term" framing (B8.1's docstring)."""
+
+WORKLOAD_PENDING_SAMPLES_MAX = 40
+"""Bound on in-flight (sampled, not yet resolved) feature snapshots —
+generously above `WORKLOAD_SAMPLE_HORIZON_DAYS` days' worth of daily
+samples, never meant to actually fill up in normal operation."""
+
+WORKLOAD_TRAINING_EXAMPLES_MAX = 200
+"""Bound on accumulated-since-last-retrain training examples — oldest
+evicted first, same cap-and-append discipline as every other unbounded-
+growth-prone list in this codebase."""
+
+WORKLOAD_MIN_EXAMPLES_TO_RETRAIN = 20
+"""A monthly retrain attempt is skipped entirely below this many
+accumulated real examples — real month-boundary evidence, never a
+guess extrapolated from a handful of samples."""
+
+WORKLOAD_HOLDOUT_FRACTION = 0.3
+"""Fraction of this cycle's accumulated examples held out (never
+trained on) to genuinely shadow-gate the retrained candidate against —
+see `LearningSpecialist.learn`."""
+
+WORKLOAD_LEARN_LOG_MAX = 24
+"""Bounded, newest-first-readable log of every real workload-forecaster
+retrain attempt (`SimulationEngine._workload_learn_log`) — dev-console/
+diagnostics visibility, same shape as `_adaptive_tuning_log`."""
+
 MACHINE_PROFILE_FILENAME = "machine_profile.json"
 """Tier 5 B7.2's real control point (explicit user directive: "B8 and
 MachineProfile persistence... flagged for later" — closing that flag).
@@ -2054,6 +2099,42 @@ class SimulationEngine:
         logged, same "only what actually happened" discipline as
         `World.self_tuning_actions`) — dev-console-visible via `full_
         diagnostics()`'s `adaptive_tuning_log_recent`."""
+
+        # Tier 7 HCA G2 (explicit user instruction: "Build G2"): B8.1/
+        # L3.2's WorkloadForecaster gets the real continual-retrain
+        # cadence its own docstring named as still open, via G1's
+        # LearningSpecialist. `_workload_forecaster.model` and `_
+        # workload_specialist.model` are kept in sync explicitly after
+        # every `learn()` call (see `_maybe_tick_workload_forecaster`)
+        # rather than sharing one mutable object, since `learn()` may
+        # swap `self.model` to a whole new MLP instance on acceptance.
+        self._workload_forecaster = WorkloadForecaster.new(seed=config.seed)
+        self._workload_specialist = LearningSpecialist(
+            self._workload_forecaster.model,
+            replay_capacity=WORKLOAD_REPLAY_CAPACITY, checkpoint_capacity=WORKLOAD_CHECKPOINT_CAPACITY,
+        )
+        self._workload_accuracy_tracker = ForecastAccuracyTracker()
+        self._cognition_calls_today = 0
+        """Real per-day count of genuine LLM cognition calls (the
+        `_run_cognition` dispatch point, not the deterministic-fallback
+        path) — one of `WORKLOAD_FORECAST_SCHEMA`'s own named input
+        features, reset daily by `_maybe_tick_workload_forecaster`."""
+        self._dialogue_calls_today = 0
+        """Same real per-day counting as `_cognition_calls_today`, for
+        `_run_dialogue`/`_run_voice_dialogue`'s dispatch points."""
+        self._workload_pending_samples: list = []
+        """In-flight (sampled, not yet resolved) `(tick, features,
+        predicted, calls_attempted_snapshot)` tuples — resolved into a
+        real training example once `WORKLOAD_SAMPLE_HORIZON_DAYS` has
+        genuinely elapsed, bounded at `WORKLOAD_PENDING_SAMPLES_MAX`."""
+        self._workload_training_examples: list = []
+        """Real `(features, observed_call_volume)` examples accumulated
+        since the last retrain attempt, bounded at `WORKLOAD_TRAINING_
+        EXAMPLES_MAX` (oldest evicted)."""
+        self._workload_learn_log: deque[dict] = deque(maxlen=WORKLOAD_LEARN_LOG_MAX)
+        """Bounded, append-only record of every real monthly retrain
+        attempt (accepted or rejected) — dev-console-visible via `full_
+        diagnostics()`."""
 
         # Tier 5 B7.2 + B8's real control points (explicit user
         # directive: "B8 and MachineProfile persistence and select_
@@ -3946,6 +4027,93 @@ class SimulationEngine:
             except OSError:
                 pass
 
+    def _maybe_tick_workload_forecaster(self, events: list[str]) -> None:
+        """Tier 7 HCA G2 (explicit user instruction: "Build G2"): gives
+        B8.1/L3.2's `WorkloadForecaster` the real continual-retrain
+        cadence its own docstring named as still open, using G1's
+        `LearningSpecialist`. Closes three previously-separate flagged
+        gaps at once (Part B's B8.1-B8.3, Tier 6's L3.2, HCA's own G2
+        test) — all three name the identical unwired model.
+
+        Two real-state-driven daily steps, then a monthly retrain:
+
+        1. Sample the forecaster's own real feature vector (current
+           backlog, real per-day dialogue/cognition call counts, a
+           real disaster-pressure flag reusing `FLOOD_PRESSURE_
+           THRESHOLD`/`HEATWAVE_PRESSURE_THRESHOLD`, a real recent-
+           festival flag from `last_life_events`, real season) plus a
+           snapshot of the real cumulative `calls_attempted` counter —
+           remembered until `WORKLOAD_SAMPLE_HORIZON_DAYS` later.
+        2. Resolve any sample whose horizon has passed into a real
+           `(features, observed_call_volume)` training example —
+           `observed_call_volume` is the REAL delta in `calls_
+           attempted` over that exact window, never a guess — and score
+           it against the real `ForecastAccuracyTracker`.
+
+        Retraining itself (monthly, once `WORKLOAD_MIN_EXAMPLES_TO_
+        RETRAIN` real examples have accumulated) goes entirely through
+        `LearningSpecialist.learn` — G1's real shadow-gated loop, not a
+        second training path. `_workload_forecaster.model` is kept in
+        sync with `_workload_specialist.model` explicitly after every
+        attempt, since `learn()` may swap in a whole new `MLP` object
+        on acceptance rather than mutating the old one."""
+        if "day_end" not in events:
+            return
+        runner = self._cognition_runner
+        tick = self.world.clock.tick_count
+        disasters = self.world.disasters
+        features = {
+            "current_backlog": float(self._effective_backlog()),
+            "recent_dialogue_rate": float(self._dialogue_calls_today),
+            "recent_cognition_rate": float(self._cognition_calls_today),
+            "active_disaster": 1.0 if (
+                disasters.flood_pressure >= FLOOD_PRESSURE_THRESHOLD
+                or disasters.heat_pressure >= HEATWAVE_PRESSURE_THRESHOLD
+            ) else 0.0,
+            "festival_scheduled": 1.0 if any(
+                category == "festival" for category, _ in self.world.last_life_events
+            ) else 0.0,
+            "season": self.world.clock.season,
+        }
+        predicted = self._workload_forecaster.predict(features)
+        self._workload_pending_samples.append((tick, features, predicted, runner.calls_attempted))
+        if len(self._workload_pending_samples) > WORKLOAD_PENDING_SAMPLES_MAX:
+            self._workload_pending_samples = self._workload_pending_samples[-WORKLOAD_PENDING_SAMPLES_MAX:]
+        self._dialogue_calls_today = 0
+        self._cognition_calls_today = 0
+
+        ticks_per_day = self.world.config.minutes_per_day // self.world.config.sim_minutes_per_tick
+        horizon_ticks = WORKLOAD_SAMPLE_HORIZON_DAYS * ticks_per_day
+        still_pending = []
+        for sample_tick, sample_features, sample_predicted, sample_calls in self._workload_pending_samples:
+            if tick - sample_tick < horizon_ticks:
+                still_pending.append((sample_tick, sample_features, sample_predicted, sample_calls))
+                continue
+            observed = float(runner.calls_attempted - sample_calls)
+            self._workload_accuracy_tracker.record(sample_predicted, observed)
+            self._workload_training_examples.append(make_training_example(sample_features, observed))
+        self._workload_pending_samples = still_pending
+        if len(self._workload_training_examples) > WORKLOAD_TRAINING_EXAMPLES_MAX:
+            self._workload_training_examples = self._workload_training_examples[-WORKLOAD_TRAINING_EXAMPLES_MAX:]
+
+        if "month_end" not in events:
+            return
+        if len(self._workload_training_examples) < WORKLOAD_MIN_EXAMPLES_TO_RETRAIN:
+            return
+        examples = list(self._workload_training_examples)
+        n_holdout = max(1, int(len(examples) * WORKLOAD_HOLDOUT_FRACTION))
+        holdout, new_examples = examples[-n_holdout:], examples[:-n_holdout]
+        if not new_examples:
+            return
+        result = self._workload_specialist.learn(new_examples, holdout, tick)
+        self._workload_forecaster.model = self._workload_specialist.model
+        self._workload_learn_log.append({
+            "tick": tick, "accepted": result.accepted,
+            "candidate_metric": result.candidate_metric, "baseline_metric": result.baseline_metric,
+            "reason": result.reason, "examples_used": len(new_examples), "holdout_size": len(holdout),
+        })
+        self._workload_training_examples = []
+
     def _maybe_advance_escalation_ladder(self, events: list[str]) -> None:
         """Tier 5 B15.3/B15.4's real control point (explicit user
         instruction: "continue B and try closing it this turn").
@@ -4674,6 +4842,7 @@ class SimulationEngine:
         ("_maybe_refresh_machine_profile", _JOB_EVENTS),
         ("_maybe_advance_escalation_ladder", _JOB_EVENTS),
         ("_maybe_auto_llm_concurrency_hypothesis", _JOB_EVENTS),
+        ("_maybe_tick_workload_forecaster", _JOB_EVENTS),
     )
 
     # B0.3's real migrations: `_TICK_JOBS` entries named here are NOT
@@ -5466,6 +5635,7 @@ class SimulationEngine:
             fallback_dict = fallback_goal(
                 hunger, energy, agent_id, traits, emotions, plan_intent, materials_critical,
             )
+            self._cognition_calls_today += 1  # Tier 7 G2's real workload-forecaster feature
             result, used_fallback, raw_completion, diag = await self._cognition_runner.run(
                 prompt, SYSTEM_PROMPT, fallback=lambda: fallback_dict,
                 json_schema=schema_for_task("cognition"),
@@ -6246,6 +6416,7 @@ class SimulationEngine:
         what was said."""
         scheduled_tick = self.world.clock.tick_count
         call_start = time.perf_counter()
+        self._dialogue_calls_today += 1  # Tier 7 G2's real workload-forecaster feature
         result, used_fallback, raw_completion, diag = await self._cognition_runner.run(
             prompt, dialogue.VOICE_SYSTEM_PROMPT, fallback=lambda: fallback,
             json_schema=schema_for_task("voice_dialogue"),
@@ -6293,6 +6464,7 @@ class SimulationEngine:
     ) -> None:
         scheduled_tick = self.world.clock.tick_count
         call_start = time.perf_counter()
+        self._dialogue_calls_today += 1  # Tier 7 G2's real workload-forecaster feature
         result, used_fallback, raw_completion, diag = await self._cognition_runner.run(
             prompt, dialogue.SYSTEM_PROMPT, fallback=lambda: fallback,
             json_schema=schema_for_task("dialogue"),
@@ -15439,6 +15611,19 @@ class SimulationEngine:
             # spec's item): every real llm_max_concurrent change
             # `_maybe_tune_llm_concurrency` has made, never a no-op.
             "adaptive_tuning_log_recent": list(self._adaptive_tuning_log)[-10:],
+            # Tier 7 HCA G2: B8.1/L3.2's WorkloadForecaster's real
+            # continual-retrain state — accuracy against the naive
+            # "predict the mean" baseline, how many real examples are
+            # banked toward the next retrain, and every real learn()
+            # attempt's outcome (accepted/rejected, never a no-op).
+            "workload_forecaster": {
+                "mean_absolute_error": self._workload_accuracy_tracker.mean_absolute_error(),
+                "naive_baseline_mae": self._workload_accuracy_tracker.naive_baseline_mae(),
+                "reliability_weight": round(self._workload_accuracy_tracker.reliability_weight(), 4),
+                "pending_samples": len(self._workload_pending_samples),
+                "training_examples_banked": len(self._workload_training_examples),
+                "learn_log_recent": list(self._workload_learn_log)[-10:],
+            },
             # Tier 5 B2's real control point (see `BROADCAST_SUBSYSTEM_
             # BUDGET_SECONDS`'s docstring): real, never-silently-reset
             # overrun debt for the one job B2 actually schedules today —

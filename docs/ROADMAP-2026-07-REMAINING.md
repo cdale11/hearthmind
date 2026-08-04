@@ -2197,12 +2197,58 @@ off multiple tiers at once:
    `simulation/engine.py` code path touched — same "pure offline ML
    substrate" scope class as every other Tier 6 L-layer shipment, no
    replay-hash/native-soak re-run needed.
-2. `G2` — wire the FIRST real specialist to `G1`: `B8.1`/`L3.2`'s
-   already-trained `WorkloadForecaster`. **This single item closes
-   three previously-separate flagged gaps at once** — Part B's B8.1-
-   B8.3 ("not wired into any real cadence"), Tier 6's L3.2 ("not wired
-   into a live cadence"), and HCA's own G2 test case — because all
-   three names point at the same unwired model.
+2. `G2` — **SHIPPED, v1.34.217.** Wires the FIRST real specialist to
+   `G1`: `B8.1`/`L3.2`'s already-trained `WorkloadForecaster`. **This
+   single item closes three previously-separate flagged gaps at once**
+   — Part B's B8.1-B8.3 ("not wired into any real cadence"), Tier 6's
+   L3.2 ("not wired into a live cadence"), and HCA's own G2 test case —
+   because all three names point at the same unwired model. New
+   `SimulationEngine._maybe_tick_workload_forecaster` (daily, real
+   `_TICK_JOBS` entry): samples the forecaster's own real feature
+   vector every day (current backlog via `_effective_backlog()`, real
+   per-day dialogue/cognition call counts via two new lightweight
+   counters incremented at the three genuine LLM dispatch points —
+   `_run_cognition`/`_run_dialogue`/`_run_voice_dialogue` — a real
+   disaster-pressure flag reusing `FLOOD_PRESSURE_THRESHOLD`/
+   `HEATWAVE_PRESSURE_THRESHOLD`, a real recent-festival flag from
+   `last_life_events`, real season) alongside a snapshot of the real
+   cumulative `CognitionRunner.calls_attempted` counter, then resolves
+   each sample `WORKLOAD_SAMPLE_HORIZON_DAYS` later into a real
+   `(features, observed_call_volume)` training example — the observed
+   value is the REAL delta in `calls_attempted` over that exact window,
+   never a guess — scored against the real `ForecastAccuracyTracker`.
+   Monthly, once `WORKLOAD_MIN_EXAMPLES_TO_RETRAIN` real examples have
+   banked, retraining goes entirely through `LearningSpecialist.learn`
+   — G1's real shadow-gated loop, not a second training path;
+   `_workload_forecaster.model` is explicitly kept in sync with
+   `_workload_specialist.model` after every attempt (`learn()` may
+   swap in a whole new `MLP` object on acceptance, never mutating the
+   old one in place). Every attempt (accepted or rejected) logs to a
+   new bounded `_workload_learn_log`, surfaced via `full_diagnostics()
+   ['workload_forecaster']` alongside the live reliability weight and
+   pending/banked example counts. New `scripts/verify_ml_g2_workload_
+   forecaster.py` (23 checks — G2's own stated test: a real training
+   example's target matches the real observed `calls_attempted` delta
+   exactly; no retrain fires before a real month_end or with too few
+   banked examples; a real month_end WITH enough examples fires a real
+   `learn()` cycle through `LearningSpecialist` with the forecaster's
+   model kept in sync afterward; the real shadow gate provably REJECTS
+   a deliberately-sabotaged retrain — confirmed the live model's
+   weights are byte-identical before/after the rejection; `full_
+   diagnostics()` surfaces real, not placeholder, state; a real
+   3000-tick production run through `_tick_once` with the new job live
+   in `_TICK_JOBS` never crashes and genuinely accumulates real
+   samples/examples) — all pass, two real test-fixture bugs caught and
+   fixed in the script itself before shipping (not bugs in the module
+   under test): the observed-delta check initially applied the call-
+   volume bump BEFORE sampling instead of during the horizon window,
+   which is what the real feature-then-resolve semantics actually
+   measure; the soak check initially called `asyncio.run(eng.
+   _tick_once())` per tick, discarding the event loop each time and
+   crashing `_schedule_llm_job`'s `asyncio.create_task` on the very
+   first real LLM-scheduled job — fixed by driving the whole soak
+   inside one `asyncio.run(...)` call, matching the pattern every
+   sibling multi-tick soak script already uses.
 3. `G4` — `L6`'s population-level variation (phylogeny) for one
    specialist family. Independent of `G2`/`G3` (only needs `L6`, not a
    working `learn()` loop), can genuinely run in parallel with them if
@@ -2375,6 +2421,35 @@ pick up any time, no coupling to HCA):**
   remaining Tier 6 item.
 - `L4.1` — belief-confidence calibration; substrate shipped, needs a
   real settled-hypothesis history from a live archive.
+
+**Parallel, optional track — C++ porting backlog (R5/R6/R7/R8, docs/
+REFACTOR-2026-07.md). Zero dependency on anything above; opportunistic
+by design, not a scoped sequence of named steps like the others.**
+R6's opportunistic-port queue and R7's physical-substrate queue were
+both formally closed (v0.73.3) and the v0.74.2 design pass concluded
+there was, at that point, "no measured-need candidate left" — the
+tick loop is nowhere near CPU-bound (Ollama call latency dominates,
+confirmed since the original v0.63.0 audit), so this track is
+explicitly NOT gated on a performance problem, only picked up when a
+genuinely new same-shape candidate (a per-tick, per-agent/per-tile,
+pure-arithmetic hot loop with no native counterpart yet) is spotted by
+direct inspection — same standing discipline this file's own history
+already uses (module 24, `biology_ticks.cpp`, was found exactly this
+way at v1.34.207: A14's five per-agent scalar-drift passes had shipped
+with no native port at the time and were only noticed on a later
+audit pass). 24 modules shipped as of `biology_ticks.cpp` (v1.34.207);
+every one pairs a pybind11 binding with a pure-Python fallback,
+verified via randomized native-vs-fallback equivalence plus `scripts/
+verify_native_soak.py`'s full-state-hash soak — never one without the
+other. `Agent`/`Settlement`/`Population`'s full object-graph port
+(R8's remaining scope beyond the already-wired `AgentTable`/
+`AgentPositionIndex`) stays the one deliberately-large, not-currently-
+justified item — real future work only on an explicit directive or a
+genuine measured tick-time problem, per the same escalation ladder
+(spatial buckets → numpy → PyPy → only then more C++) the v0.63.0
+audit specified. Same standing convention as every other track here:
+pick up a fresh candidate whenever one is genuinely found by
+inspection, not on a schedule.
 
 **Parallel, optional track — HearthBench (Tier 5 Part A). Zero
 dependency on the numbered phases; a benchmarking/evaluation harness

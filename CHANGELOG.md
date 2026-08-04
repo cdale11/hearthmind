@@ -4,6 +4,76 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.217] — HCA Stage G, G2: WorkloadForecaster gets a real continual-retrain cadence
+
+Explicit user instruction: "Build G2." Wires B8.1/L3.2's `WorkloadForecaster`
+-- a real, trained MLP with no retrain loop attached, per its own long-
+standing "not wired into any real cadence" note -- to G1's `Learning
+Specialist`, closing three previously-separate flagged gaps at once
+(Part B's B8.1-B8.3, Tier 6's L3.2, HCA's own G2 test case all name the
+identical unwired model).
+
+New `SimulationEngine._maybe_tick_workload_forecaster` (daily, a real
+`_TICK_JOBS` entry): samples the forecaster's own real feature vector
+every day -- current backlog (`_effective_backlog()`), real per-day
+dialogue/cognition call counts (two new lightweight counters,
+`_dialogue_calls_today`/`_cognition_calls_today`, incremented at the
+three genuine LLM dispatch points: `_run_cognition`/`_run_dialogue`/
+`_run_voice_dialogue`), a real disaster-pressure flag (reusing
+`FLOOD_PRESSURE_THRESHOLD`/`HEATWAVE_PRESSURE_THRESHOLD`), a real
+recent-festival flag (`last_life_events`), and real season -- alongside
+a snapshot of the real cumulative `CognitionRunner.calls_attempted`
+counter. `WORKLOAD_SAMPLE_HORIZON_DAYS` later, each sample resolves
+into a real `(features, observed_call_volume)` training example: the
+observed value is the REAL delta in `calls_attempted` over that exact
+window, never a guess, scored against the real `ForecastAccuracy
+Tracker`. Monthly, once `WORKLOAD_MIN_EXAMPLES_TO_RETRAIN` real
+examples have banked, retraining goes entirely through `Learning
+Specialist.learn` -- G1's real shadow-gated loop, not a second training
+path. `_workload_forecaster.model` is explicitly kept in sync with
+`_workload_specialist.model` after every attempt, since `learn()` may
+swap in a whole new `MLP` object on acceptance rather than mutating the
+old one in place. Every attempt (accepted or rejected, never a silent
+no-op) logs to a new bounded `_workload_learn_log`, surfaced via
+`full_diagnostics()['workload_forecaster']` alongside the live
+reliability weight and pending/banked example counts.
+
+New `scripts/verify_ml_g2_workload_forecaster.py` (23 checks -- G2's
+own stated test: a real training example's target matches the real
+observed `calls_attempted` delta exactly; no retrain fires before a
+real month_end or with too few banked examples; a real month_end WITH
+enough examples fires a real `learn()` cycle through `Learning
+Specialist` with the forecaster's model kept in sync afterward; the
+real shadow gate provably REJECTS a deliberately-sabotaged retrain --
+confirmed the live model's weights are byte-identical before/after the
+rejection; `full_diagnostics()` surfaces real, not placeholder, state;
+a real 3000-tick production run through `_tick_once` with the new job
+live in `_TICK_JOBS` never crashes and genuinely accumulates real
+samples/examples) -- all pass. Two real test-fixture bugs caught and
+fixed in the script itself before shipping, not bugs in the module
+under test: the observed-delta check initially applied the call-volume
+bump BEFORE sampling instead of during the horizon window (the real
+feature-then-resolve semantics measure volume AFTER the sample, not
+before it); the soak check initially called `asyncio.run(eng.
+_tick_once())` once per tick, discarding the event loop each time and
+crashing `_schedule_llm_job`'s `asyncio.create_task` on the very first
+real LLM-scheduled job -- fixed by driving the whole soak inside one
+`asyncio.run(...)` call, matching every sibling multi-tick soak
+script's existing pattern.
+
+Verified: the new script (23 checks); `pyflakes` clean on `simulation/
+engine.py` (only the six known pre-existing forward-ref findings) and
+the new script; `verify_ml_specialist.py`/`verify_ml_substrate.py`/
+`verify_ml_evolution.py`/`verify_scheduler.py`/`verify_task_graph.py`/
+`verify_runtime_invariant.py`/`verify_dormancy.py`/`verify_tuning.py`/
+`verify_b6_adaptive_concurrency.py`/`verify_b7_hardware_citizenship.py`/
+`verify_b8_predictive_scheduling.py`/`verify_hardware_profile.py`/
+`verify_runtime_diagnostics.py`/`verify_phase0_runtime_hints.py`
+re-run clean; `scripts/verify_replay_hash.py` (4000 ticks, seed 777,
+`--in-process`) -- MATCH, byte-identical (load-bearing this time,
+unlike G1 -- this pass touches `simulation/engine.py`'s own `__init__`
+and tick-dispatch state); `scripts/verify_native_soak.py` -- MATCH.
+
 ## [1.34.216] — HCA Stage G, G1: the learn() interface, wired to Tier 6's L5 substrate
 
 Explicit user instruction: "Start phase 1 G1." Tier 7 HCA's first line
