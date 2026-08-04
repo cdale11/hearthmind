@@ -79,6 +79,21 @@ from dataclasses import dataclass, field
 from hearthmind.world.ca_operators import reaction_diffuse
 from hearthmind.world.terrain import Biome, Tile, classify_with_bias
 
+try:  # C++ porting backlog (docs/ROADMAP-2026-07-REMAINING.md's parallel
+    # track): tick_hydrology/tick_groundwater's full-grid scalar passes,
+    # ported per this module's own docstring's explicit invitation
+    # ("port to C++ once the shape is confirmed live, following soil_
+    # fertility.cpp's precedent"). tick_snowpack/tick_erosion stay pure
+    # Python -- a different, larger risk surface, see the module
+    # docstring above.
+    from hearthmind._native import (
+        hydrology_groundwater_tick as _native_hydrology_groundwater_tick,
+        hydrology_moisture_tick as _native_hydrology_moisture_tick,
+    )
+except ImportError:  # pragma: no cover - native extension not built
+    _native_hydrology_moisture_tick = None
+    _native_hydrology_groundwater_tick = None
+
 MOISTURE_MIN = 0.0
 MOISTURE_MAX = 1.0
 MOISTURE_DEFAULT = 0.35
@@ -291,9 +306,18 @@ def tick_hydrology(
     if width == 0 or height == 0:
         return
 
+    evaporation = MOISTURE_EVAPORATION_BASE + (MOISTURE_EVAPORATION_HEAT_BONUS if season == "summer" else 0.0)
+
+    if _native_hydrology_moisture_tick is not None:
+        elevation = [[tile.elevation for tile in row] for row in terrain]
+        is_water = [[1 if tile.biome in _WATER_BIOMES else 0 for tile in row] for row in terrain]
+        field.moisture = _native_hydrology_moisture_tick(
+            field.moisture, elevation, is_water, precipitation, evaporation,
+        )
+        return
+
     grid = field.moisture
     # Pass 1: precipitation gain + evaporation, land tiles only.
-    evaporation = MOISTURE_EVAPORATION_BASE + (MOISTURE_EVAPORATION_HEAT_BONUS if season == "summer" else 0.0)
     for y in range(height):
         for x in range(width):
             if terrain[y][x].biome in _WATER_BIOMES:
@@ -345,6 +369,11 @@ def tick_groundwater(field: HydrologyField, terrain: list[list[Tile]]) -> None:
     width = len(terrain[0]) if height else 0
     if width == 0 or height == 0:
         return
+
+    if _native_hydrology_groundwater_tick is not None:
+        field.moisture, field.groundwater = _native_hydrology_groundwater_tick(field.moisture, field.groundwater)
+        return
+
     moisture = field.moisture
     ground = field.groundwater
     for y in range(height):

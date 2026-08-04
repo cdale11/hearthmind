@@ -2249,11 +2249,49 @@ off multiple tiers at once:
    first real LLM-scheduled job — fixed by driving the whole soak
    inside one `asyncio.run(...)` call, matching the pattern every
    sibling multi-tick soak script already uses.
-3. `G4` — `L6`'s population-level variation (phylogeny) for one
-   specialist family. Independent of `G2`/`G3` (only needs `L6`, not a
-   working `learn()` loop), can genuinely run in parallel with them if
-   two people/passes are available; sequenced here for narrative
-   continuity with the rest of Stage G.
+3. `G4` — **SHIPPED, v1.34.218.** `L6`'s population-level variation
+   (phylogeny) wired to a real L1 consumer, for the "workload_
+   forecaster" species (the same real specialist family `G2` wired
+   up). New `hearthmind/ml/evolution.py`'s `train_and_score_genome_
+   via_specialist`: unlike the pre-existing `train_and_score_genome`
+   (a bare `train_mlp_sgd` call, a parallel evaluation path never
+   touching `learn()`), this builds a genome-shaped model, wraps it in
+   a real `LearningSpecialist`, and scores the genome through the
+   exact same `learn()` → shadow-gate cycle a live specialist would
+   use — `genome.hyperparameters["replay_fraction"]`/`"epochs"`/
+   `"learning_rate"` map directly onto `learn()`'s own keyword
+   arguments, since those genes were always scoped 1:1 against a real
+   `learn()` call. Fitness is read from the real `candidate_metric`
+   regardless of whether the shadow gate accepted or rejected the
+   candidate (a genome is scored on how well its hyperparameters
+   actually trained, not on whether that training happened to survive
+   gating this one time), with the same NaN-guard discipline `train_
+   and_score_genome` already established for a genuinely diverged
+   candidate. New `scripts/verify_ml_g4_genome_evolution.py` (9
+   checks — G4's own stated test: a real `GenomePopulation`'s mean
+   fitness climbs monotonically across 8 real generations via `evaluate_
+   and_select` against the real L1 consumer above; the genome-scoring
+   path reproduces an identical hand-driven `LearningSpecialist.learn`
+   outcome; a deliberately-sabotaged retrain is genuinely rejected by
+   the real shadow gate with the live model's weights byte-identical
+   before/after; a genuinely NaN-diverged genome degrades to fitness
+   0.0 rather than crashing or fabricating a score; every surviving/
+   bred genome's genes stay within `GENOME_HYPERPARAMETER_BOUNDS`; the
+   pre-existing `train_and_score_genome` path is unaffected) — all
+   pass, one real test-calibration fix made before shipping (not a bug
+   in the module under test): the first sabotage scenario used a
+   target extreme enough to NaN-diverge the candidate's loss outright,
+   which made `candidate_metric > 0.0` an unreliable assertion (`nan >
+   0.0` is `False`) — split into two real, separately-meaningful
+   checks instead: a shadow-gate rejection proof (moderate wrong
+   target) and a NaN-guard proof (the module's own already-documented
+   degrade-to-0.0 behavior, exercised directly with an intentionally
+   diverging target). Verified: the new script (9 checks); `pyflakes`
+   clean; `verify_ml_evolution.py`/`verify_ml_specialist.py`/`verify_
+   ml_substrate.py` re-run clean. No native module, persisted `World`
+   state, or `simulation/engine.py` code path touched — pure offline
+   ML substrate, same scope class as G1, no replay-hash/native-soak
+   re-run needed for this half.
 4. `G3` — "forget obsolete assumptions" under a synthetic regime-
    change test. Needs `G1`/`G2`'s real `learn()` loop to exist first
    (there is nothing to re-adapt without one).
@@ -2437,11 +2475,20 @@ direct inspection — same standing discipline this file's own history
 already uses (module 24, `biology_ticks.cpp`, was found exactly this
 way at v1.34.207: A14's five per-agent scalar-drift passes had shipped
 with no native port at the time and were only noticed on a later
-audit pass). 24 modules shipped as of `biology_ticks.cpp` (v1.34.207);
-every one pairs a pybind11 binding with a pure-Python fallback,
-verified via randomized native-vs-fallback equivalence plus `scripts/
-verify_native_soak.py`'s full-state-hash soak — never one without the
-other. `Agent`/`Settlement`/`Population`'s full object-graph port
+audit pass). 25 modules shipped as of `hydrology_tick.cpp` (v1.34.218
+— A11 hydrology's full-grid `tick_hydrology`/`tick_groundwater`
+moisture/groundwater passes, picked up per that module's own docstring
+explicitly inviting the port "once the shape is confirmed live,
+following soil_fertility.cpp's precedent" — live since v1.13.0.
+Deliberately scoped to those two functions only: `tick_snowpack`
+depends on the still-unported `ca_operators.reaction_diffuse`, and
+`tick_erosion` writes real `Tile`/biome-reclassification objects
+(including the QUARRY-sticky special case) — a materially different,
+larger risk surface, left flagged rather than rushed through in the
+same pass); every one pairs a pybind11 binding with a pure-Python
+fallback, verified via randomized native-vs-fallback equivalence plus
+`scripts/verify_native_soak.py`'s full-state-hash soak — never one
+without the other. `Agent`/`Settlement`/`Population`'s full object-graph port
 (R8's remaining scope beyond the already-wired `AgentTable`/
 `AgentPositionIndex`) stays the one deliberately-large, not-currently-
 justified item — real future work only on an explicit directive or a

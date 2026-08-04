@@ -742,6 +742,86 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.218)
+
+Explicit user instruction: "Start G4 and parallels c++ backlog" — two
+independent pieces, one batch.
+
+**G4.** `hearthmind/ml/evolution.py`'s `GenomePopulation` previously
+scored every genome through `train_and_score_genome`, a bare `train_
+mlp_sgd` call — a parallel evaluation path that never touched G1's
+shipped `LearningSpecialist.learn()`. New `train_and_score_genome_
+via_specialist`: builds a genome-shaped model, wraps it in a real
+`LearningSpecialist`, and scores the genome through the exact same
+`learn()` → shadow-gate cycle a live specialist would use —
+`replay_fraction`/`epochs`/`learning_rate` genes map directly onto
+`learn()`'s own keyword arguments (scoped 1:1 against a real `learn()`
+call from the start, not invented fresh here). Fitness is read from
+the real `candidate_metric` regardless of whether the shadow gate
+accepted or rejected the candidate — a genome is scored on how well
+its hyperparameters actually trained, not on whether that training
+happened to survive gating this one time — with the same NaN-guard
+discipline `train_and_score_genome` already established.
+
+New `scripts/verify_ml_g4_genome_evolution.py` (9 checks — G4's own
+stated test: a real `GenomePopulation`'s mean fitness climbs
+monotonically across 8 real generations via `evaluate_and_select`
+against the new "workload_forecaster"-species L1 consumer above; the
+genome-scoring path reproduces an identical hand-driven `Learning
+Specialist.learn` outcome; a deliberately-sabotaged retrain is
+genuinely rejected by the real shadow gate with the live model's
+weights byte-identical before/after; a genuinely NaN-diverged genome
+degrades to fitness 0.0 rather than crashing or fabricating a score;
+every surviving/bred genome's genes stay within `GENOME_
+HYPERPARAMETER_BOUNDS`; the pre-existing `train_and_score_genome` path
+is unaffected) — all pass. One real test-calibration fix made before
+shipping, not a bug in the module under test: the first sabotage
+scenario used a target extreme enough to NaN-diverge the candidate's
+loss outright, making `candidate_metric > 0.0` an unreliable assertion
+(`nan > 0.0` is `False`) — split into two real, separately-meaningful
+checks: a shadow-gate-rejection proof (a moderate wrong target that
+regresses without diverging) and a NaN-guard proof (the module's own
+already-documented degrade-to-0.0 behavior, exercised directly with an
+intentionally diverging target).
+
+**C++ porting backlog, parallel track.** New `cpp/src/hydrology_
+tick.cpp`: the full-grid scalar passes behind `world/hydrology_
+field.py`'s `tick_hydrology`/`tick_groundwater` (A11, live in
+production since v1.13.0), ported per that module's own docstring
+explicitly inviting the port "once the shape is confirmed live,
+following soil_fertility.cpp's precedent." Same "resolve enums/
+objects in Python, hand C++ only plain data" discipline `climate_
+drift.cpp` established: the caller precomputes a water-biome 0/1 grid
+and a plain elevation grid before calling in, so the native file never
+touches a `Tile`/`Biome` object. Deliberately scoped to just these two
+functions: `tick_snowpack` depends on the still-unported `ca_
+operators.reaction_diffuse`, and `tick_erosion` writes real `Tile`
+objects with genuine biome reclassification (including the QUARRY-
+sticky special case) — both a materially different, larger risk
+surface than a pure scalar-grid pass, flagged as separate future work
+rather than rushed into the same pass. `hydrology_field.py` branches
+to the native path when available; `field.moisture`/`field.
+groundwater` are reassigned wholesale (same pattern `tick_snowpack`'s
+existing `reaction_diffuse` call already uses), not mutated in place.
+
+New `scripts/verify_hydrology_tick_native.py` (5 checks — 2000-trial
+randomized native-vs-Python-reference equivalence for each ported
+function, plus empty-grid/all-water/single-tile edge cases) — all
+pass, first run, no bug found. New toggle entries in `scripts/verify_
+native_soak.py` for both functions.
+
+Verified: both new scripts; `pyflakes` clean on all touched/new files
+(only the six known pre-existing forward-ref findings in `engine.py`);
+`verify_ml_evolution.py`/`verify_ml_specialist.py`/`verify_ml_
+substrate.py`/`verify_ml_g2_workload_forecaster.py` re-run clean;
+`scripts/verify_replay_hash.py` (4000 ticks, seed 777, `--in-process`)
+— MATCH, byte-identical; `scripts/verify_native_soak.py` (3 seeds x
+3000 ticks) — MATCH. G4 touched no native module or `simulation/
+engine.py` code path (pure offline ML substrate, no replay-hash/
+native-soak re-run needed for that half specifically) — the hydrology
+port is the only native-module change this pass, and both checks
+above cover it.
+
 ## Current state (v1.34.217)
 
 Explicit user instruction: "Build G2" — Tier 7 HCA Stage G's second

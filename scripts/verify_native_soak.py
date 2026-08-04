@@ -46,6 +46,7 @@ import hearthmind.settlement.buildings as _buildings  # noqa: E402
 import hearthmind.time_system as _time_system  # noqa: E402
 import hearthmind.world.disasters as _disasters  # noqa: E402
 import hearthmind.world.hydrology as _hydrology  # noqa: E402
+import hearthmind.world.hydrology_field as _hydrology_field  # noqa: E402
 import hearthmind.world.resources as _resources  # noqa: E402
 import hearthmind.world.roads as _roads  # noqa: E402
 import hearthmind.world.terrain as _terrain  # noqa: E402
@@ -112,6 +113,10 @@ _NATIVE_TOGGLES = [
     (_population, "_native_tick_stress"),
     (_population, "_native_tick_injury_recovery"),
     (_population, "_native_tick_development"),
+    # C++ porting backlog parallel track: A11 hydrology's full-grid
+    # moisture/groundwater scalar passes (cpp/src/hydrology_tick.cpp).
+    (_hydrology_field, "_native_hydrology_moisture_tick"),
+    (_hydrology_field, "_native_hydrology_groundwater_tick"),
 ]
 
 

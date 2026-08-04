@@ -37,6 +37,13 @@ new ones" discipline.
   - `train_and_score_genome`: the one place a genome's hyperparameters
     actually become a trained `primitives.MLP` and get scored --
     shared by every consumer so genome semantics stay consistent.
+  - `train_and_score_genome_via_specialist` (G4, added when Tier 7
+    HCA Stage G wired this module to G1): the real L1 consumer --
+    scores a genome by training it through an actual `Learning
+    Specialist` (`ml/specialist.py`) rather than a parallel `train_
+    mlp_sgd` call, so `evaluate_and_select`'s evolutionary loop
+    genuinely exercises the shipped `learn()`/shadow-gate mechanism,
+    not a lookalike.
 
 Still standalone substrate, same "never big-bang" discipline as every
 other Tier 5/6 module -- nothing here is wired into a real simulated-
@@ -48,6 +55,7 @@ import random
 from dataclasses import dataclass, field
 
 from hearthmind.ml.primitives import MLP
+from hearthmind.ml.specialist import LearningSpecialist
 from hearthmind.ml.training import mean_loss, train_mlp_sgd
 
 FITNESS_HISTORY_MAX = 20
@@ -195,6 +203,52 @@ def train_and_score_genome(genome: ModelGenome, train_examples: list, holdout_ex
         return model, 0.0
     fitness = 1.0 / (1.0 + max(0.0, loss))
     return model, fitness
+
+
+def train_and_score_genome_via_specialist(
+    genome: ModelGenome, train_examples: list, holdout_examples: list, seed: int = 0,
+    replay_capacity: int = 200, checkpoint_capacity: int = 10,
+):
+    """G4 (Tier 7 HCA Stage G, explicit user instruction: "Start G4"):
+    unlike `train_and_score_genome` above (which trains a bare `MLP` via
+    `train_mlp_sgd` directly, a parallel evaluation path), this is the
+    real L1 consumer G4's own stated test calls for -- it builds a
+    genome-shaped model, wraps it in a real `LearningSpecialist`
+    (G1's shipped `learn()` interface), and scores the genome through
+    the exact same shadow-gated loop a live specialist would use.
+
+    `genome.hyperparameters["replay_fraction"]`/`"epochs"`/`"learning_
+    rate"` map directly onto `LearningSpecialist.learn`'s own keyword
+    arguments -- no separate interpretation needed, since these genes
+    were always scoped 1:1 against a real `learn()` call, not invented
+    fresh here. Fitness is read from the real, honestly-reported
+    `candidate_metric` REGARDLESS of whether the shadow gate accepted
+    or rejected the candidate -- a genome is scored on how well its
+    hyperparameters actually trained, not on whether that training
+    happened to survive gating this one time (a genesis genome always
+    starts from a freshly random-shaped, untrained model, so a real
+    shadow-gate rejection is rare but not impossible -- e.g. a genome
+    whose `learning_rate` gene is unstable enough to diverge)."""
+    if not train_examples:
+        return None, 0.0
+    input_dim = len(train_examples[0].x)
+    output_dim = len(train_examples[0].y)
+    model = genome_to_mlp(genome, input_dim, output_dim=output_dim, seed=seed)
+    specialist = LearningSpecialist(
+        model, replay_capacity=replay_capacity, checkpoint_capacity=checkpoint_capacity, replay_seed=seed,
+    )
+    result = specialist.learn(
+        train_examples, holdout_examples, tick=0,
+        replay_fraction=genome.hyperparameters["replay_fraction"],
+        epochs=int(genome.hyperparameters["epochs"]),
+        learning_rate=genome.hyperparameters["learning_rate"],
+        seed=seed,
+    )
+    metric = result.candidate_metric
+    if metric != metric:  # NaN guard, same discipline as train_and_score_genome
+        return specialist.model, 0.0
+    fitness = 1.0 / (1.0 + max(0.0, metric))
+    return specialist.model, fitness
 
 
 @dataclass
