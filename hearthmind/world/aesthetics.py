@@ -26,7 +26,21 @@ slowly as opinion shifts, not a value recomputed from scratch each
 tick. Seeded at a neutral 0.5 everywhere (an unvoted region has no
 opinion yet, not "objectively ugly" — deliberately NOT the "absence
 means zero" convention every other field here uses, since this is a
-running belief, not a live census)."""
+running belief, not a live census).
+
+R7 ("new physical-substrate code is C++-first") deviation, audited and
+confirmed this pass (Tier 7 HCA B6 turn's parallel-track check): same
+documented shape as `world/minerals.py`'s own flagged deviation — a
+native port is a reasonable follow-up once/if this proves worth the
+engineering cost, not attempted given the genuinely low real density.
+`BEAUTY_APPRAISAL_CHANCE_PER_TICK=0.02` means the per-tick vote count
+stays roughly constant (~1 vote/tick at a 50-agent settlement)
+REGARDLESS of population size — this is the opposite shape from every
+already-ported per-tick module in `cpp/src/` (needs/emotion/relationship
+step, farm/wildlife/settlement ticks), each of which scales with
+population or grid size and therefore has real throughput to gain from
+a native port. A flat, population-independent low-frequency roll has
+no such throughput to reclaim."""
 from __future__ import annotations
 
 import random

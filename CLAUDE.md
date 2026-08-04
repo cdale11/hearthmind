@@ -742,6 +742,56 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.228)
+
+Explicit user instruction: "Start B6 and complete something from the
+parallel tasks too" — two independent pieces, one batch.
+
+**B6.** Arbitration determinism and the starvation bound. Two of the
+three named claims (identical evidence -> identical winner; no RNG in
+arbitration) were already true by construction since B1/B2 — B6's real
+job was mechanical proof, not new mechanism. New `staleness_win_bound
+(weak_score, strong_score)` (`hearthmind/cognition/workspace.py`)
+turns B2's own informal "eventually wins" starvation guarantee into a
+real closed-form formula — the exact minimum consecutive-loss count
+before a chronically-losing bid's staleness-gained score first
+strictly exceeds a rival's.
+
+New `scripts/verify_b6_arbitration_determinism.py` (8 checks — a real
+cross-process hash comparison over a deterministic bid sequence,
+`verify_replay_hash.py`'s own subprocess technique applied to the
+workspace; a real AST scan for banned RNG imports, proven to genuinely
+catch a synthetic violation and not just pass on clean code; `staleness_
+win_bound()`'s own predicted loss count matched EXACTLY where a real
+`GlobalWorkspace` simulation wins, across five real score ratios;
+a genuine lower-bound proof; both edge cases) — all pass, one real
+test-design bug caught and fixed before shipping (submission order and
+an off-by-one against the real win cycle — staleness applied on cycle
+`c` reflects `c-1` prior losses, so the real win lands at `bound+1`),
+not a bug in the module under test.
+
+**Parallel task: a real C++-porting-backlog documentation gap closed.**
+Audited `world/aesthetics.py`'s `tick_aesthetic_votes` (shipped after
+R7's mandate took effect) and found it carried no R7-deviation note at
+all, unlike its sibling `world/minerals.py`. Confirmed the reasoning
+holds — `BEAUTY_APPRAISAL_CHANCE_PER_TICK=0.02` keeps real per-tick
+vote count roughly constant (~1/tick at a 50-agent settlement)
+REGARDLESS of population size, the opposite shape from every already-
+ported per-tick module (which all scale with population/grid size and
+have real throughput to reclaim) — added the same explicit R7-
+deviation note `minerals.py` already carries, closing a real
+documentation gap rather than leaving the omission to be rediscovered
+by a future audit.
+
+Verified: the new script (8 checks); `verify_b1_global_workspace.py`/
+`verify_b2_starvation_gain.py`/`verify_b3_pillar_bus.py`/`verify_b4_
+coalition_formation.py`/`verify_b5_evidence_scoring.py` re-run clean;
+`pyflakes` clean on all touched/new files. No native module or
+`simulation/engine.py` code path touched — no replay-hash/native-soak
+re-run needed. `B7` (learning to bid from realised outcomes, needs
+Stage G) is the next open Stage B item — resume only on future
+explicit direction.
+
 ## Current state (v1.34.227)
 
 Explicit user follow-up to a direct question ("Will all B items wire

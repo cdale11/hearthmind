@@ -2048,13 +2048,31 @@ cannot state one does not ship.
   including exact-formula-match-by-hand, both-directions reliability-
   gain proof, out-of-range clamping, and a real end-to-end integration
   through the unmodified `GlobalWorkspace`).
-- [ ] **B6** *(§3.3 step 4)* — arbitration determinism and the
-  starvation bound. *Test:* identical evidence produces an identical
-  winner across two independent process runs (the `verify_replay_
-  hash.py` technique applied to the workspace), no RNG appears anywhere
-  in the arbitration path, and a specialist that never wins on merit
-  provably wins within a stated bounded interval on staleness gain
-  alone.
+- [x] **B6 — SHIPPED, v1.34.228.** *(§3.3 step 4)* — arbitration
+  determinism and the starvation bound. All three claims were already
+  TRUE by construction since B1/B2 (no RNG was ever imported;
+  `arbitrate()`'s tie-break was deterministic from the start) — B6's
+  real job was proving each mechanically rather than trusting prose.
+  New `staleness_win_bound()` (`hearthmind/cognition/workspace.py`)
+  makes the starvation guarantee a real closed-form formula (the
+  exact minimum consecutive-loss count before a win, not just an
+  empirically-observed number). *Test (passed):* a real cross-process
+  hash comparison over a deterministic bid sequence (two independent
+  `subprocess.run` calls, `verify_replay_hash.py`'s own technique); a
+  real AST scan for banned RNG imports, proven to genuinely catch a
+  synthetic violation, not merely pass on clean code; `staleness_win_
+  bound()`'s own predicted loss count matched EXACTLY where a real
+  `GlobalWorkspace` simulation wins, across five real score ratios (not
+  just the one 9x example B2's own test used) — see `scripts/verify_
+  b6_arbitration_determinism.py` (8 checks). One real test-design bug
+  caught and fixed before shipping, not a module bug: the first draft
+  compared the formula's own loss-count `k` directly against a cycle
+  number, off by one (staleness applied on cycle `c` reflects `c-1`
+  PRIOR losses, so the real win lands on cycle `bound+1`), and didn't
+  control submission order, letting an exact-tie case win one cycle
+  early via tie-break rather than a genuine strict win — fixed by
+  submitting the stronger bid first every cycle (removing tie-break
+  ambiguity entirely) and comparing against `bound+1`.
 - [ ] **B7** *(§3.3 step 5; depends on Stage G)* — learning to bid from
   realised outcomes (did the broadcast reduce anyone's subsequent
   prediction error? did real emergence follow? was a chunk produced?),

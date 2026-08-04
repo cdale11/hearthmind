@@ -1,10 +1,25 @@
-"""Tier 7 HCA Stage B, B1+B2+B3+B4+B5 (docs/COGNITIVE-ARCHITECTURE-
+"""Tier 7 HCA Stage B, B1+B2+B3+B4+B5+B6 (docs/COGNITIVE-ARCHITECTURE-
 2026-08-02.md §3, Layer 3 "The Global Workspace"): the base coalition-
-bidding/arbitration engine everything else in Stage B (B6's
-determinism guarantee, B7's learned bidding) attaches to. Per the
-roadmap's own Phase 3 sequencing: "the base workspace/arbitration
-engine must exist (B1) before its later refinements can attach to
-anything."
+bidding/arbitration engine everything else in Stage B (B7's learned
+bidding) attaches to. Per the roadmap's own Phase 3 sequencing: "the
+base workspace/arbitration engine must exist (B1) before its later
+refinements can attach to anything."
+
+**B6, the roadmap's own framing:** "arbitration determinism and the
+starvation bound. Test: identical evidence produces an identical
+winner across two independent process runs (the `verify_replay_
+hash.py` technique applied to the workspace), no RNG appears anywhere
+in the arbitration path, and a specialist that never wins on merit
+provably wins within a stated bounded interval on staleness gain
+alone." All three were already TRUE by construction from B1/B2 onward
+(no RNG was ever imported, `arbitrate()`'s tie-break was deterministic
+from the start) -- B6's real job is proving each claim mechanically
+rather than trusting the module's own prose. `staleness_win_bound()`
+below is the third claim made into a real closed-form guarantee (the
+exact minimum consecutive-loss count before a win, not just an
+empirically-observed number); `scripts/verify_b6_arbitration_
+determinism.py` proves the first two via a real cross-process hash
+comparison and a real AST scan for banned RNG imports.
 
 **B4, the roadmap's own framing:** "coalition formation: bids naming
 the same subject/region/entity merge, superadditively but sublinearly,
@@ -93,7 +108,7 @@ scheduler for cognition" the Adaptive Runtime was always meant to have
 the Mind layer, the same way it already is for the deterministic Body.
 
 **Deliberately NOT wired into any real production LLM call site this
-pass.** B1's/B2's/B3's/B4's/B5's own "every LLM call site converted to a bid" is real,
+pass.** B1's/B2's/B3's/B4's/B5's/B6's own "every LLM call site converted to a bid" is real,
 large, separate migration work -- this codebase's own A2 finding
 counted ~78 real `_append_emergence`-adjacent call sites, and a
 comparable number of independent `_schedule_llm_job` sites elsewhere,
@@ -208,6 +223,32 @@ hearing) and not 200+ (too slow to matter against the doc's own
 64k-tick soak horizon) -- re-tune from a real future soak the same way
 every other reasoned-not-measured constant in this codebase already
 is."""
+
+
+def staleness_win_bound(weak_score: float, strong_score: float, gain_per_cycle: float = STALENESS_GAIN_PER_CYCLE) -> int:
+    """B6's own "the starvation bound," made a real closed-form
+    guarantee rather than an empirically-observed number: the EXACT
+    minimum consecutive-loss count `k` at which a `weak_score` bid,
+    gained by B2's own formula, first strictly exceeds a rival's real
+    `strong_score` -- solving `weak_score * (1 + gain_per_cycle * k) >
+    strong_score` for the smallest integer `k` that satisfies it. `0`
+    when `strong_score <= weak_score` (already winning or tied with no
+    staleness needed at all). Raises `ValueError` for a non-positive
+    `weak_score` -- there is no finite `k` that makes zero (or a
+    negative bid) exceed a positive rival, so no real bound exists to
+    state. This is the module's own answer to B6's stated test ("a
+    specialist that never wins on merit provably wins within a stated
+    bounded interval on staleness gain alone") -- `scripts/verify_b6_
+    arbitration_determinism.py` drives a real `GlobalWorkspace` and
+    confirms this formula's own predicted `k` matches exactly where a
+    real simulated win actually happens, for many real ratios, not
+    just the one 9x example B2's own test already used."""
+    if weak_score <= 0.0:
+        raise ValueError("weak_score must be positive for a finite staleness bound to exist")
+    if strong_score <= weak_score:
+        return 0
+    required = (strong_score / weak_score - 1.0) / gain_per_cycle
+    return math.floor(required) + 1
 
 
 class GlobalWorkspace:

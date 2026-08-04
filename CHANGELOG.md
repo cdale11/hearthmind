@@ -4,6 +4,73 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.228] — HCA Stage B's B6, plus a C++-porting-backlog audit finding
+
+Explicit user instruction: "Start B6 and complete something from the
+parallel tasks too." Two independent pieces, one batch.
+
+**B6.** Arbitration determinism and the starvation bound. Two of the
+item's three named claims (identical evidence produces an identical
+winner; no RNG anywhere in arbitration) were already TRUE by
+construction since B1/B2 — no code change was needed for those two,
+only mechanical proof rather than trusting prose. New `staleness_win_
+bound(weak_score, strong_score)` (`hearthmind/cognition/workspace.py`)
+makes the starvation guarantee a real closed-form formula: the exact
+minimum consecutive-loss count `k` at which a chronically-losing bid's
+staleness-gained score first strictly exceeds a rival's real score,
+solving B2's own gain formula directly rather than leaving "eventually
+wins" as an informal claim.
+
+New `scripts/verify_b6_arbitration_determinism.py` (8 checks — a real
+cross-process hash comparison over a deterministic 60-cycle bid
+sequence, `verify_replay_hash.py`'s own subprocess-isolation technique
+applied to the workspace; a real AST scan for banned RNG imports,
+proven to genuinely catch a synthetic violation and not merely pass on
+already-clean code; `staleness_win_bound()`'s own predicted loss count
+matched EXACTLY where a real `GlobalWorkspace` simulation wins, across
+five real score ratios, not just the one 9x example B2's own test
+used; a genuine lower-bound proof — the weak bid never wins any cycle
+before its predicted bound; both edge cases — already-winning/tied
+returns 0, a non-positive `weak_score` raises rather than lying about
+a finite bound) — all pass. One real test-design bug caught and fixed
+before shipping, not a bug in the module under test: the first draft
+compared the formula's own loss-count directly against a cycle number
+and let `weak` submit first, which let an exact-tie boundary case win
+one cycle early via tie-break rather than a genuine strict win — fixed
+by always submitting `strong` first (removing tie-break-order
+ambiguity entirely) and comparing against `bound + 1` (staleness
+applied on cycle `c` reflects `c - 1` PRIOR losses, so the real win
+lands one cycle after the loss count itself).
+
+**Parallel task: a real C++-porting-backlog documentation gap found
+and closed.** Audited `world/aesthetics.py`'s `tick_aesthetic_votes`
+(the beauty-field per-agent voting mechanic, shipped v1.34.74, after
+R7's "new physical-substrate code is C++-first" mandate took effect)
+and found it carried no R7-deviation note at all — unlike its sibling
+`world/minerals.py`, which documents the identical low-density
+reasoning explicitly. Confirmed the omission was a real gap, not a
+silent violation: `BEAUTY_APPRAISAL_CHANCE_PER_TICK=0.02` keeps the
+real per-tick vote count roughly constant (~1 vote/tick at a 50-agent
+settlement) REGARDLESS of population size — the opposite shape from
+every already-ported per-tick module in `cpp/src/` (needs/emotion/
+relationship step, farm/wildlife/settlement ticks), each of which
+scales with population or grid size and therefore has real throughput
+to reclaim from a native port. A flat, population-independent low-
+frequency roll has no such throughput to reclaim, matching `minerals.
+py`'s own documented precedent exactly. Closed the gap by adding the
+same explicit R7-deviation note to `aesthetics.py`'s module docstring
+— a native port stays a reasonable future follow-up, not attempted
+this pass, now documented rather than silently absent.
+
+Verified: the new script (8 checks); `verify_b1_global_workspace.py`/
+`verify_b2_starvation_gain.py`/`verify_b3_pillar_bus.py`/`verify_b4_
+coalition_formation.py`/`verify_b5_evidence_scoring.py` re-run clean;
+`pyflakes` clean on all touched/new files. No native module or
+`simulation/engine.py` code path touched — no replay-hash/native-soak
+re-run needed. `B7` (learning to bid from realised outcomes, needs
+Stage G) is the next open Stage B item — resume only on future
+explicit direction.
+
 ## [1.34.227] — Roadmap: schedule Stage B's production wiring (Phase 3.5), plus HCA Stage B's B5
 
 Explicit user follow-up to a direct question ("Will all B items wire
