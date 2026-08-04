@@ -394,9 +394,15 @@
           <pre id="pillar-cognition-content" class="muted">click "Full diagnostic report" below to load</pre>
         </div>
 
+        <div id="adaptive-runtime-panel">
+          <h3>Adaptive runtime</h3>
+          <p class="muted">The real hardware-adaptive layer: host probe, machine profile, and every automatic concurrency change it has made. Click "Full diagnostic report" below to load.</p>
+          <pre id="adaptive-runtime-content" class="muted">click "Full diagnostic report" below to load</pre>
+        </div>
+
         <div id="concurrency-hypothesis-panel">
           <h3>B13: LLM concurrency hypothesis</h3>
-          <p class="muted">Manual what-if check against real measured queueing wait — never runs automatically, never fights the live adaptive controller.</p>
+          <p class="muted">What-if check against real measured queueing wait, gated by a replay-hash equivalence check. Runs on-demand here, and automatically once a month when the reactive controller has been quiet — see the panel above for its own log.</p>
           <div id="concurrency-hypothesis-controls">
             <input id="concurrency-hypothesis-value" type="number" min="1" max="8" placeholder="proposed llm_max_concurrent" />
             <input id="concurrency-hypothesis-text" type="text" placeholder="hypothesis (optional)" />

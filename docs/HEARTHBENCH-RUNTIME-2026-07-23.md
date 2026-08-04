@@ -1796,7 +1796,7 @@ round-trip reconstruction plus an honest `None` for a nonexistent key,
 smoke test through the actual tick loop) — all pass, first run except
 the one verify-script fixture bug named above.
 
-## B13 — Optimization hypotheses [Hard Rule 14] [PARTIAL — B13.1-B13.5 shipped v1.34.180/v1.34.183, real first wiring for llm_max_concurrent v1.34.205]
+## B13 — Optimization hypotheses [Hard Rule 14] [B13.1-B13.5 shipped v1.34.180/v1.34.183; real first wiring for llm_max_concurrent v1.34.205; automatic cadence v1.34.213]
 
 - [x] **B13.1 — Hypothesis loop — SHIPPED, v1.34.180.** New
   `hearthmind/simulation/optimization_hypothesis.py`'s `HypothesisLoop.
@@ -1983,6 +1983,73 @@ the one verify-script fixture bug named above.
   catch a frontend read-path bug — only an actual browser exercising
   the actual JS can, and this is why the "test the UI in a browser
   before reporting done" rule exists.
+
+**Automatic cadence + dev-console panel — SHIPPED, v1.34.213.**
+Explicit user directive ("keep building adaptive runtime to what I
+originally wanted... automatically tune hearthmind for specific
+hardware"). Until this pass, `HypothesisLoop`'s `llm_max_concurrent`
+run was deliberately manual-only — its own docstring named a real
+correctness risk: two independent automatic controllers (B6's live
+`BangBangController` and a hypothetically-automatic B13 loop) both
+adjusting the SAME tunable could fight each other.
+
+New `SimulationEngine._maybe_auto_llm_concurrency_hypothesis`
+(monthly, same cadence as `_maybe_refresh_machine_profile`) resolves
+that risk with strict quiescence gating rather than removing it: the
+automatic check only fires once B6's reactive controller has made no
+real change (checked against `self._adaptive_tuning_log`'s own real
+`tick` field) for `LLM_CONCURRENCY_AUTO_HYPOTHESIS_QUIET_DAYS` (14)
+real days — by which point B6 has settled on whatever value current
+latency alone justifies, so a hypothesis proposing a DIFFERENT value
+genuinely tests something new rather than racing an active
+adjustment. The proposed value is always `select_strategy`'s own
+`llm_max_concurrent_hint` (B7.3's hardware-derived signal — this
+machine's own measured cores/RAM/storage/LLM-throughput profile,
+already computed daily but previously consulted only as a downward-
+only cap) — closing the loop B7.3's own docstring named as still
+open: the hint is now periodically tested as a real candidate value,
+not just a ceiling. Also skips cleanly if the LLM is disabled, if a
+run is already in flight, if no `select_strategy` reading has been
+taken yet, or if the hint already matches the live value (nothing to
+test). The manual dev-console trigger is unchanged and still works
+identically — both paths now share one spawn helper (`_spawn_llm_
+concurrency_hypothesis`) and each result is tagged `source: "auto"`
+or `"manual"` for `full_diagnostics()`'s benefit.
+
+New dev-console "Adaptive runtime" panel (`interface/static/app.js`'s
+`renderAdaptiveRuntimeStatus`): renders `host_probe`/`machine_profile`/
+`adaptive_tuning_log_recent` as readable text instead of requiring an
+operator to read the raw JSON dump — cores/RAM/swap/load/thermal
+state, the persisted profile's measured throughput and storage
+speed, the current hardware-derived hint, and every real automatic
+concurrency change (newest first, with host-pressure-veto/hardware-
+hint-cap flags called out). Pure presentation — no new backend field,
+every value already existed in `full_diagnostics()`. The B13
+concurrency-hypothesis panel's own result line now also shows
+`[auto]`/`[manual]` so a change made overnight is distinguishable
+from one an operator just triggered.
+
+New `scripts/verify_auto_llm_concurrency_hypothesis.py` (12 checks —
+LLM-disabled/non-month_end/no-strategy-yet/hint-matches-current all
+correctly skip; a real recent reactive-controller change blocks the
+automatic run; a genuinely quiet history — both a real old log entry
+and an empty log — lets it fire and complete, tagged `source: "auto"`;
+an already-in-flight run blocks a second automatic request; the
+manual trigger still works unchanged, tagged `source: "manual"`; a
+real 2000-tick production run with the job registered never crashes)
+— all pass; one real off-by-one caught and fixed in the verify script
+itself (a fresh engine starts at tick 0, so an "old" log entry can't
+be represented without first advancing the clock — same "advance the
+clock directly" technique this codebase's own dormancy verify scripts
+already use), not a bug in the module under test.
+
+Verified: the new script; `node --check` clean on `app.js`; a live
+Playwright pass confirming the new "Adaptive runtime" panel renders
+real formatted text (host fingerprint, persisted-to-disk state, quiet-
+window reading) after clicking "Full diagnostic report," not raw
+JSON; full existing verify-script suite re-run clean; `pyflakes`
+clean; `scripts/verify_replay_hash.py` (4000 ticks, seed 777) —
+MATCH; `scripts/verify_native_soak.py` (3 seeds x 3000 ticks) — MATCH.
 
 ## B14 — Persistence & background work [SHIPPED — B14.1-B14.3 shipped v1.34.181; B14.1 wired v1.34.203; B14.2/B14.3's real diff-format writer wired v1.34.209]
 

@@ -1196,6 +1196,29 @@ reasoned floor, not a live-measured value, same "not tuned against
 production data" honesty every other Tier 5 constant docstring in this
 file already states where true."""
 
+LLM_CONCURRENCY_AUTO_HYPOTHESIS_QUIET_DAYS = 14
+"""Explicit user directive ("keep building adaptive runtime to what I
+originally wanted"): the automatic cadence for `HypothesisLoop` over
+`llm_max_concurrent` (`_maybe_auto_llm_concurrency_hypothesis`),
+without letting it fight `_maybe_tune_llm_concurrency`'s own live
+`BangBangController` over the SAME tunable — the exact correctness
+risk `self._llm_concurrency_hypothesis_loop`'s own docstring named as
+the reason this control point was originally left manual-only.
+Resolved by gating strictly on QUIESCENCE: the automatic check only
+ever fires once the reactive latency controller has made no real
+change (`self._adaptive_tuning_log`) for this many real days — by
+which point the reactive controller has settled on whatever value
+current LLM latency alone justifies, so a hypothesis test proposing a
+DIFFERENT, hardware-derived value (`select_strategy`'s own `llm_max_
+concurrent_hint`, already computed daily but previously only consulted
+as a downward-only cap) genuinely tests a distinct hypothesis rather
+than racing an active adjustment. 14 days is a real, reasoned choice
+(long enough that a transient latency blip's own reactive response has
+long since settled; short enough that a genuinely stale value doesn't
+sit untested for months), not tuned against production data — the
+same honesty every other Tier 5 constant in this file states where
+true."""
+
 BROADCAST_SUBSYSTEM_BUDGET_SECONDS = 0.015
 """Tier 5 B2's real control point: `_maybe_broadcast` (the per-tick
 WebSocket payload build — agents/buildings/summary/etc., explicitly
@@ -4569,6 +4592,7 @@ class SimulationEngine:
         ("_schedule_voice_dialogue", _JOB_NO_ARGS),
         ("_maybe_refresh_machine_profile", _JOB_EVENTS),
         ("_maybe_advance_escalation_ladder", _JOB_EVENTS),
+        ("_maybe_auto_llm_concurrency_hypothesis", _JOB_EVENTS),
     )
 
     # B0.3's real migrations: `_TICK_JOBS` entries named here are NOT
@@ -5731,26 +5755,39 @@ class SimulationEngine:
         """Tier 5 B13's real dev-console/API trigger for `_run_llm_
         concurrency_hypothesis` — enqueued via `POST /intervene/llm-
         concurrency-hypothesis`, applied here on the next real tick
-        (same seam every other `/intervene/*` request uses), spawned as
-        a real background task (the probe/equivalence-check both need
-        several real ticks/awaits, too long to run synchronously inside
-        `_apply_intervention`). One in flight at a time — a second
-        request while one is already running is silently dropped rather
-        than queued or stacked, since only the MOST RECENT result is
-        ever surfaced anyway."""
-        if self._llm_concurrency_hypothesis_running:
-            return
+        (same seam every other `/intervene/*` request uses). One in
+        flight at a time — a second request while one is already
+        running is silently dropped rather than queued or stacked,
+        since only the MOST RECENT result is ever surfaced anyway."""
         try:
             proposed_value = int(item["proposed_value"])
         except (KeyError, TypeError, ValueError):
             return
         hypothesis = str(item.get("hypothesis", "")).strip()[:200] or "manually requested via the dev console"
+        self._spawn_llm_concurrency_hypothesis(proposed_value, hypothesis, source="manual")
+
+    def _spawn_llm_concurrency_hypothesis(self, proposed_value: int, hypothesis: str, source: str) -> None:
+        """The real background-task spawn shared by both the manual
+        dev-console/API trigger above and the automatic monthly one
+        below (`_maybe_auto_llm_concurrency_hypothesis`) — the probe/
+        equivalence-check both need several real ticks/awaits, too
+        long to run synchronously from either caller. One in flight at
+        a time regardless of which caller asked — a request arriving
+        while one is already running is silently dropped, never queued
+        or stacked, since only the MOST RECENT result is ever surfaced.
+        `source` ("manual"/"auto") is threaded into the recorded result
+        purely for `full_diagnostics()`'s benefit — which kind of
+        request produced this reading is real, useful context, never
+        consulted by any decision logic itself."""
+        if self._llm_concurrency_hypothesis_running:
+            return
         self._llm_concurrency_hypothesis_running = True
 
         async def _runner() -> None:
             try:
                 record = await self._run_llm_concurrency_hypothesis(proposed_value, hypothesis)
                 self._last_llm_concurrency_hypothesis = {
+                    "source": source,
                     "hypothesis": record.hypothesis,
                     "tunable_name": record.tunable_name,
                     "before_value": record.before_value,
@@ -5763,9 +5800,10 @@ class SimulationEngine:
                     "reason": record.reason,
                 }
             except Exception:
-                logger.exception("llm_concurrency_hypothesis intervention failed")
+                logger.exception("llm_concurrency_hypothesis run failed")
                 self._last_llm_concurrency_hypothesis = {
-                    "decision": "error", "reason": "the hypothesis run raised an exception; see server logs",
+                    "source": source, "decision": "error",
+                    "reason": "the hypothesis run raised an exception; see server logs",
                 }
             finally:
                 self._llm_concurrency_hypothesis_running = False
@@ -5773,6 +5811,60 @@ class SimulationEngine:
         task = asyncio.create_task(_runner())
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
+
+    def _maybe_auto_llm_concurrency_hypothesis(self, events: list[str]) -> None:
+        """Explicit user directive ("keep building adaptive runtime to
+        what I originally wanted... automatically tune hearthmind for
+        specific hardware"): the real automatic cadence for Tier 5
+        B13's `HypothesisLoop`, previously manual-only by deliberate
+        design (see `self._llm_concurrency_hypothesis_loop`'s own
+        docstring). Monthly, same cadence as `_maybe_refresh_machine_
+        profile` — real hardware-adaptive maintenance, not a per-tick
+        cost.
+
+        Strictly gated so it can never fight `_maybe_tune_llm_
+        concurrency`'s own live, daily `BangBangController` over the
+        SAME `llm_max_concurrent` tunable — see `LLM_CONCURRENCY_AUTO_
+        HYPOTHESIS_QUIET_DAYS`'s own docstring for the full reasoning.
+        Skips outright if the LLM is disabled (nothing to measure), if
+        a hypothesis run is already in flight, if no real `select_
+        strategy` reading has ever been taken yet (`self._last_
+        strategy`, refreshed daily by `_maybe_tune_llm_concurrency`),
+        if the reactive controller has made a real change within the
+        quiet window (checked directly against `self._adaptive_tuning_
+        log`'s own real `tick` field — no separate cadence tracker
+        needed), or if the hardware-derived hint already matches the
+        current live value (nothing to genuinely test). The proposed
+        value is always `select_strategy`'s own `llm_max_concurrent_
+        hint` — a real signal (this machine's own measured core count/
+        RAM/storage/LLM-throughput profile), never an arbitrary probe
+        value — so this closes the loop `_maybe_tune_llm_concurrency`'s
+        own docstring named as still open: the hint no longer only
+        CAPS a fresh reactive increase, it's now periodically tested as
+        a real candidate value in its own right."""
+        if "month_end" not in events:
+            return
+        if not self._cognition_runner.enabled:
+            return
+        if self._llm_concurrency_hypothesis_running:
+            return
+        if self._last_strategy is None:
+            return
+        ticks_per_day = self.world.config.minutes_per_day // self.world.config.sim_minutes_per_tick
+        quiet_ticks = LLM_CONCURRENCY_AUTO_HYPOTHESIS_QUIET_DAYS * ticks_per_day
+        current_tick = self.world.clock.tick_count
+        if self._adaptive_tuning_log and current_tick - self._adaptive_tuning_log[-1]["tick"] < quiet_ticks:
+            return
+        proposed_value = int(self._last_strategy.llm_max_concurrent_hint)
+        current_value = int(self._tuning_registry.get("llm_max_concurrent").value)
+        if proposed_value == current_value:
+            return
+        hypothesis = (
+            f"automatic {LLM_CONCURRENCY_AUTO_HYPOTHESIS_QUIET_DAYS}-day quiet-period check: "
+            f"does this host's own measured hardware profile (select_strategy's llm_max_concurrent_hint) "
+            f"support a different concurrency than the latency controller last settled on?"
+        )
+        self._spawn_llm_concurrency_hypothesis(proposed_value, hypothesis, source="auto")
 
     def _record_observer_attention(self, agent_id) -> None:
         """§4 "observer attention as a signal into the Town

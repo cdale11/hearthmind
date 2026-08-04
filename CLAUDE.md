@@ -742,6 +742,86 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.213)
+
+Explicit user instruction: "Do both and keep building adaptive runtime
+to what I originally wanted" — following the user's own two explicit
+asks from the prior turn (a rendered dev-console panel instead of raw
+JSON; an automatic cadence for the manual-only B13 hypothesis loop)
+plus the standing directive to keep extending the real hardware-
+adaptive layer (`HostProbe`/`MachineProfile`/`select_strategy`/
+`BangBangController`/`HypothesisLoop`) rather than leave it where it
+was.
+
+**Automatic cadence for `llm_max_concurrent`'s `HypothesisLoop`.**
+Until this pass, `self._llm_concurrency_hypothesis_loop`'s own
+docstring named a real reason it stayed manual-only: two independent
+automatic controllers (B6's live daily `BangBangController` and a
+hypothetically-automatic B13 loop) both adjusting the SAME tunable
+could fight each other. New `SimulationEngine._maybe_auto_llm_
+concurrency_hypothesis` (monthly, same cadence as `_maybe_refresh_
+machine_profile`) resolves this with strict quiescence gating rather
+than removing the risk: it only fires once B6's reactive controller
+has made no real change (checked against `self._adaptive_tuning_log`'s
+own real `tick` field) for `LLM_CONCURRENCY_AUTO_HYPOTHESIS_QUIET_
+DAYS` (14) real days — by which point B6 has settled on whatever
+value current latency alone justifies, so a hypothesis proposing a
+DIFFERENT value genuinely tests something new rather than racing an
+active adjustment. The proposed value is always `select_strategy`'s
+own hardware-derived `llm_max_concurrent_hint` (B7.3's real signal —
+this machine's own measured cores/RAM/storage/LLM-throughput profile)
+— closing the loop that hint's own docstring named as still open: it
+was previously consulted only as a downward-only cap on B6's own
+increases, now it's also periodically tested as a real candidate
+value in its own right. Also skips cleanly if the LLM is disabled, a
+run is already in flight, no `select_strategy` reading exists yet, or
+the hint already matches the live value. The manual dev-console/API
+trigger is unchanged and still works identically — both paths now
+share one new spawn helper (`_spawn_llm_concurrency_hypothesis`), and
+every result is tagged `source: "auto"` or `"manual"` for `full_
+diagnostics()`'s benefit, surfaced in the concurrency-hypothesis
+panel's own result line as `[auto]`/`[manual]`.
+
+**Real dev-console panel, not raw JSON.** New "Adaptive runtime" panel
+(`renderAdaptiveRuntimeStatus` in `app.js`, wired into the existing
+"Full diagnostic report" handler): renders `host_probe`/`machine_
+profile`/`adaptive_tuning_log_recent` as readable formatted text —
+cores/RAM/swap/load-average/thermal state, the persisted machine
+profile's measured LLM throughput and storage read/write speed, the
+current hardware-derived hint, and every real automatic concurrency
+change made (newest first, with host-pressure-veto/hardware-hint-cap
+flags called out per entry). Pure presentation — no new backend
+field, every value already existed in `full_diagnostics()`; the panel
+previously reachable only as part of the raw JSON dump.
+
+New `scripts/verify_auto_llm_concurrency_hypothesis.py` (12 checks —
+LLM-disabled/non-month_end/no-strategy-yet/hint-matches-current all
+correctly skip without spawning; a real recent reactive-controller
+change blocks the automatic run; a genuinely quiet history (both a
+real old log entry and an empty log) lets it fire and complete,
+tagged `source: "auto"`; an already-in-flight run blocks a second
+automatic request from spawning a fresh one; the manual trigger still
+works unchanged, tagged `source: "manual"`; a real 2000-tick
+production run with the new job registered in `_TICK_JOBS` never
+crashes) — all pass; one real off-by-one caught and fixed in the
+verify script itself (a fresh engine starts at tick 0, so representing
+a genuinely "old" reactive-log entry needs the clock advanced first —
+same "advance the clock directly" technique this codebase's own
+dormancy verify scripts already established), not a bug in the module
+under test.
+
+Verified: the new script; `node --check` clean on `app.js`; a live
+Playwright pass (real dev server, real browser click through the
+"⚙ view" menu into "⚙ dev," then "Full diagnostic report") confirming
+the new panel renders real formatted text — host fingerprint,
+persisted-to-disk state, quiet-window reading — not raw JSON; full
+existing verify-script suite re-run clean; `pyflakes` clean on all
+touched/new files (only the six known pre-existing forward-ref
+findings in `engine.py`); `scripts/verify_replay_hash.py` (4000
+ticks, seed 777, `--in-process`) — MATCH, byte-identical; `scripts/
+verify_native_soak.py` (3 seeds x 3000 ticks) — MATCH. No native
+module touched.
+
 ## Current state (v1.34.212)
 
 Explicit user instruction: "Continue that wire everything and expose

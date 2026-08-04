@@ -431,6 +431,7 @@ devFullReportBtn.addEventListener("click", async () => {
     // this read the un-nested top level and silently rendered nothing.
     renderPillarCognitionStatus(report.engine && report.engine.pillar_cognition_status);
     renderConcurrencyHypothesisResult(report.engine && report.engine.llm_concurrency_hypothesis);
+    renderAdaptiveRuntimeStatus(report.engine);
     try {
       await navigator.clipboard.writeText(text);
       devReportStatus.textContent = "copied to clipboard";
@@ -449,9 +450,12 @@ devFullReportBtn.addEventListener("click", async () => {
 // hypothesis`), then polls `/diagnostics` until `llm_concurrency_
 // hypothesis.running` clears — the probe/equivalence-check run as a
 // real background async task on the engine side, never synchronously
-// inside the request. Manual-only by design (see the engine's own
-// docstring) — never auto-runs, never fights the live adaptive
-// concurrency controller.
+// inside the request. This button's own request is always tagged
+// source="manual"; the engine also runs the identical loop
+// automatically once a month (source="auto") once the reactive
+// concurrency controller has been quiet long enough that the two
+// can't fight over the same tunable — see `_maybe_auto_llm_
+// concurrency_hypothesis`'s own docstring for the full gating.
 const concurrencyHypothesisValueInput = document.getElementById("concurrency-hypothesis-value");
 const concurrencyHypothesisTextInput = document.getElementById("concurrency-hypothesis-text");
 const concurrencyHypothesisRunBtn = document.getElementById("concurrency-hypothesis-run-btn");
@@ -469,12 +473,79 @@ function renderConcurrencyHypothesisResult(section) {
     return;
   }
   concurrencyHypothesisStatus.textContent =
-    `${r.decision}: ${r.reason}\n` +
+    `[${r.source || "manual"}] ${r.decision}: ${r.reason}\n` +
     (r.before_value !== undefined
       ? `llm_max_concurrent ${r.before_value} -> ${r.after_value}\n` +
         `measured wait: ${r.measured_before_ms?.toFixed(1)}ms -> ${r.measured_after_ms?.toFixed(1)}ms` +
         (r.gate_applied ? ` (equivalence gate: ${r.gate_passed ? "passed" : "failed"})` : "")
       : "");
+}
+
+// Explicit user directive ("build a proper rendered dev-console panel
+// instead of raw JSON"): the same host_probe/machine_profile/adaptive_
+// tuning_log data was previously reachable only inside the raw JSON
+// dump this panel replaces with readable text — no new backend field,
+// this is a pure presentation pass over what full_diagnostics() (see
+// engine.py) already returns.
+function renderAdaptiveRuntimeStatus(engineReport) {
+  const el = document.getElementById("adaptive-runtime-content");
+  if (!el || !engineReport) return;
+  const hp = engineReport.host_probe;
+  const mp = engineReport.machine_profile;
+  const log = engineReport.adaptive_tuning_log_recent || [];
+
+  const hostLines = hp
+    ? [
+        `Cores: ${hp.usable_cores ?? "?"} usable / ${hp.logical_cores ?? "?"} logical`,
+        `RAM: ${hp.mem_available_mb != null ? Math.round(hp.mem_available_mb) : "?"} MB available `
+          + `of ${hp.mem_total_mb != null ? Math.round(hp.mem_total_mb) : "?"} MB total`,
+        `Swap in use: ${hp.swap_used_mb != null ? Math.round(hp.swap_used_mb) : "?"} MB`,
+        `Load average (1m): ${hp.load_avg_1m != null ? hp.load_avg_1m.toFixed(2) : "?"}`,
+        `Thermal state: ${hp.thermal_state || "unknown"}`,
+        `Backing off (GoodCitizenPolicy): ${hp.should_back_off ? "yes" : "no"}`,
+        `Sampled at tick: ${hp.sampled_at_tick ?? "?"}`,
+      ]
+    : ["no host reading taken yet"];
+
+  const strat = mp && mp.last_strategy;
+  const profileLines = mp
+    ? [
+        `Host fingerprint: ${mp.host_fingerprint || "?"}`,
+        `Sessions recorded: ${mp.sessions_recorded ?? "?"}`,
+        `Measured LLM throughput: ${mp.measured_llm_throughput_tokens_per_s != null
+          ? mp.measured_llm_throughput_tokens_per_s.toFixed(2) + " tok/s" : "not yet measured"}`,
+        `Storage write/read: ${mp.storage_write_mb_s != null ? mp.storage_write_mb_s.toFixed(1) : "?"} / `
+          + `${mp.storage_read_mb_s != null ? mp.storage_read_mb_s.toFixed(1) : "?"} MB/s`,
+        `Persisted to disk: ${mp.persisted ? "yes" : "no (:memory: db)"}`,
+        `Quiet window right now: ${mp.recent_llm_backlog_is_quiet_window ? "yes" : "no"}`,
+        strat
+          ? `Hardware-derived hint: concurrency=${strat.llm_max_concurrent_hint}, `
+            + `workers=${strat.worker_count_hint}, cache=${strat.cache_size_hint}, `
+            + `dormancy=${strat.dormancy_aggressiveness}`
+          : "no select_strategy reading yet",
+      ]
+    : ["no machine profile loaded"];
+
+  const logLines = log.length
+    ? log.slice().reverse().map((e) =>
+        `tick ${e.tick}: llm_max_concurrent ${e.before} -> ${e.after} `
+        + `(p95 ${e.measured_p95_ms?.toFixed(0)}ms vs target ${e.target_ms?.toFixed(0)}ms)`
+        + (e.host_pressure_veto ? " [host pressure veto]" : "")
+        + (e.strategy_cap_applied ? " [hardware-hint cap]" : ""))
+    : ["no real concurrency change made yet"];
+
+  el.textContent =
+`Host probe
+------------
+${hostLines.join("\n")}
+
+Machine profile
+-----------------
+${profileLines.join("\n")}
+
+Automatic concurrency changes (newest first)
+-----------------------------------------------
+${logLines.join("\n")}`;
 }
 
 concurrencyHypothesisRunBtn?.addEventListener("click", async () => {

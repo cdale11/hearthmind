@@ -1256,6 +1256,53 @@ starts on an explicit instruction naming an item.
       (already partially wired)/B15.5 remain open, each still needing
       its own separately-scoped build.
 
+      **B13's automatic cadence + a real dev-console panel —
+      SHIPPED, v1.34.213.** Explicit user follow-up, after a direct
+      question ("haven't built the adaptive runtime at all?") exposed
+      that HypothesisLoop's manual-only trigger (v1.34.205/.206) had
+      never been given an automatic cadence, and that host_probe/
+      machine_profile/adaptive_tuning_log were dev-console-raw-JSON
+      only: "Do both and keep building adaptive runtime to what I
+      originally wanted." New `SimulationEngine._maybe_auto_llm_
+      concurrency_hypothesis` (monthly, `_TICK_JOBS`-registered) closes
+      the exact gap `select_strategy`'s own docstring had flagged
+      ("previously only a downward-only cap... a future call site
+      flagged") — it now proposes `select_strategy`'s own hardware-
+      derived `llm_max_concurrent_hint` as the real candidate value,
+      gated by a `LLM_CONCURRENCY_AUTO_HYPOTHESIS_QUIET_DAYS=14`
+      quiescence check against `_adaptive_tuning_log`'s own real tick-
+      stamped history — never fires while B6's live `BangBangController`
+      has adjusted the same tunable within the last 14 days, the exact
+      "never fight the reactive controller" invariant the manual-only
+      design existed to protect, now enforced by real elapsed-tick math
+      instead of by never running at all. Both the manual and automatic
+      triggers now share one `_spawn_llm_concurrency_hypothesis(
+      proposed_value, hypothesis, source)` helper (`source` tagged
+      `"manual"`/`"auto"` on every result), replacing the old inline-
+      only manual runner. New dev-console "Adaptive runtime" panel
+      (`app.js`'s `renderAdaptiveRuntimeStatus`) renders `host_probe`/
+      `machine_profile` (incl. its own last `select_strategy` verdict)/
+      the real `adaptive_tuning_log_recent` history as formatted plain
+      text instead of raw JSON — the concurrency-hypothesis panel's own
+      status line now prefixes `[manual]`/`[auto]` so a result's source
+      is never ambiguous. New `scripts/verify_auto_llm_concurrency_
+      hypothesis.py` (12 checks — LLM-disabled/non-month_end/no-
+      strategy-yet/hint-already-matches/already-running skips, a
+      recent reactive-log entry blocking it, a genuinely quiet history
+      (clock advanced directly, since a fresh engine starts at tick 0)
+      letting it fire and complete tagged `source: "auto"`, an empty
+      log also letting it fire, the manual trigger still working
+      unchanged tagged `source: "manual"`, and a real 2000-tick
+      production-path drive with the job registered never crashing) —
+      one real off-by-one caught and fixed in the verify script's own
+      fixture before shipping (computing "old enough" tick math against
+      a not-yet-advanced clock silently collapsed to tick 0), not a bug
+      in the module under test. Verified: the new script (12 checks);
+      `pyflakes`/`node --check` clean; a live Playwright pass confirming
+      the new panel genuinely renders host/profile/log content after
+      "Full diagnostic report"; a real replay-hash MATCH (4000 ticks,
+      seed 777, `--in-process`); `scripts/verify_native_soak.py` MATCH.
+
       **B13's UI trigger — SHIPPED, v1.34.206.** Explicit user
       follow-up: "Build B13 and other items you can complete." New
       `POST /intervene/llm-concurrency-hypothesis` -> `SimulationEngine.

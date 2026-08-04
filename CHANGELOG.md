@@ -4,6 +4,50 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.213] — Adaptive Runtime: automatic hypothesis cadence + a real dev-console panel
+
+Explicit user instruction: "Do both and keep building adaptive runtime
+to what I originally wanted" (a rendered dev-console panel instead of
+raw JSON, and an automatic cadence for the manual-only B13 hypothesis
+loop).
+
+**Automatic cadence for `llm_max_concurrent`'s `HypothesisLoop`.** New
+`SimulationEngine._maybe_auto_llm_concurrency_hypothesis` (monthly),
+strictly gated so it can never fight B6's live daily `BangBangController`
+over the same tunable: it only fires once the reactive controller has
+made no real change (per `self._adaptive_tuning_log`'s own `tick`
+field) for `LLM_CONCURRENCY_AUTO_HYPOTHESIS_QUIET_DAYS` (14) real
+days, and the proposed value is always `select_strategy`'s own
+hardware-derived `llm_max_concurrent_hint` — closing the loop that
+hint's own docstring named as still open (previously only a downward-
+only cap, now periodically tested as a real candidate value). The
+manual dev-console/API trigger is unchanged; both paths share one new
+spawn helper (`_spawn_llm_concurrency_hypothesis`) and results are
+tagged `source: "auto"`/`"manual"`.
+
+**Real dev-console panel.** New "Adaptive runtime" panel
+(`renderAdaptiveRuntimeStatus` in `app.js`) renders `host_probe`/
+`machine_profile`/`adaptive_tuning_log_recent` as readable text
+instead of raw JSON — cores/RAM/swap/load/thermal state, the
+persisted machine profile's measured throughput/storage speed, the
+current hardware-derived hint, and every real automatic concurrency
+change. Pure presentation over already-existing `full_diagnostics()`
+data. The B13 hypothesis-result line now also shows `[auto]`/
+`[manual]`.
+
+New `scripts/verify_auto_llm_concurrency_hypothesis.py` (12 checks) —
+all pass; one real off-by-one caught and fixed in the verify script
+itself (a fresh engine starts at tick 0, so representing a genuinely
+"old" reactive-log entry needs the clock advanced first), not a bug
+in the module under test.
+
+Verified: the new script; `node --check` clean; a live Playwright
+pass confirming the new panel renders real formatted text after
+clicking "Full diagnostic report"; full existing verify-script suite
+re-run clean; `pyflakes` clean; `scripts/verify_replay_hash.py` (4000
+ticks, seed 777) — MATCH; `scripts/verify_native_soak.py` (3 seeds x
+3000 ticks) — MATCH.
+
 ## [1.34.212] — Tier 6 L1.2's real gameplay consumer + diagnostics; roadmap markdown fix
 
 Explicit user instruction: "Continue that wire everything and expose in
