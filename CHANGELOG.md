@@ -4,6 +4,73 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.229] — HCA Stage B closes in full (B7), plus a roadmap-status audit
+
+Explicit user instruction: "Start B7 and a parallel task." Two
+independent pieces, one batch — **this closes Tier 7 HCA Stage B in
+full** (B1-B7 all shipped).
+
+**B7.** Learning to bid from realised outcomes — the roadmap's own
+"did the broadcast reduce anyone's subsequent prediction error? did
+real emergence follow? was a chunk produced? credited back to winning
+coalitions and, where a counterfactual is honestly available, to
+losing ones." New `hearthmind/cognition/workspace.py`'s `OutcomeLearner`
+(a real, bounded per-specialist running mean of measured `[0,1]`
+outcomes, `OUTCOME_EMA_RATE`, remapped onto `[HISTORICAL_USEFULNESS_
+FLOOR, HISTORICAL_USEFULNESS_CEILING]`) plus `credit_winning_coalition`
+(credits every genuinely independent member of B4's own `Coalition`
+with the same measured outcome) and `credit_losing_bid` (credits a
+losing specialist ONLY from a real caller-supplied counterfactual,
+never a guessed one). Feeds directly into B5's own already-real
+`BidFactors.historical_usefulness` multiplicative slot — B5's own
+docstring had named this precise gap ("LEARNING what value it should
+hold from realised outcomes is explicitly B7's job"). Deliberately the
+smallest real thing that makes B7 true: reuses Stage G's own "revise a
+bounded scalar from real evidence, never guess" ontogeny shape rather
+than a full trained model, since the one number B5 needs is a scalar.
+
+Both of the HCA amendment's named guardrails hold by construction, not
+convention: `OutcomeLearner` holds no reference to `GlobalWorkspace` at
+all (structurally incapable of touching staleness gain, up or down);
+`credit()` only ever accepts a real caller-supplied outcome value.
+
+New `scripts/verify_b7_learned_bidding.py` (13 checks — the roadmap's
+own stated headline test, a deliberately-favored-at-first "unreliable"
+specialist and an initially-behind "reliable" one, given otherwise
+IDENTICAL raw `BidFactors`, genuinely INVERT rank order after a real
+run of credited outcomes; a chronically-losing specialist's real
+`GlobalWorkspace` staleness count proven IDENTICAL whether or not an
+independent `OutcomeLearner` is simultaneously active crediting other
+specialists in the same run; `credit_winning_coalition`'s real dedup
+behavior against a duplicate-source coalition member; `credit_losing_
+bid`'s real counterfactual path; end-to-end proof that a learned gain
+genuinely raises a real `evidence_bid`'s own score) — all pass, first
+run, no bug found.
+
+**Parallel task: a real roadmap-status audit, closing a documentation
+gap left across the last several turns.** Every B1-B6 turn this
+session correctly shipped its own detailed checklist entry, but the
+Phase 3 sequence's own short summary list (`docs/ROADMAP-2026-07-
+REMAINING.md`'s "1. `B1` — PARTIAL, v1.34.223... 2. `B2`... 7. `B7`")
+had been left with its original stale one-line descriptions the whole
+way through — `B1` still read "PARTIAL" despite shipping in full, and
+none of `B2`-`B6` carried their own real ship version. Corrected all
+seven entries with their real `SHIPPED, vX.Y.Z` status, and marked the
+section header itself "CLOSED IN FULL, v1.34.229" — closing a real,
+accumulated documentation-accuracy gap rather than leaving it for a
+future audit to rediscover, the same class of finding as v1.34.228's
+`aesthetics.py` note.
+
+Verified: the new script (13 checks); `verify_b1_global_workspace.py`/
+`verify_b2_starvation_gain.py`/`verify_b3_pillar_bus.py`/`verify_b4_
+coalition_formation.py`/`verify_b5_evidence_scoring.py`/`verify_b6_
+arbitration_determinism.py` re-run clean; `pyflakes` clean on all
+touched/new files. No native module or `simulation/engine.py` code
+path touched — no replay-hash/native-soak re-run needed. Phase 3.5
+(`W1`-`W3`, the real production wiring) and `H1` (needs Stage B + Stage
+G, both now closed) are both genuinely unblocked — resume either only
+on future explicit direction.
+
 ## [1.34.228] — HCA Stage B's B6, plus a C++-porting-backlog audit finding
 
 Explicit user instruction: "Start B6 and complete something from the

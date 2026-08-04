@@ -2073,14 +2073,34 @@ cannot state one does not ship.
   early via tie-break rather than a genuine strict win — fixed by
   submitting the stronger bid first every cycle (removing tie-break
   ambiguity entirely) and comparing against `bound+1`.
-- [ ] **B7** *(§3.3 step 5; depends on Stage G)* — learning to bid from
-  realised outcomes (did the broadcast reduce anyone's subsequent
-  prediction error? did real emergence follow? was a chunk produced?),
-  credited back to winning coalitions and — where a counterfactual is
-  honestly available — to losing ones. *Test:* a deliberately
-  unreliable specialist and a reliable one, given identical raw bids,
-  invert in rank order over a run; and a never-winning specialist's
-  staleness gain is verified NOT to have been learned downward.
+- [x] **B7 — SHIPPED, v1.34.229.** *(§3.3 step 5; depended on Stage G,
+  shipped since v1.34.216-.219)* — learning to bid from realised
+  outcomes (did the broadcast reduce anyone's subsequent prediction
+  error? did real emergence follow? was a chunk produced?), credited
+  back to winning coalitions and — where a counterfactual is honestly
+  available — to losing ones. New `OutcomeLearner`/`credit_winning_
+  coalition`/`credit_losing_bid` (`hearthmind/cognition/workspace.py`):
+  a real, bounded per-specialist running mean of measured outcomes
+  (`OUTCOME_EMA_RATE`), remapped onto `[HISTORICAL_USEFULNESS_FLOOR,
+  HISTORICAL_USEFULNESS_CEILING]` and fed directly into B5's own
+  `BidFactors.historical_usefulness` slot — B5's own docstring had
+  named this exact gap ("learning what value it should hold... is
+  explicitly B7's job"). Both HCA guardrails hold by construction:
+  `OutcomeLearner` has no reference to `GlobalWorkspace` at all, so
+  staleness gain cannot be learned by anything this class does; `credit
+  ()` only ever accepts a real caller-supplied outcome, never estimates
+  one. *Test (passed):* a deliberately-favored-at-first "unreliable"
+  specialist and an initially-behind "reliable" one, given otherwise
+  identical raw `BidFactors`, genuinely INVERT rank order after a real
+  run of credited outcomes (`scripts/verify_b7_learned_bidding.py`, 13
+  checks) — a chronically-losing specialist's real `GlobalWorkspace`
+  staleness count is proven IDENTICAL whether or not an independent
+  `OutcomeLearner` is simultaneously active in the same run, and a
+  never-credited specialist's own gain stays neutral. All 13 checks
+  passed, first run, no bug found. **This closes HCA Stage B in full**
+  — Phase 3.5 (`W1`-`W3`, the real production wiring) and `H1` (needs
+  Stage B + Stage G, both now closed) are both genuinely unblocked;
+  resume either only on future explicit direction.
 - [ ] **W1**-**W3** *(added 2026-08-04, explicit user instruction —
   "Phase 3.5" in the phase-sequence section above)* — the real
   production wiring of Stage B's workspace, gated on `B7` (Stage B
@@ -2663,33 +2683,44 @@ inventing the interface twice later.
    in this sequence is ever built.*
 
 **Phase 3 — HCA Stage B: coalition bidding & arbitration
-(`B1`→`B2`→`B3`→`B4`→`B5`→`B6`→`B7`).** The base workspace/arbitration
-engine must exist (`B1`) before its later refinements (`B4`-`B7`, the
-2026-08-02 amendment sub-steps) can attach to anything:
-1. `B1` — **PARTIAL, v1.34.223.** Coalition bidding; one arbitrated
+(`B1`→`B2`→`B3`→`B4`→`B5`→`B6`→`B7`) — CLOSED IN FULL, v1.34.229.**
+The base workspace/arbitration engine (`B1`) existed before its later
+refinements (`B4`-`B7`, the 2026-08-02 amendment sub-steps) attached to
+it, per the sequencing below; every one of the seven sub-steps is now
+real, verified, standalone code:
+1. `B1` — **SHIPPED, v1.34.223.** Coalition bidding; one arbitrated
    winner per cycle. New `hearthmind/cognition/workspace.py`'s `Bid`/
    `GlobalWorkspace` — see its own checklist entry above for full
    detail. "Every LLM call site converted to a bid" remains open, real
-   future work.
-2. `B2` — starvation handled competitively (unbounded staleness gain
-   primary, the old bounded-deferral floor kept only as a backstop).
-3. `B3` — the broadcast bus, replacing the ten hand-wired inter-pillar
-   arrows from the older B4 message-bus item (same code letter, older
-   item — see the item's own cross-reference).
-4. `B4` *(2026-08-02 amendment)* — coalition formation: same-subject
-   bids merge superadditively but sublinearly.
-5. `B5` *(2026-08-02 amendment)* — the seven-factor evidence-based bid
-   score. **Needs Phase 2 done** — surprise is one of the seven factors
-   and is undefined without `A1`.
-6. `B6` *(2026-08-02 amendment)* — arbitration determinism + the
-   starvation bound, no RNG anywhere in the path.
-7. `B7` *(2026-08-02 amendment)* — learning to bid from realised
-   outcomes. **Needs Phase 1 done** — this is `learn()` applied to the
-   bidding policy itself, per the HCA doc's own explicit dependency.
-   *Stage B fully closes here. Ships: a real, replayable, deterministic
-   arbitrated workspace — the actual "OS scheduler for cognition" the
-   Adaptive Runtime was always meant to have, independently valuable as
-   the backbone of everything gameplay-facing that follows.*
+   future work — that's Phase 3.5 below, now itself unblocked.
+2. `B2` — **SHIPPED, v1.34.224.** Starvation handled competitively
+   (unbounded staleness gain primary, the old bounded-deferral floor
+   kept only as a backstop).
+3. `B3` — **SHIPPED, v1.34.225.** The broadcast bus, replacing the ten
+   hand-wired inter-pillar arrows from the older B4 message-bus item
+   (same code letter, older item — see the item's own cross-reference).
+4. `B4` *(2026-08-02 amendment)* — **SHIPPED, v1.34.226.** Coalition
+   formation: same-subject bids merge superadditively but sublinearly.
+5. `B5` *(2026-08-02 amendment)* — **SHIPPED, v1.34.227.** The
+   seven-factor evidence-based bid score. Needed Phase 2 done —
+   surprise is one of the seven factors and is undefined without `A1`.
+6. `B6` *(2026-08-02 amendment)* — **SHIPPED, v1.34.228.** Arbitration
+   determinism + the starvation bound, no RNG anywhere in the path.
+7. `B7` *(2026-08-02 amendment)* — **SHIPPED, v1.34.229.** Learning to
+   bid from realised outcomes. Needed Phase 1 done — this is `learn()`
+   applied to the bidding policy itself, per the HCA doc's own explicit
+   dependency; shipped as `OutcomeLearner`/`credit_winning_coalition`/
+   `credit_losing_bid` (`hearthmind/cognition/workspace.py`), a real,
+   bounded per-specialist running estimate fed straight into `B5`'s own
+   `BidFactors.historical_usefulness` multiplicative slot, reusing
+   Stage G's "revise a bounded scalar from real evidence, never guess"
+   shape rather than a full trained model. *Stage B fully closes here.
+   Ships: a real, replayable, deterministic arbitrated workspace — the
+   actual "OS scheduler for cognition" the Adaptive Runtime was always
+   meant to have, independently valuable as the backbone of everything
+   gameplay-facing that follows.* `H1` (needs Stage B + Stage G, both
+   now closed) and Phase 3.5 (`W1`-`W3`, below) are both now genuinely
+   unblocked — resume either only on future explicit direction.
 
 **Phase 3.5 — Wire Stage B's workspace into production (added
 2026-08-04, explicit user instruction: "will all B items wire to

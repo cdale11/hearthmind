@@ -1,9 +1,28 @@
-"""Tier 7 HCA Stage B, B1+B2+B3+B4+B5+B6 (docs/COGNITIVE-ARCHITECTURE-
-2026-08-02.md §3, Layer 3 "The Global Workspace"): the base coalition-
-bidding/arbitration engine everything else in Stage B (B7's learned
-bidding) attaches to. Per the roadmap's own Phase 3 sequencing: "the
-base workspace/arbitration engine must exist (B1) before its later
-refinements can attach to anything."
+"""Tier 7 HCA Stage B, B1+B2+B3+B4+B5+B6+B7 (docs/COGNITIVE-
+ARCHITECTURE-2026-08-02.md §3, Layer 3 "The Global Workspace"): the
+base coalition-bidding/arbitration engine, now with every one of its
+own named refinements attached — this closes Stage B in full (only
+the real production wiring, Phase 3.5's `W1`-`W3`, remains). Per the
+roadmap's own Phase 3 sequencing: "the base workspace/arbitration
+engine must exist (B1) before its later refinements can attach to
+anything."
+
+**B7, the roadmap's own framing:** "learning to bid from realised
+outcomes (did the broadcast reduce anyone's subsequent prediction
+error? did real emergence follow? was a chunk produced?), credited
+back to winning coalitions and — where a counterfactual is honestly
+available — to losing ones." `OutcomeLearner`/`credit_winning_
+coalition`/`credit_losing_bid` below implement exactly this: a real,
+bounded per-specialist running estimate of measured usefulness, fed
+straight into B5's own already-real `BidFactors.historical_usefulness`
+multiplicative slot — B5's own docstring named this precise gap
+("LEARNING what value it should hold... is explicitly B7's job").
+Deliberately the smallest real thing that makes B7 true: reuses Stage
+G's own "revise a bounded scalar from real evidence, never guess"
+shape rather than a full model, since the ONE number B5 needs is a
+scalar, not a trained network. Both of the HCA amendment's named
+guardrails hold by construction, not by convention — see `OutcomeLearner`'s
+own docstring for exactly how.
 
 **B6, the roadmap's own framing:** "arbitration determinism and the
 starvation bound. Test: identical evidence produces an identical
@@ -108,8 +127,8 @@ scheduler for cognition" the Adaptive Runtime was always meant to have
 the Mind layer, the same way it already is for the deterministic Body.
 
 **Deliberately NOT wired into any real production LLM call site this
-pass.** B1's/B2's/B3's/B4's/B5's/B6's own "every LLM call site converted to a bid" is real,
-large, separate migration work -- this codebase's own A2 finding
+pass.** B1's/B2's/B3's/B4's/B5's/B6's/B7's own "every LLM call site
+converted to a bid" is real, large, separate migration work -- this codebase's own A2 finding
 counted ~78 real `_append_emergence`-adjacent call sites, and a
 comparable number of independent `_schedule_llm_job` sites elsewhere,
 the kind of big-bang rewrite this project's own standing "never
@@ -581,3 +600,123 @@ def evidence_bid(
         specialist_id=specialist_id, subject=subject, score=compute_evidence_score(factors, beta),
         resolver=resolver, reason=reason, evidence_source=evidence_source,
     )
+
+
+OUTCOME_EMA_RATE = 0.2
+"""B7's own learning rate for `OutcomeLearner`'s per-specialist running
+mean of measured realised outcomes -- the same "many small nudges over
+many ticks, no value ever fully replaced" exponential-smoothing shape
+`STALENESS_GAIN_PER_CYCLE`/`BEAUTY_VOTE_SMOOTHING` already establish
+elsewhere in this codebase. One measured outcome nudges a specialist's
+running mean by at most 20% of the gap to that outcome -- fast enough
+that a real, sustained reliability difference shows up within a
+handful of credited outcomes (matching the roadmap's own test, "invert
+in rank order over a run"), slow enough that one noisy measurement
+can't single-handedly flip a specialist's own standing."""
+
+HISTORICAL_USEFULNESS_FLOOR = 0.3
+HISTORICAL_USEFULNESS_CEILING = 1.7
+"""The real range `OutcomeLearner.historical_usefulness_for` maps a
+specialist's `[0, 1]` running outcome mean onto -- a chronically
+unreliable source (mean near 0.0) attenuates to `0.3x`, a chronically
+reliable one (mean near 1.0) amplifies to `1.7x`, and the exact
+midpoint (`0.5`, matching a specialist with no evidence yet) maps to
+`1.0` -- neutral, the same default `BidFactors.historical_usefulness`
+already carries. Symmetric around neutral by construction (`(FLOOR +
+CEILING) / 2 == 1.0`) so a specialist that's never been credited reads
+identically to one credited only ever at exactly the midpoint -- "no
+evidence" and "genuinely mixed evidence" are honestly the same
+starting point, not silently biased toward amplification or
+attenuation."""
+
+
+class OutcomeLearner:
+    """Tier 7 HCA Stage B, B7 (§3.3 step 5; explicit user instruction:
+    "Start B7") -- "learning to bid from realised outcomes... credited
+    back to winning coalitions and, where a counterfactual is honestly
+    available, to losing ones." This is L1's `learn()` applied to the
+    BIDDING POLICY specifically (per CLAUDE.md's own HCA amendment,
+    "specialists learn to bid better from measured realised outcomes"),
+    reusing Stage G's already-shipped shape (a bounded per-specialist
+    running estimate, updated only from real measured evidence) rather
+    than inventing a parallel mechanism -- `hearthmind.ml.specialist.
+    LearningSpecialist`'s own `learn()` trains a model's WEIGHTS from
+    replayed examples; this class trains one scalar per specialist
+    (its own `historical_usefulness` gain, B5's own real multiplicative
+    slot) from replayed OUTCOMES, the same "revise, never replace
+    outright" ontogeny, scoped down to the one number B5 already needs.
+
+    Two guardrails, both from the same HCA amendment CLAUDE.md records,
+    and both held BY CONSTRUCTION here, not by convention: (1)
+    "staleness gain is never learnable" -- this class never touches
+    `GlobalWorkspace`'s own `_cycles_stale` state, has no reference to
+    a `GlobalWorkspace` instance at all, and nothing in `GlobalWorkspace
+    .arbitrate()` reads from an `OutcomeLearner` -- the two mechanisms
+    are structurally disconnected, so a never-winning specialist's
+    staleness gain literally cannot be affected by anything this class
+    does, whether or not that specialist is ever credited. (2) "a bid
+    is only credited when its outcome was actually measured" -- `credit
+    ()` takes a real `outcome` value from the CALLER; nothing in this
+    module estimates, guesses, or defaults one on a caller's behalf."""
+
+    def __init__(self, ema_rate: float = OUTCOME_EMA_RATE) -> None:
+        self._ema_rate = ema_rate
+        self._outcome_mean: dict[str, float] = {}
+        self._credited_count: dict[str, int] = {}
+
+    def credit(self, specialist_id: str, outcome: float) -> float:
+        """Record ONE real, measured outcome for `specialist_id` (0..1
+        -- did the broadcast reduce a subscriber's later prediction
+        error? did real emergence follow? was a chunk produced? --
+        whatever the caller's own measurement actually is, clamped
+        defensively). Never call this with an estimated/guessed value
+        -- that's precisely the guardrail this class exists to hold.
+        Returns the specialist's updated `historical_usefulness_for`
+        gain, so a caller can immediately re-bid with the fresh value
+        if it wants to."""
+        outcome = _clamp01(outcome)
+        prior = self._outcome_mean.get(specialist_id, 0.5)
+        self._outcome_mean[specialist_id] = prior + (outcome - prior) * self._ema_rate
+        self._credited_count[specialist_id] = self._credited_count.get(specialist_id, 0) + 1
+        return self.historical_usefulness_for(specialist_id)
+
+    def historical_usefulness_for(self, specialist_id: str) -> float:
+        """The real value to feed `BidFactors.historical_usefulness`
+        for this specialist -- `1.0` (neutral) for one never credited,
+        otherwise its running outcome mean linearly remapped from
+        `[0, 1]` onto `[HISTORICAL_USEFULNESS_FLOOR,
+        HISTORICAL_USEFULNESS_CEILING]`."""
+        mean = self._outcome_mean.get(specialist_id, 0.5)
+        return HISTORICAL_USEFULNESS_FLOOR + mean * (HISTORICAL_USEFULNESS_CEILING - HISTORICAL_USEFULNESS_FLOOR)
+
+    def credited_count(self, specialist_id: str) -> int:
+        """How many real outcomes this specialist has ever been
+        credited with -- `0` for one never credited, distinct from a
+        specialist genuinely credited exactly at the neutral 0.5
+        midpoint (both currently read `historical_usefulness_for ==
+        1.0`, but only the latter has real evidence behind it)."""
+        return self._credited_count.get(specialist_id, 0)
+
+
+def credit_winning_coalition(learner: OutcomeLearner, coalition: Coalition, outcome: float) -> None:
+    """B7's own real consumer of B4's `Coalition`: every genuinely
+    independent member of a WINNING coalition corroborated the call
+    that produced this cycle's real, measured `outcome` -- each of
+    their specialists is credited with the same value. A duplicate-
+    source loser inside `coalition.members` that didn't survive into
+    `independent_members` is correctly NOT credited a second time for
+    the same underlying reading, matching B4's own "two views of one
+    underlying reading are one bidder, not two" discipline."""
+    for bid in coalition.independent_members:
+        learner.credit(bid.specialist_id, outcome)
+
+
+def credit_losing_bid(learner: OutcomeLearner, bid: Bid, counterfactual_outcome: float) -> None:
+    """The roadmap's own explicit second half: "where a counterfactual
+    is honestly available" -- a LOSING bid's specialist can still be
+    credited, but ONLY when the caller supplies a real counterfactual
+    outcome (e.g. from a real sandboxed dual-fork re-running the cycle
+    with this bid as the winner instead, `simulation/sandbox.py`'s
+    existing machinery) -- this function never fabricates one on its
+    own, same guardrail `OutcomeLearner.credit` itself already holds."""
+    learner.credit(bid.specialist_id, counterfactual_outcome)

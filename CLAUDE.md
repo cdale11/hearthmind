@@ -742,6 +742,57 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.229)
+
+Explicit user instruction: "Start B7 and a parallel task" — two
+independent pieces, one batch. **This closes Tier 7 HCA Stage B in
+full** (B1 v1.34.223 -> B7 here, all seven sub-steps shipped).
+
+**B7.** Learning to bid from realised outcomes. New `OutcomeLearner`/
+`credit_winning_coalition`/`credit_losing_bid` (`hearthmind/cognition/
+workspace.py`): a real, bounded per-specialist running mean of
+measured `[0,1]` outcomes (`OUTCOME_EMA_RATE`), remapped onto
+`[HISTORICAL_USEFULNESS_FLOOR, HISTORICAL_USEFULNESS_CEILING]` and fed
+directly into B5's own `BidFactors.historical_usefulness` slot — B5's
+own docstring had named this exact gap ("learning what value it should
+hold... is explicitly B7's job"). Winning-coalition credit reuses B4's
+`Coalition.independent_members` (never double-credits a duplicate-
+source loser); losing-bid credit only ever accepts a real caller-
+supplied counterfactual, never a guessed one. Both HCA guardrails hold
+by construction: `OutcomeLearner` has no reference to `GlobalWorkspace`
+at all (structurally can't touch staleness gain), and `credit()` only
+ever takes a real measured value.
+
+New `scripts/verify_b7_learned_bidding.py` (13 checks — the roadmap's
+own headline test: a deliberately-favored-at-first "unreliable"
+specialist and an initially-behind "reliable" one, given identical raw
+`BidFactors`, genuinely INVERT rank order after a real run of credited
+outcomes; a chronically-losing specialist's real staleness count
+proven IDENTICAL whether or not an independent `OutcomeLearner` is
+simultaneously active; coalition-credit dedup; the real counterfactual
+path; an end-to-end `evidence_bid` score rise) — all pass, first run,
+no bug found.
+
+**Parallel task: a real roadmap-status audit.** The Phase 3 sequence's
+own short summary list in `docs/ROADMAP-2026-07-REMAINING.md` had been
+left with stale one-line descriptions across every B1-B6 turn this
+session — `B1` still read "PARTIAL" despite shipping in full, and none
+of `B2`-`B6` carried their own real ship version. Corrected all seven
+entries with real `SHIPPED, vX.Y.Z` status and marked the section
+"CLOSED IN FULL, v1.34.229" — same class of finding as v1.34.228's
+`aesthetics.py` note, closing a real accumulated gap rather than
+leaving it for a future audit.
+
+Verified: the new script (13 checks); `verify_b1_global_workspace.py`/
+`verify_b2_starvation_gain.py`/`verify_b3_pillar_bus.py`/`verify_b4_
+coalition_formation.py`/`verify_b5_evidence_scoring.py`/`verify_b6_
+arbitration_determinism.py` re-run clean; `pyflakes` clean on all
+touched/new files. No native module or `simulation/engine.py` code
+path touched — no replay-hash/native-soak re-run needed. Phase 3.5
+(`W1`-`W3`, real production wiring) and `H1` (needs Stage B + Stage G,
+both now closed) are both genuinely unblocked — resume either only on
+future explicit direction.
+
 ## Current state (v1.34.228)
 
 Explicit user instruction: "Start B6 and complete something from the
