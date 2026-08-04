@@ -4,6 +4,38 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.216] — HCA Stage G, G1: the learn() interface, wired to Tier 6's L5 substrate
+
+Explicit user instruction: "Start phase 1 G1." Tier 7 HCA's first line
+of real code (everything prior was docs-only).
+
+New `hearthmind/ml/specialist.py`'s `LearningSpecialist`/`LearnResult`:
+`predict()` (delegates to the wrapped `MLP.forward`) plus a real
+`learn()` orchestrating Tier 6 L5's already-shipped `ReplayBuffer`/
+`continual_train_mlp`/`passes_shadow_gate` -- no new learning
+mechanism invented. `learn()` never trains the live model in place
+(`continual_train_mlp` mutates its argument directly, which would make
+a shadow-gate check meaningless): it clones the live model, trains the
+clone, evaluates it against caller-supplied held-out examples, and
+only swaps it in if the real shadow gate agrees it didn't regress. A
+rejected candidate's new examples still enter the replay buffer
+regardless -- lived history, not learned success.
+`observe()`/`error()`/`bid()` are explicitly out of scope (Stage A/B's
+own unbuilt items) -- this ships the smallest real thing that makes
+`learn()` meaningful on its own.
+
+New `scripts/verify_ml_specialist.py` (12 checks, all pass, first run,
+no bug found) -- G1's own stated test: prediction error on a fixed
+held-out set trends down across real `learn()` cycles on a stationary
+synthetic signal; a real shadow-gate rejection proven via a
+deliberately-sabotaged retrain (the live model's weights and held-out
+performance confirmed byte-identical before/after); the no-new-
+examples and no-holdout degrade-gracefully cases. Verified: `pyflakes`
+clean; `verify_ml_substrate.py`/`verify_ml_evolution.py` re-run clean.
+No native module, persisted `World` state, or `simulation/engine.py`
+code path touched -- pure offline ML substrate, no replay-hash/
+native-soak re-run needed.
+
 ## [1.34.215] — Phase 0 shipped, HearthBench added to the build sequence, roadmap decluttered
 
 Explicit user instruction: "Yes full picture in one place and cleanup

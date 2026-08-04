@@ -2168,9 +2168,35 @@ MATCH. No native module touched.
 No dependency beyond Tier 6's `L5`/`L6` substrate, both already
 shipped — this phase is real wiring work, not new design, and it pays
 off multiple tiers at once:
-1. `G1` — the `learn()` interface on the specialist shape, wired
-   directly to `L5`'s `ReplayBuffer`/`continual_train_mlp`/`passes_
-   shadow_gate` (no new mechanism to invent).
+1. `G1` — **SHIPPED, v1.34.216.** New `hearthmind/ml/specialist.py`'s
+   `LearningSpecialist`/`LearnResult`: `predict()` (a plain delegate to
+   the wrapped `MLP.forward`) + a real `learn()` wired directly to
+   `L5`'s `ReplayBuffer`/`continual_train_mlp`/`passes_shadow_gate`
+   (no new mechanism invented). The one real design decision: `learn()`
+   never trains the live model in place — `continual_train_mlp` itself
+   mutates its argument, which would make a shadow-gate check
+   meaningless (the "shadow" would already be live), so `learn()`
+   always clones the live model (`MLP.from_dict(self.model.to_dict())`),
+   trains the clone, evaluates it against caller-supplied held-out
+   examples, and only swaps it in for `self.model` if `passes_shadow_
+   gate` agrees it didn't regress — a rejected candidate's new examples
+   still enter the replay buffer regardless (lived history, not learned
+   success). `observe()`/`error()`/`bid()` are explicitly out of scope
+   (Stage A/B's own items, unbuilt) — this ships the smallest real
+   thing that makes `learn()` meaningful on its own, not a guess at the
+   other four methods' eventual shape. New `scripts/verify_ml_
+   specialist.py` (12 checks — G1's own stated test: prediction error
+   on a fixed held-out set trends down across real `learn()` cycles on
+   a stationary synthetic signal; a real shadow-gate rejection proven
+   with a deliberately-sabotaged retrain, confirming the live model's
+   weights and held-out performance are byte-identical before/after a
+   rejection; the no-new-examples and no-holdout degrade-gracefully
+   cases) — all pass, first run, no bug found. Verified: `pyflakes`
+   clean; `verify_ml_substrate.py`/`verify_ml_evolution.py` re-run
+   clean (unaffected). No native module, persisted `World` state, or
+   `simulation/engine.py` code path touched — same "pure offline ML
+   substrate" scope class as every other Tier 6 L-layer shipment, no
+   replay-hash/native-soak re-run needed.
 2. `G2` — wire the FIRST real specialist to `G1`: `B8.1`/`L3.2`'s
    already-trained `WorkloadForecaster`. **This single item closes
    three previously-separate flagged gaps at once** — Part B's B8.1-

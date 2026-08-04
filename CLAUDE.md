@@ -742,6 +742,61 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.216)
+
+Explicit user instruction: "Start phase 1 G1" — Tier 7 HCA's (docs/
+COGNITIVE-ARCHITECTURE-2026-08-02.md) first line of real code; every
+prior HCA filing was docs-only.
+
+New `hearthmind/ml/specialist.py`'s `LearningSpecialist`/`LearnResult`:
+G1's `learn()` interface on the specialist shape, wired directly to
+Tier 6's already-shipped L5 substrate (`hearthmind/ml/lifelong.py`'s
+`ReplayBuffer`/`CheckpointHistory`/`passes_shadow_gate`) — no new
+learning mechanism, real orchestration only. `predict()` is a plain
+delegate to the wrapped `primitives.MLP.forward`; `observe()`/
+`error()`/`bid()` are explicitly out of scope (Stage A/B's own
+still-unbuilt items) — this ships the smallest real thing that makes
+`learn()` meaningful on its own, not a guess at the other four
+methods' eventual shape.
+
+The one real design decision `learn()` makes: never train the live
+model in place. `training.continual_train_mlp` mutates its `model`
+argument directly, which would make a shadow-gate check meaningless
+(the "shadow" would already be live by the time it's evaluated) — so
+`learn()` always clones the live model first (`MLP.from_dict(self.
+model.to_dict())`), trains the clone, evaluates the clone against
+caller-supplied held-out examples via `training.mean_loss`, and only
+swaps it in for `self.model` if `passes_shadow_gate` agrees it didn't
+regress the live model's own held-out metric — pushing a real
+`CheckpointHistory` entry only on acceptance. A rejected candidate's
+new examples still enter the replay buffer regardless (the buffer
+records what the specialist actually lived through, not what it
+successfully learned from — a future retrain gets another chance to
+rehearse the same example). No holdout supplied degrades to an
+ungated accept (same "degrades to plain training" shape `continual_
+train_mlp`'s own `replay_buffer=None` case already uses), not a
+silent gate bypass dressed up as real gating.
+
+New `scripts/verify_ml_specialist.py` (12 checks — G1's own stated
+test from the roadmap: "a specialist's own prediction error trends
+down over its lifetime on a stationary synthetic signal, using the
+real shadow gate, not a mock" — a fixed held-out set drawn once, loss
+measured across 8 real `learn()` cycles on a stationary synthetic
+2-input signal, confirmed to fall by >30%; a real shadow-gate
+REJECTION proven with a deliberately-sabotaged retrain (garbage
+opposite-signed targets) — confirmed the live model's weights and
+held-out performance are byte-identical before/after the rejection,
+and that the rejected examples still reached the replay buffer; the
+zero-new-examples and no-holdout degrade-gracefully cases) — all pass,
+first run, no bug found in the module under test.
+
+Verified: the new script (12 checks); `pyflakes` clean; `scripts/
+verify_ml_substrate.py`/`verify_ml_evolution.py` re-run clean
+(unaffected). No native module, persisted `World` state, or
+`simulation/engine.py` code path touched — pure offline ML substrate,
+same scope class as every other Tier 6 L-layer shipment (L0/L1.2/L5/
+L6), no replay-hash/native-soak re-run needed.
+
 ## Current state (v1.34.215)
 
 Explicit user instruction: "Yes full picture in one place and cleanup
