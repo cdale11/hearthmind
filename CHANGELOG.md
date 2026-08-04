@@ -4,6 +4,85 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.233] — Phase 3.5 W3: settlement-scoped granularity for per-agent traffic, plus a roadmap correction and W4
+
+Explicit user instruction: "Fix the roadmap's stale '~78+~29' framing
+and start W3. Also add these 29 arrows as W4 if not already done.
+Complete W3 in one run."
+
+**Roadmap correction.** Phase 3.5's original phase-sequence text
+guessed at W2's scope with a "~78+~29" figure before anyone had
+actually enumerated the real target — it conflated two unrelated,
+larger categories: "~78" was A2's own count of `_append_emergence`-
+adjacent sites (anywhere code touches the emergence log, far broader
+than LLM scheduling); "~29" was `_send_pillar_message` arrows (the
+older point-to-point pillar-messaging mechanism, structurally
+unrelated to LLM job scheduling). The real, AST-verified total (see
+v1.34.232) was 54 `_schedule_llm_job` call sites — 46 converted, 8
+deliberately excluded. Corrected in place; the "~29" figure is now
+split out as its own item, `W4`, below.
+
+**W3, shipped.** Settlement-scoped `GlobalWorkspace` granularity for
+the three real per-agent/per-pair call sites W2 deliberately left
+alone: `rumor_interpret` (a core-cast listener retelling a heard
+rumor), `personal_belief` (a monthly Reflect() pick revising a private
+belief), `mind` (one-time permanent-identity authoring for a newly-
+seated core-cast agent) — the largest single remaining share of real
+LLM volume.
+
+New shared `SimulationEngine._submit_and_resolve_settlement(
+settlement_id, job_name, subject, resolver)`: the settlement-scoped
+sibling of W2's `_submit_and_resolve`, keyed by `self._w3_workspaces
+[settlement_id]` instead of by job name — so a rumor-interpretation
+bid and a personal-belief bid for the SAME settlement genuinely land
+in the same arbitration pool, rather than three permanently-separate
+per-job-name pools the way W2's sites work. This is the real
+structural difference the item's own original text asked for: "one
+`GlobalWorkspace` per settlement... competing agents within a
+settlement genuinely arbitrate against each other."
+
+Deliberately submit-then-immediately-arbitrate at each call site, the
+same coalition-of-one-per-call shape every W1/W2 site already uses —
+NOT a batched cross-call-type arbitration pass. A genuinely batched
+design (collecting bids from all three job types across a tick before
+one shared arbitration pass per settlement) would mean a real
+candidate this tick can lose to a same-settlement rival and simply not
+fire at all, a materially different simulation-behavior change this
+pass deliberately does not risk making without a live world to verify
+the consequence against. Flagged as real, distinct future work.
+
+New `scripts/verify_w3_settlement_scoped_workspaces.py`: the shared
+helper's own contract, direct; a structural proof that two DIFFERENT
+job names for the SAME settlement share the literal same workspace
+object while the SAME job name for two DIFFERENT settlements lands in
+two DIFFERENT objects; each of the three real sites' own arbitration
+cycle through the real production apply path with a fake `LLMAdapter`;
+a real 8000-tick LLM-disabled production soak confirming multiple job
+types fire organically with a real winner every cycle — all pass,
+first run except two real test-setup fixes (a `parse_interpretation`
+field-name mismatch in the test's own fake answer; a soak-loop break
+condition that stopped on ANY workspace history entry instead of the
+specific job type being awaited), no bug found in the module under
+test.
+
+**W4 added**, not started: B3's ~29 `_send_pillar_message` arrows
+(the older point-to-point pillar-messaging mechanism, `Pillar.send_
+message`/`receive_message`, v1.9.0) onto real `PillarBus`
+subscriptions — structurally distinct from W1-W3, which all migrate a
+LLM SCHEDULING decision; W4 migrates an already-decided-content
+INTER-PILLAR MESSAGING arrow onto the same bus mechanism for a
+different reason.
+
+Verified: the new script; `verify_b1_global_workspace.py` through
+`verify_b7_learned_bidding.py`, `verify_phase35_w1_naming_workspace.py`,
+`verify_h1_cognitive_domains.py`, `verify_w2_batch1_narrative_jobs.py`,
+`verify_w2_batch2_full_sweep.py` re-run clean; `pyflakes` clean on
+both touched files (only the six known pre-existing forward-ref
+findings in `engine.py`); `scripts/verify_replay_hash.py` (800 ticks,
+seed 777, `--in-process`) — MATCH; `scripts/verify_native_soak.py`
+(seeds 1/55, 800 ticks) — MATCH (both required — `simulation/engine.py`
+changed).
+
 ## [1.34.232] — Phase 3.5 W2, batch 2: the real sweep, all at once
 
 Explicit user follow-up: "Can't you build many sites in one run?

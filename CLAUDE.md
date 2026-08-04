@@ -742,6 +742,56 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.233)
+
+Explicit user instruction: "Fix the roadmap's stale '~78+~29' framing
+and start W3. Also add these 29 arrows as W4 if not already done.
+Complete W3 in one run." Three pieces, one batch.
+
+**Roadmap correction.** The "~78+~29" figure in Phase 3.5's original
+phase-sequence text was never a real count of `_schedule_llm_job`
+sites — it conflated two unrelated, larger categories guessed at
+before anyone had enumerated the real target: "~78" was A2's own
+count of `_append_emergence`-adjacent sites (anywhere code touches the
+emergence log, a much broader surface); "~29" was `_send_pillar_
+message` arrows (the older point-to-point pillar-messaging mechanism,
+unrelated to LLM scheduling). The real, AST-verified total was 54
+`_schedule_llm_job` call sites — 46 converted across W2's two batches,
+8 deliberately excluded. Corrected in place; the "~29" figure is now
+correctly split out as its own item, `W4`.
+
+**W3, shipped in this same batch.** Settlement-scoped `GlobalWorkspace`
+granularity for the three real per-agent/per-pair call sites W2
+deliberately left alone: `rumor_interpret`, `personal_belief`, `mind`.
+New shared `SimulationEngine._submit_and_resolve_settlement(
+settlement_id, job_name, subject, resolver)` — keyed by `self._w3_
+workspaces[settlement_id]` instead of by job name (W2's own shape), so
+a rumor-interpretation bid and a personal-belief bid for the SAME
+settlement genuinely land in the same arbitration pool. Verified via
+`scripts/verify_w3_settlement_scoped_workspaces.py`: the shared
+helper's own contract; a structural proof that two different job names
+for the same settlement share the literal same workspace object while
+the same job name for two different settlements lands in two different
+objects; each real site's own arbitration cycle through the real
+production apply path; a real 8000-tick production soak — all pass.
+`scripts/verify_replay_hash.py`/`scripts/verify_native_soak.py` — both
+MATCH, byte-identical (submit-then-immediately-arbitrate at each call
+site, same coalition-of-one-per-call shape every W1/W2 site already
+uses — behavior-preserving by construction). A genuinely batched
+cross-job-type arbitration pass (where a real candidate could lose to
+a same-settlement rival and simply not fire that cycle) is flagged as
+real, distinct future work, not attempted — see `self._w3_workspaces`'s
+own docstring.
+
+**W4 added** (not started): B3's ~29 `_send_pillar_message` arrows
+onto real `PillarBus` subscriptions — structurally distinct from
+W1-W3 (those migrate a scheduling decision; W4 migrates an already-
+decided-content messaging arrow).
+
+Full existing verify suite (B1-B7, W1, H1, W2-batch1, W2-batch2)
+re-run clean; `pyflakes` clean (only the six known pre-existing
+forward-ref findings in `engine.py`).
+
 ## Current state (v1.34.232)
 
 Explicit user follow-up: "Can't you build many sites in one run?

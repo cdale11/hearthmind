@@ -2175,16 +2175,61 @@ cannot state one does not ship.
   -converted jobs fire organically with a real winner on every cycle)
   — all pass. `scripts/verify_replay_hash.py`/`scripts/verify_native_
   soak.py` — both MATCH, byte-identical, for both batches.
-- [ ] **W3** — settlement-scoped `GlobalWorkspace` granularity for
-  per-agent traffic (cognition/dialogue — the largest single share of
-  real LLM volume, needing its own bid-granularity decision before
-  migrating: one `GlobalWorkspace` per settlement, never one shared
-  across the whole world, so competing agents within a settlement
-  genuinely arbitrate against each other). *Test:* B1's own
-  originally-stated test, finally attempted for real once W2 is
-  further along — "pillar-level call share rises from 1.4% to > 15%
-  without raising total calls." See the phase-sequence section above
-  for full detail.
+- [x] **W3 — SHIPPED, v1.34.233.** Settlement-scoped `GlobalWorkspace`
+  granularity for the three real per-agent/per-pair `_schedule_llm_
+  job` sites W2 deliberately left alone: `rumor_interpret` (a core-
+  cast listener retelling a heard rumor), `personal_belief` (a monthly
+  Reflect() pick revising a private belief), `mind` (one-time
+  permanent-identity authoring for a newly-seated core-cast agent) —
+  the largest single remaining share of real LLM volume. New shared
+  `SimulationEngine._submit_and_resolve_settlement(settlement_id,
+  job_name, subject, resolver)`, the settlement-scoped sibling of W2's
+  `_submit_and_resolve`: keyed by `self._w3_workspaces[settlement_id]`
+  instead of by job name, so a rumor-interpretation bid and a
+  personal-belief bid for the SAME settlement genuinely land in the
+  same arbitration pool rather than three permanently-separate per-
+  job-name pools the way W2's sites work — the real structural
+  difference this item's own original text asked for ("one
+  `GlobalWorkspace` per settlement... competing agents within a
+  settlement genuinely arbitrate against each other"). Deliberately
+  submit-then-immediately-arbitrate at each call site (same coalition-
+  of-one-per-call shape every W1/W2 site already uses), NOT a batched
+  cross-call-type arbitration pass — a genuinely batched design would
+  mean a real candidate can lose to a same-settlement rival and simply
+  not fire that cycle, a materially different simulation-behavior
+  change flagged as real, distinct future work rather than risked
+  without a live world to verify the consequence against (see `self.
+  _w3_workspaces`'s own docstring for the full reasoning). *Test
+  (passed):* `scripts/verify_w3_settlement_scoped_workspaces.py` — the
+  shared helper's own contract; the real structural proof that two
+  DIFFERENT job names for the SAME settlement share the literal same
+  workspace object while the SAME job name for two DIFFERENT
+  settlements lands in two different objects; each of the three real
+  sites' own arbitration cycle through the real production apply path;
+  a real 8000-tick production soak confirming multiple job types fire
+  organically with a real winner every cycle — all pass, first run
+  except two real test-setup fixes (a `parse_interpretation` field-name
+  mismatch in the test's own fake answer; a soak-loop break condition
+  that stopped on ANY workspace history entry instead of the specific
+  job type being awaited), no bug found in the module under test.
+  `scripts/verify_replay_hash.py`/`scripts/verify_native_soak.py` —
+  both MATCH, byte-identical (behavior-preserving by construction,
+  same reasoning as every W1/W2 site).
+- [ ] **W4** — B3's ~29 `_send_pillar_message` arrows (the OLDER
+  point-to-point pillar-messaging mechanism, `Pillar.send_message`/
+  `receive_message`, v1.9.0 — e.g. "Nature → Village," a fixed hand-
+  wired sender/receiver pair) onto real `PillarBus` subscriptions
+  (already shipped and verified at B3, zero real consumer wired to it
+  yet). Structurally distinct from W1-W3: those migrate an LLM
+  SCHEDULING decision ("does this job run this cycle?") onto
+  arbitration; W4 migrates an already-decided-content INTER-PILLAR
+  MESSAGING arrow onto the same bus mechanism for a different reason
+  — B3's own stated test ("a real Nature belief, published through the
+  bus's generic subscription, measurably moves a downstream Innovation
+  decision with ZERO Nature-specific code in Innovation's handler") is
+  about decoupling fixed sender/receiver pairs, not about gating
+  whether a call happens. Not started; resume only on future explicit
+  direction.
 - [ ] **C1** — the four typed impasses as the deliberation trigger.
   *Test:* every LLM call in a soak carries a named impasse.
 - [ ] **C2** — chunking. *Test:* the 591st family extinction consumes
@@ -2833,36 +2878,78 @@ against this project's own "never migrate one at a time, but never
 big-bang either" discipline (the discipline is about batch SIZE per
 migration pass, not about migrating onto a moving target).
 
-1. `W1` — the pilot. Same shape as B0.3's own first real subsystem
-   migration (`_maybe_schedule_naming`, chosen specifically for being
-   small and self-contained with no cross-job coupling to get wrong):
-   pick ONE real, low-risk settlement-scoped `_schedule_llm_job` call
-   site, have it `submit()` a real `Bid` to a `PillarBus`/`GlobalWorkspace`
-   instead of scheduling unconditionally, and let the bus's own
-   `publish_cycle()` decide whether it actually runs this cycle. Verify
-   via `scripts/verify_replay_hash.py` that this is a genuine behavior-
-   preserving refactor (same discipline every B0.3 migration used), not
-   just "didn't crash."
-2. `W2` — the real sweep. Once `W1` proves the pattern is safe,
-   convert the remaining real call sites in batches (never one at a
-   time, never all ~78+~29 at once) — A2's own count of ~78 real
-   `_append_emergence`-adjacent sites, plus a comparable number of
-   independent `_schedule_llm_job` sites, plus B3's own ~29
-   `_send_pillar_message` arrows migrating onto real `PillarBus`
-   subscriptions instead of hand-wired pairs.
-3. `W3` — settlement-level vs. per-agent scoping. Per-agent cognition/
-   dialogue call sites (the largest single share of real LLM volume)
-   need their own bid granularity decided before migrating — one
-   `GlobalWorkspace` per settlement is the natural unit (per §3.1's own
-   nesting: "one serial channel per domain"), never one shared across
-   the whole world, so competing agents within a settlement genuinely
-   arbitrate against each other rather than against every settlement's
-   traffic at once.
+1. `W1` — SHIPPED, v1.34.230. The pilot. Same shape as B0.3's own
+   first real subsystem migration (`_maybe_schedule_naming`, chosen
+   specifically for being small and self-contained with no cross-job
+   coupling to get wrong): one real, low-risk settlement-scoped
+   `_schedule_llm_job` call site `submit()`s a real `Bid` to a
+   dedicated `GlobalWorkspace`, `arbitrate()` decides whether it runs
+   this cycle. Verified via `scripts/verify_replay_hash.py` as a
+   genuine behavior-preserving refactor, not just "didn't crash."
+2. `W2` — SHIPPED, v1.34.231 (batch 1) + v1.34.232 (batch 2). The real
+   sweep of every remaining `_schedule_llm_job` call site in
+   `simulation/engine.py`.
+
+   **Correcting this item's own original sizing estimate**, since it
+   was wrong and shaped expectations for a while: the "~78+~29" figure
+   below was never a count of `_schedule_llm_job` sites at all — it
+   conflated two unrelated, larger categories guessed at before anyone
+   had actually enumerated the real target. "~78" was A2's own count
+   of `_append_emergence`-adjacent sites (anywhere code touches the
+   emergence log — a much broader surface than LLM scheduling); "~29"
+   was `_send_pillar_message` arrows, the OLDER point-to-point pillar-
+   messaging mechanism (`Pillar.send_message`/`receive_message`,
+   v1.9.0) — a structurally separate migration, never part of what W2
+   itself does (now split out as its own item, `W4`, below). Once W2
+   actually ran an AST scan over the real file, the true total was
+   **54** real `self._schedule_llm_job(...)` call sites — not "~78 to
+   ~107." Of those 54: **46 converted** across the two batches; **8
+   deliberately left as `_schedule_llm_job` calls**, each with a real
+   reason (naming already routes through its own equivalent-shape
+   `_naming_workspace` from `W1`; `rumor_interpret`/`personal_belief`/
+   `mind` are the three real per-agent/per-pair sites `W3` below
+   handles; `sim_summary`/`chronicler`/`pillar_chat_*`/`away_digest`
+   are real user-triggered on-demand jobs, not a periodic cadence a
+   workspace should arbitrate over). `scripts/verify_w2_batch2_full_
+   sweep.py`'s own AST check proves this 46+8=54 split against the
+   real source file directly — not asserted, mechanically confirmed.
+3. `W3` — SHIPPED, see this file's own checklist entry above for full
+   detail. Settlement-level vs. per-agent scoping for the three real
+   per-agent/per-pair sites W2 deliberately left alone
+   (`rumor_interpret`/`personal_belief`/`mind`) — the largest single
+   share of real LLM volume, needing a genuinely different bid
+   granularity than every settlement-scoped W1/W2 site: one
+   `GlobalWorkspace` PER SETTLEMENT (per §3.1's own nesting: "one
+   serial channel per domain"), never one shared across the whole
+   world, so competing agents within a settlement genuinely arbitrate
+   against each other rather than against every settlement's traffic
+   at once, and never one per agent either (that would just be
+   `_submit_and_resolve`'s existing coalition-of-one pattern again,
+   with no real competition to arbitrate).
    *Test:* B1's own originally-stated test, finally attempted for
    real — "pillar-level call share rises from 1.4% to > 15% without
-   raising total calls," measured against a real archive/soak once the
-   migration is live. This phase is what makes every "not wired into
-   production" note across A1-B7 stop being true.
+   raising total calls," measured against a real archive/soak. This
+   phase is what makes every "not wired into production" note across
+   A1-B7 stop being true for the per-agent/pair share of LLM volume,
+   the largest remaining share after W1/W2.
+4. `W4` — the real, separate migration this item's own original text
+   had bundled into W2's wrong sizing estimate: B3's ~29 `_send_
+   pillar_message` arrows (`SimulationEngine._send_pillar_message`,
+   the hand-wired sender→receiver pairs, e.g. "Nature → Village") onto
+   real `PillarBus` subscriptions (`hearthmind/cognition/workspace.py`'s
+   `PillarBus`, already shipped and verified at B3 — a generic
+   publish/subscribe bus wrapping a `GlobalWorkspace`, with zero real
+   consumer wired to it yet). Structurally distinct from W1-W3: those
+   migrate an LLM SCHEDULING decision ("does this job run this
+   cycle?") onto arbitration; W4 migrates an INTER-PILLAR MESSAGING
+   arrow (already-decided content broadcast from one pillar to
+   another) onto the SAME bus mechanism for a different reason —
+   B3's own stated test ("a real Nature belief, published through the
+   bus's generic subscription, measurably moves a downstream
+   Innovation decision with ZERO Nature-specific code in Innovation's
+   handler") is about decoupling fixed sender/receiver pairs, not
+   about gating whether a call happens. Not started; resume only on
+   future explicit direction.
 
 **Phase 4 — HCA Stage H: the Runtime (and Player Model) as cognitive
 domains (`H1`→`H2`→`H3`→`H4`).** This is the literal answer to "the

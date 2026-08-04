@@ -2705,6 +2705,43 @@ class SimulationEngine:
         job's workspace, so every real cycle stays a genuine "coalition
         of one," provably behavior-preserving by the identical
         reasoning `_naming_workspace`'s own docstring gives in full."""
+        self._w3_workspaces: dict[int, GlobalWorkspace] = {}
+        """W3 (docs/ROADMAP-2026-07-REMAINING.md, Phase 3.5, explicit
+        user instruction "start W3 ... complete W3 in one run"):
+        settlement-scoped granularity for the three real per-agent/
+        per-pair `_schedule_llm_job` call sites W2 deliberately left
+        alone (`rumor_interpret`/`personal_belief`/`mind`) -- the
+        largest single remaining share of real LLM volume, and
+        structurally different from every W1/W2 site: those are all
+        settlement-scoped DECISIONS (does the settlement's town_brain/
+        beliefs/etc. job run this cycle?), naturally one dedicated
+        workspace per JOB NAME (`_w2_workspaces` above). A per-agent
+        job has no single natural "job name" scope that means anything
+        -- the real unit of competition the roadmap's own W3 entry
+        names is "agents within a settlement genuinely arbitrate
+        against each other," so this dict is keyed by SETTLEMENT ID
+        instead, lazily created via `self._submit_and_resolve_
+        settlement` below. Never one per agent either -- that would
+        just reproduce `_submit_and_resolve`'s own coalition-of-one
+        shape with extra bookkeeping and no real competition to
+        arbitrate, the exact thing this item exists to avoid (per
+        §3.1's nesting: "one serial channel per domain," and a
+        settlement is the real domain here, not an individual mind).
+
+        Deliberately scoped to submit-then-immediately-arbitrate at
+        each call site (same "coalition of one, provably behavior-
+        preserving" shape every W1/W2 site already uses) rather than
+        batching bids from all three job types across a tick before
+        one shared arbitration pass -- a genuinely batched design
+        would mean a real candidate this tick can lose to a same-
+        settlement rival and simply not fire at all, a materially
+        different simulation-behavior change this pass deliberately
+        does not risk making without a live world to verify the
+        consequence against. This ships the real settlement-scoped
+        infrastructure (verified via `scripts/verify_replay_hash.py`
+        as byte-identical -- no behavior change) that a future batched-
+        arbitration pass can build on top of; flagged as real,
+        distinct follow-up, not silently glossed over."""
         self._naming_workspace = GlobalWorkspace()
         """Phase 3.5 W1 (docs/ROADMAP-2026-07-REMAINING.md, explicit
         user instruction "Start phase 3.5 W1"): the real production
@@ -4626,6 +4663,35 @@ class SimulationEngine:
         if winner is not None:
             winner.resolver()
 
+    def _submit_and_resolve_settlement(
+        self, settlement_id: int, job_name: str, subject: str, resolver: Callable[[], None],
+    ) -> None:
+        """W3's shared per-call-site helper (docs/ROADMAP-2026-07-
+        REMAINING.md, Phase 3.5) -- the settlement-scoped sibling of
+        `_submit_and_resolve` above, for the three real per-agent/per-
+        pair job sites (`rumor_interpret`/`personal_belief`/`mind`)
+        W2 deliberately left as direct `_schedule_llm_job` calls. The
+        real difference from `_submit_and_resolve`: THIS job selects
+        (lazily creating) `self._w3_workspaces[settlement_id]` --
+        keyed by which settlement the candidate agent belongs to, not
+        by job name -- so a rumor-interpretation bid and a personal-
+        belief bid for the SAME settlement genuinely land in the same
+        arbitration pool (see `self._w3_workspaces`'s own docstring for
+        why settlement, not job name or agent, is the real unit here).
+        `job_name` still tags `Bid.specialist_id` (which kind of job
+        this bid represents, for the competition log/diagnostics) and
+        `subject` still names the specific agent/candidate -- both
+        still real, just no longer the dict key. Submit-then-
+        immediately-arbitrate, same coalition-of-one-per-call shape
+        `_submit_and_resolve` uses (see `_w3_workspaces`'s own
+        docstring for why batched cross-call arbitration is real,
+        distinct future work, not attempted here)."""
+        workspace = self._w3_workspaces.setdefault(settlement_id, GlobalWorkspace())
+        workspace.submit(Bid(specialist_id=job_name, subject=subject, score=1.0, resolver=resolver))
+        winner = workspace.arbitrate()
+        if winner is not None:
+            winner.resolver()
+
     # --- the one scheduling path for settlement-level LLM jobs -----------------
 
     def _schedule_llm_job(
@@ -6027,9 +6093,12 @@ class SimulationEngine:
                 if len(self._rumor_retellings_recent) > 20:
                     del self._rumor_retellings_recent[:-20]
 
-        self._schedule_llm_job(
-            "rumor_interpret", prompt, rumor_interpret.SYSTEM_PROMPT, fallback, apply,
-            structured_input={"rumor": rumor, "traits": dict(listener.traits)}, npc_ids=[listener_id],
+        self._submit_and_resolve_settlement(
+            listener.settlement_id, "rumor_interpret", f"rumor_interpret:{listener_id}",
+            lambda: self._schedule_llm_job(
+                "rumor_interpret", prompt, rumor_interpret.SYSTEM_PROMPT, fallback, apply,
+                structured_input={"rumor": rumor, "traits": dict(listener.traits)}, npc_ids=[listener_id],
+            ),
         )
 
     # --- interventions ("nudges" from outside the simulation) ------------------
@@ -11900,9 +11969,12 @@ class SimulationEngine:
         # Personal belief revision: genuine subjective judgment,
         # deliberately reasons rather than schema-constrains (v1.3.37,
         # see json_schemas.py's docstring).
-        self._schedule_llm_job(
-            "personal_belief", prompt, beliefs.PERSONAL_SYSTEM_PROMPT, fallback, apply, critical=True,
-            deep_reasoning=True, num_predict_mult=PERSONAL_BELIEF_NUM_PREDICT_MULT,
+        self._submit_and_resolve_settlement(
+            agent.settlement_id, "personal_belief", f"personal_belief:{agent_id}",
+            lambda: self._schedule_llm_job(
+                "personal_belief", prompt, beliefs.PERSONAL_SYSTEM_PROMPT, fallback, apply, critical=True,
+                deep_reasoning=True, num_predict_mult=PERSONAL_BELIEF_NUM_PREDICT_MULT,
+            ),
         )
 
     def _maybe_schedule_dream(self, events: list[str]) -> None:
@@ -12819,7 +12891,10 @@ class SimulationEngine:
                 if initial_goal:
                     target.long_term_goal = {"goal": initial_goal, "formed_tick": self.world.clock.tick_count}
 
-        self._schedule_llm_job("mind", prompt, mind.SYSTEM_PROMPT, fallback, apply)
+        self._submit_and_resolve_settlement(
+            agent.settlement_id, "mind", f"mind:{agent_id}",
+            lambda: self._schedule_llm_job("mind", prompt, mind.SYSTEM_PROMPT, fallback, apply),
+        )
 
     def _maybe_retry_mind_authoring(self) -> None:
         """Backpressure at genesis is common (a fresh core-cast seat, or
