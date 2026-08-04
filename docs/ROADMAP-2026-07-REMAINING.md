@@ -2124,36 +2124,57 @@ cannot state one does not ship.
   settlements eligible in the SAME call each get their own
   independent cycle rather than suppressing one another) — all pass,
   first run.
-- [ ] **W2 — IN PROGRESS, batch 1 shipped v1.34.231.** The real sweep,
-  gated on `W1`'s pattern being proven safe (it is). New shared
-  `SimulationEngine._submit_and_resolve(job_name, subject, resolver)`
-  helper factors W1's own submit/arbitrate/resolve pattern out of
-  `_naming_workspace`'s one-off shape so each new migrated site is a
-  one-line call, not a bespoke instance attribute — `self._w2_
-  workspaces` lazily creates one dedicated `GlobalWorkspace` per job
-  name, same "own dedicated workspace, provably a coalition of one"
-  discipline as `_naming_workspace`. Batch 1 (four real call sites):
-  `documentary` (year-end narration), `musing` (daily Reflection
-  voice), `omen` (rare ambiguous flavor event), `record` (a departed
-  villager's written artifact — the one PER-CANDIDATE loop in this
-  batch, same "multiple independent cycles within one call" shape as
-  W1's own multi-settlement naming case). Deliberately excluded from
-  this batch: `sim_summary`/`away_digest` — both are user-triggered
-  (`POST /summary/request`/`POST /digest/request`) and their own
-  docstrings explicitly reason about NOT being part of the coincident-
-  job backpressure cluster; migrating them needs its own judgment call
-  about whether arbitration changes that reasoning, not rushed into
-  this batch. *Test (passed):* `scripts/verify_w2_batch1_narrative_
-  jobs.py` (12 checks — each site's own real arbitration cycle runs in
-  its own dedicated workspace; `record`'s per-candidate loop produces
-  two independent cycles for two candidates in one call; `omen`'s real
-  early-out (`phase_g_intensity=0.0`) still correctly never touches the
-  workspace) — all pass, first run. `scripts/verify_replay_hash.py`
-  (800 ticks, seed 777) and `scripts/verify_native_soak.py` (seeds
-  1/55, 800 ticks) — both MATCH, byte-identical.
-  Remaining: ~74 more `_append_emergence`-adjacent + ~29 `_send_
-  pillar_message` arrows, in further batches — never one at a time,
-  never all at once, per this project's own standing discipline.
+- [x] **W2 — SHIPPED, v1.34.231 (batch 1, 4 sites) + v1.34.232 (batch
+  2, 42 sites — 46 total).** The real sweep, gated on `W1`'s pattern
+  being proven safe (it is). New shared `SimulationEngine._submit_and_
+  resolve(job_name, subject, resolver)` helper factors W1's own
+  submit/arbitrate/resolve pattern out of `_naming_workspace`'s
+  one-off shape so each new migrated site is a one-line call, not a
+  bespoke instance attribute — `self._w2_workspaces` lazily creates
+  one dedicated `GlobalWorkspace` per job name, same "own dedicated
+  workspace, provably a coalition of one" discipline as `_naming_
+  workspace`. Batch 1 (four real call sites): `documentary` (year-end
+  narration), `musing` (daily Reflection voice), `omen` (rare
+  ambiguous flavor event), `record` (a departed villager's written
+  artifact — the one PER-CANDIDATE loop in this batch, same "multiple
+  independent cycles within one call" shape as W1's own multi-
+  settlement naming case).
+
+  **Batch 2** (explicit user follow-up: "Can't you build many sites in
+  one run? Otherwise this will take ages like tier 0" — the standing
+  "never migrate one at a time" rule applied for real): one AST-driven
+  bulk transform converted the remaining 42 real call sites in a
+  single pass, every original call's arguments/kwargs preserved
+  verbatim — `chronicle`, `tradition`, `folklore`, `legend`,
+  `invention`, `ontology_proposal`, `ontology_evolution`, `composite_
+  entity`, `nature_mind`, `species_variant`, `rule_propose`,
+  `composite_reaction_propose`, `era_branch`, `festival`, `religion`,
+  `narrative_direction`, `culture_digest`, `institution_culture`,
+  `consciousness`, `reflection_question`, `reflection`, `self_tuning_
+  advisory`, `self_tuning`, `caravan`, `town_brain`, `beliefs`,
+  `dream`, `memory_drift`, `skill_mastery`, `nature_causal_reasoning`
+  (×3 distinct subjects sharing one workspace), `dispute`, `faction`,
+  `guild_founding`, `institution_belief`, `diplomacy`, `laws`,
+  `noncore_nudge`, `letter`, `fission`, `migration_decision`.
+
+  **This closes W2 down to exactly the sites that were never meant to
+  convert**, a set proven complete via a structural AST check, not
+  merely asserted: `naming` (already on its own dedicated `_naming_
+  workspace`, W1's pilot); `rumor_interpret`/`personal_belief`/`mind`
+  (real per-agent/per-pair sites — `W3`'s own territory); `sim_
+  summary`/`chronicler`/`pillar_chat_*`/`away_digest` (real user-
+  triggered on-demand jobs, not a periodic cadence to arbitrate over).
+  *Tests (passed):* `scripts/verify_w2_batch1_narrative_jobs.py` (12
+  checks, batch 1) + `scripts/verify_w2_batch2_full_sweep.py` (batch
+  2 — a real AST proof that exactly 46 `_submit_and_resolve` call
+  sites exist, each wrapping a real `_schedule_llm_job` call, and
+  exactly 8 real un-wrapped calls remain, all matching the deliberate-
+  exclusion list; representative functional checks incl. `town_brain`/
+  `dream` driven to their own real staggered monthly day via genuine
+  ticks; a real 8000-tick production soak confirming 12 distinct newly
+  -converted jobs fire organically with a real winner on every cycle)
+  — all pass. `scripts/verify_replay_hash.py`/`scripts/verify_native_
+  soak.py` — both MATCH, byte-identical, for both batches.
 - [ ] **W3** — settlement-scoped `GlobalWorkspace` granularity for
   per-agent traffic (cognition/dialogue — the largest single share of
   real LLM volume, needing its own bid-granularity decision before

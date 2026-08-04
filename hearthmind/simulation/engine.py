@@ -6712,8 +6712,11 @@ class SimulationEngine:
                 ('village',),
             )
 
-        self._schedule_llm_job(
-            "chronicle", prompt, chronicle.SYSTEM_PROMPT, fallback, apply, settlement=settlement.name,
+        self._submit_and_resolve(
+            'chronicle', 'chronicle',
+            lambda: self._schedule_llm_job(
+                "chronicle", prompt, chronicle.SYSTEM_PROMPT, fallback, apply, settlement=settlement.name,
+            ),
         )
 
     # --- documentary mode: a yearly narrated look-back --------------------------
@@ -7086,7 +7089,10 @@ class SimulationEngine:
         # Cultural evolution: a tradition is a genuine interpretive claim
         # about what the settlement's lived history means, worth a real
         # reasoning trace (v1.3.37).
-        self._schedule_llm_job("tradition", prompt, culture.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True)
+        self._submit_and_resolve(
+            'tradition', 'tradition',
+            lambda: self._schedule_llm_job("tradition", prompt, culture.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True),
+        )
 
     def _maybe_schedule_folklore(self, events: list[str]) -> None:
         """Phase K "folklore condensation" (docs/VISION-2026-07.md,
@@ -7167,8 +7173,11 @@ class SimulationEngine:
                 "village", "humans", "observation", f"a new tale is told — {entry['tale']}",
             )
 
-        self._schedule_llm_job(
-            "folklore", prompt, folklore.SYSTEM_PROMPT, fallback, apply, settlement=target.name,
+        self._submit_and_resolve(
+            'folklore', 'folklore',
+            lambda: self._schedule_llm_job(
+                "folklore", prompt, folklore.SYSTEM_PROMPT, fallback, apply, settlement=target.name,
+            ),
         )
 
     def _note_folklore_persistence(self, settlement: "Settlement") -> None:
@@ -7292,8 +7301,11 @@ class SimulationEngine:
                 "village", "reflection", "observation", f"a legend has taken hold — {entry['legend']}",
             )
 
-        self._schedule_llm_job(
-            "legend", prompt, legend.SYSTEM_PROMPT, fallback, apply, settlement=target.name,
+        self._submit_and_resolve(
+            'legend', 'legend',
+            lambda: self._schedule_llm_job(
+                "legend", prompt, legend.SYSTEM_PROMPT, fallback, apply, settlement=target.name,
+            ),
         )
 
     # --- Phase E3: inventions (tech-tier unlocks) -----------------------------
@@ -7502,7 +7514,10 @@ class SimulationEngine:
         # Innovation & discovery: naming/scoping a genuinely new idea
         # warrants a real reasoning trace, same treatment as ontology
         # propose/evolve below (v1.3.37).
-        self._schedule_llm_job("invention", prompt, invention.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True)
+        self._submit_and_resolve(
+            'invention', 'invention',
+            lambda: self._schedule_llm_job("invention", prompt, invention.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True),
+        )
 
     # --- Phase 1.A "self-evolving world" — the Innovation Layer -----------
 
@@ -7764,9 +7779,12 @@ class SimulationEngine:
             )
             self._pillar_close_cycle("innovation")
 
-        self._schedule_llm_job(
-            "ontology_proposal", prompt, ontology_llm.SYSTEM_PROMPT_PROPOSE, fallback, apply,
-            deep_reasoning=True, num_predict_mult=LARGE_SCHEMA_REASONING_NUM_PREDICT_MULT,
+        self._submit_and_resolve(
+            'ontology_proposal', 'ontology_proposal',
+            lambda: self._schedule_llm_job(
+                "ontology_proposal", prompt, ontology_llm.SYSTEM_PROMPT_PROPOSE, fallback, apply,
+                deep_reasoning=True, num_predict_mult=LARGE_SCHEMA_REASONING_NUM_PREDICT_MULT,
+            ),
         )
 
     def _confirm_concept_retirement(self, concept_id: int) -> None:
@@ -7973,8 +7991,11 @@ class SimulationEngine:
                     "innovation", "village", message_kind, f"an old idea evolved into {name}: {description}",
                 )
 
-        self._schedule_llm_job(
-            "ontology_evolution", prompt, system_prompt, fallback, apply, deep_reasoning=True,
+        self._submit_and_resolve(
+            'ontology_evolution', 'ontology_evolution',
+            lambda: self._schedule_llm_job(
+                "ontology_evolution", prompt, system_prompt, fallback, apply, deep_reasoning=True,
+            ),
         )
 
     def _composite_entity_candidate_building(self, settlement) -> "Building | None":
@@ -8086,7 +8107,10 @@ class SimulationEngine:
                 f"{target.name or 'the village'} now knows this place as {parsed['name']} — {parsed['origin_story']}",
             )
 
-        self._schedule_llm_job("composite_entity", prompt, composite_entity.SYSTEM_PROMPT, fallback, apply)
+        self._submit_and_resolve(
+            'composite_entity', 'composite_entity',
+            lambda: self._schedule_llm_job("composite_entity", prompt, composite_entity.SYSTEM_PROMPT, fallback, apply),
+        )
 
     def _pillar_observe_turn(self, pillar_name: str) -> bool:
         """B2 "The continuous cognitive cycle," shared across every
@@ -8443,9 +8467,12 @@ class SimulationEngine:
 
         # Nature's Mind is a pillar-cognition/ontology-origination task
         # (v1.3.37).
-        self._schedule_llm_job(
-            "nature_mind", prompt, nature_mind.SYSTEM_PROMPT, fallback, apply, critical=True,
-            deep_reasoning=True,
+        self._submit_and_resolve(
+            'nature_mind', 'nature_mind',
+            lambda: self._schedule_llm_job(
+                "nature_mind", prompt, nature_mind.SYSTEM_PROMPT, fallback, apply, critical=True,
+                deep_reasoning=True,
+            ),
         )
 
     def _maybe_schedule_species_variant(self, events: list[str]) -> None:
@@ -8542,7 +8569,10 @@ class SimulationEngine:
                 f"the land gave rise to {variant.name}: {variant.description}",
             )
 
-        self._schedule_llm_job("species_variant", prompt, species_variant.SYSTEM_PROMPT, fallback, apply)
+        self._submit_and_resolve(
+            'species_variant', 'species_variant',
+            lambda: self._schedule_llm_job("species_variant", prompt, species_variant.SYSTEM_PROMPT, fallback, apply),
+        )
 
     def _maybe_spread_concepts(self) -> None:
         """Zero-LLM-cost, every-tick, rare-roll adoption growth for
@@ -8979,9 +9009,12 @@ class SimulationEngine:
         # The game learning/improving itself: a self-modifying trigger
         # rule is exactly the kind of proposal that should be reasoned
         # through, not narrated (v1.3.37).
-        self._schedule_llm_job(
-            "rule_propose", prompt, rule_propose.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True,
-            num_predict_mult=RULE_PROPOSE_NUM_PREDICT_MULT,
+        self._submit_and_resolve(
+            'rule_propose', 'rule_propose',
+            lambda: self._schedule_llm_job(
+                "rule_propose", prompt, rule_propose.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True,
+                num_predict_mult=RULE_PROPOSE_NUM_PREDICT_MULT,
+            ),
         )
 
     def _maybe_schedule_composite_reaction_propose(self, events: list[str]) -> None:
@@ -9070,9 +9103,12 @@ class SimulationEngine:
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
 
-        self._schedule_llm_job(
-            "composite_reaction_propose", prompt, composite_reaction_propose.SYSTEM_PROMPT, fallback, apply,
-            deep_reasoning=True,
+        self._submit_and_resolve(
+            'composite_reaction_propose', 'composite_reaction_propose',
+            lambda: self._schedule_llm_job(
+                "composite_reaction_propose", prompt, composite_reaction_propose.SYSTEM_PROMPT, fallback, apply,
+                deep_reasoning=True,
+            ),
         )
 
     def _infra_counts(self, settlement) -> tuple[int, int, int, int]:
@@ -9234,9 +9270,12 @@ class SimulationEngine:
                 ('innovation',),
             )
 
-        self._schedule_llm_job(
-            "era_branch", prompt, era_branch.SYSTEM_PROMPT, fallback, apply,
-            settlement=settlement.name,
+        self._submit_and_resolve(
+            'era_branch', 'era_branch',
+            lambda: self._schedule_llm_job(
+                "era_branch", prompt, era_branch.SYSTEM_PROMPT, fallback, apply,
+                settlement=settlement.name,
+            ),
         )
 
     # --- collective behaviour: festivals ----------------------------------------
@@ -9307,7 +9346,10 @@ class SimulationEngine:
                 "village", "humans", "observation", f"held a festival — {entry}",
             )
 
-        self._schedule_llm_job("festival", prompt, festival.SYSTEM_PROMPT, fallback, apply)
+        self._submit_and_resolve(
+            'festival', 'festival',
+            lambda: self._schedule_llm_job("festival", prompt, festival.SYSTEM_PROMPT, fallback, apply),
+        )
 
     # --- Phase M: ritual detection (free, deterministic) + religion (one call) -
 
@@ -9614,7 +9656,10 @@ class SimulationEngine:
 
         # Cultural evolution: crystallizing a religion from a repeated
         # ritual is a real interpretive act (v1.3.37).
-        self._schedule_llm_job("religion", prompt, religion.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True)
+        self._submit_and_resolve(
+            'religion', 'religion',
+            lambda: self._schedule_llm_job("religion", prompt, religion.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True),
+        )
 
     def _maybe_schedule_narrative_direction(self, events: list[str]) -> None:
         """Quarterly (season_end — a season already IS a real-calendar
@@ -9722,9 +9767,12 @@ class SimulationEngine:
 
         # Cultural evolution: naming the emergent theme is interpretation
         # over a real computed mood signal (v1.3.37).
-        self._schedule_llm_job(
-            "narrative_direction", prompt, narrative_direction.SYSTEM_PROMPT, fallback, apply,
-            deep_reasoning=True, num_predict_mult=LARGE_SCHEMA_REASONING_NUM_PREDICT_MULT,
+        self._submit_and_resolve(
+            'narrative_direction', 'narrative_direction',
+            lambda: self._schedule_llm_job(
+                "narrative_direction", prompt, narrative_direction.SYSTEM_PROMPT, fallback, apply,
+                deep_reasoning=True, num_predict_mult=LARGE_SCHEMA_REASONING_NUM_PREDICT_MULT,
+            ),
         )
 
     def _maybe_schedule_culture_digest(self, events: list[str]) -> None:
@@ -9770,7 +9818,10 @@ class SimulationEngine:
                 )
 
         # Cultural evolution (v1.3.37).
-        self._schedule_llm_job("culture_digest", prompt, culture_digest.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True)
+        self._submit_and_resolve(
+            'culture_digest', 'culture_digest',
+            lambda: self._schedule_llm_job("culture_digest", prompt, culture_digest.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True),
+        )
 
     def _update_institution_dormancy(self) -> None:
         """Tier 5 B4.2 pilot — the real sleep/wake criterion for "idle
@@ -10070,9 +10121,12 @@ class SimulationEngine:
 
         # Cultural evolution: an institution's own independent character
         # (v1.3.37).
-        self._schedule_llm_job(
-            "institution_culture", prompt, institution_culture.SYSTEM_PROMPT, fallback, apply,
-            settlement=settlement.name, deep_reasoning=True,
+        self._submit_and_resolve(
+            'institution_culture', 'institution_culture',
+            lambda: self._schedule_llm_job(
+                "institution_culture", prompt, institution_culture.SYSTEM_PROMPT, fallback, apply,
+                settlement=settlement.name, deep_reasoning=True,
+            ),
         )
 
     @staticmethod
@@ -10277,9 +10331,12 @@ class SimulationEngine:
         # Town consciousness: choosing at most one deniable intervention
         # is exactly the kind of long-horizon judgment reasoning helps
         # with (v1.3.37).
-        self._schedule_llm_job(
-            "consciousness", prompt, consciousness.SYSTEM_PROMPT, fallback, apply, critical=True,
-            settlement=target.name, deep_reasoning=True,
+        self._submit_and_resolve(
+            'consciousness', 'consciousness',
+            lambda: self._schedule_llm_job(
+                "consciousness", prompt, consciousness.SYSTEM_PROMPT, fallback, apply, critical=True,
+                settlement=target.name, deep_reasoning=True,
+            ),
         )
 
     def _apply_consciousness_intervention(self, kind: str, detail: str, target: "Settlement") -> None:
@@ -10615,8 +10672,11 @@ class SimulationEngine:
                 ('reflection',),
             )
 
-        self._schedule_llm_job(
-            "reflection_question", prompt, reflection.SYSTEM_PROMPT_QUESTION, fallback, apply, deep_reasoning=True,
+        self._submit_and_resolve(
+            'reflection_question', 'reflection_question',
+            lambda: self._schedule_llm_job(
+                "reflection_question", prompt, reflection.SYSTEM_PROMPT_QUESTION, fallback, apply, deep_reasoning=True,
+            ),
         )
 
     def _maybe_schedule_reflection(self, events: list[str]) -> None:
@@ -10712,8 +10772,11 @@ class SimulationEngine:
         # The game learning/improving itself: Reflection proposes a
         # grounded hypothesis from real cross-pillar pattern signals —
         # the flagship "self-improvement" reasoning task (v1.3.37).
-        self._schedule_llm_job(
-            "reflection", prompt, reflection.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True,
+        self._submit_and_resolve(
+            'reflection', 'reflection',
+            lambda: self._schedule_llm_job(
+                "reflection", prompt, reflection.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True,
+            ),
         )
 
     @staticmethod
@@ -10784,9 +10847,12 @@ class SimulationEngine:
                 f"I've been wondering about {hypothesis_subject}: {parsed['advice']}",
             )
 
-        self._schedule_llm_job(
-            "self_tuning_advisory", prompt, self_tuning.SYSTEM_PROMPT_ADVISORY, fallback, apply,
-            critical=True, deep_reasoning=True,
+        self._submit_and_resolve(
+            'self_tuning_advisory', 'self_tuning_advisory',
+            lambda: self._schedule_llm_job(
+                "self_tuning_advisory", prompt, self_tuning.SYSTEM_PROMPT_ADVISORY, fallback, apply,
+                critical=True, deep_reasoning=True,
+            ),
         )
 
     def _maybe_schedule_self_tuning(self, events: list[str]) -> None:
@@ -10986,9 +11052,12 @@ class SimulationEngine:
 
         # The game learning/improving itself: proposing a bounded
         # governor-tuning nudge (v1.3.37).
-        self._schedule_llm_job(
-            "self_tuning", prompt, self_tuning.SYSTEM_PROMPT, fallback, apply, critical=True,
-            deep_reasoning=True,
+        self._submit_and_resolve(
+            'self_tuning', 'self_tuning',
+            lambda: self._schedule_llm_job(
+                "self_tuning", prompt, self_tuning.SYSTEM_PROMPT, fallback, apply, critical=True,
+                deep_reasoning=True,
+            ),
         )
 
     def _musing_subject(self) -> dict | None:
@@ -11198,8 +11267,11 @@ class SimulationEngine:
                     humans_lean=lambda a: self.world.humans_pillar.subject_confidence(a.name),
                 )
 
-        self._schedule_llm_job(
-            "caravan", prompt, caravan.SYSTEM_PROMPT, fallback, apply, settlement=settlement.name,
+        self._submit_and_resolve(
+            'caravan', 'caravan',
+            lambda: self._schedule_llm_job(
+                "caravan", prompt, caravan.SYSTEM_PROMPT, fallback, apply, settlement=settlement.name,
+            ),
         )
 
     # --- the "town brain": monthly civic-priority LLM decision -----------------
@@ -11337,13 +11409,16 @@ class SimulationEngine:
                 target.priority_history[-1]["rationale"] = rationale
             self._log("town_brain", f"{target.name or 'The village'}'s priority is {priority} — {rationale}")
 
-        self._schedule_llm_job(
-            "town_brain", prompt, town_brain.SYSTEM_PROMPT, fallback, apply,
-            settlement=settlement.name,
-            structured_input={
-                "settlement_id": settlement.id, "population_summary": population_summary,
-                "settlement_summary": settlement_summary,
-            },
+        self._submit_and_resolve(
+            'town_brain', 'town_brain',
+            lambda: self._schedule_llm_job(
+                "town_brain", prompt, town_brain.SYSTEM_PROMPT, fallback, apply,
+                settlement=settlement.name,
+                structured_input={
+                    "settlement_id": settlement.id, "population_summary": population_summary,
+                    "settlement_summary": settlement_summary,
+                },
+            ),
         )
 
     # --- the town's own evolving theory of itself (continuous cognition) -------
@@ -11551,10 +11626,13 @@ class SimulationEngine:
         # Settlement-wide belief revision: genuine subjective judgment,
         # same reasoning-over-schema tradeoff as personal_belief
         # (v1.3.37, see json_schemas.py's docstring).
-        self._schedule_llm_job(
-            "beliefs", prompt, beliefs.SYSTEM_PROMPT, fallback, apply, critical=True,
-            settlement=settlement.name, deep_reasoning=True,
-            num_predict_mult=LARGE_SCHEMA_REASONING_NUM_PREDICT_MULT,
+        self._submit_and_resolve(
+            'beliefs', 'beliefs',
+            lambda: self._schedule_llm_job(
+                "beliefs", prompt, beliefs.SYSTEM_PROMPT, fallback, apply, critical=True,
+                settlement=settlement.name, deep_reasoning=True,
+                num_predict_mult=LARGE_SCHEMA_REASONING_NUM_PREDICT_MULT,
+            ),
         )
 
     def _maybe_schedule_personal_belief(self, events: list[str]) -> None:
@@ -11902,10 +11980,13 @@ class SimulationEngine:
             if not used_fallback and self.world.settlement.dream_seed == symbol_seed:
                 self.world.settlement.dream_seed = ""
 
-        self._schedule_llm_job(
-            "dream", prompt, dream.SYSTEM_PROMPT, fallback, apply, critical=True,
-            settlement=home.name, npc_ids=[agent_id],
-            structured_input={"emotions": dict(agent.emotions), "goal_reason": agent.goal_reason},
+        self._submit_and_resolve(
+            'dream', 'dream',
+            lambda: self._schedule_llm_job(
+                "dream", prompt, dream.SYSTEM_PROMPT, fallback, apply, critical=True,
+                settlement=home.name, npc_ids=[agent_id],
+                structured_input={"emotions": dict(agent.emotions), "goal_reason": agent.goal_reason},
+            ),
         )
 
     MEMORY_DRIFT_CHANCE = 0.2
@@ -11993,7 +12074,10 @@ class SimulationEngine:
                 ('humans',),
             )
 
-        self._schedule_llm_job("memory_drift", prompt, memory_drift.SYSTEM_PROMPT, fallback, apply, critical=False)
+        self._submit_and_resolve(
+            'memory_drift', 'memory_drift',
+            lambda: self._schedule_llm_job("memory_drift", prompt, memory_drift.SYSTEM_PROMPT, fallback, apply, critical=False),
+        )
 
     def _maybe_schedule_skill_mastery(self) -> None:
         """Deferred item 5 (docs/VISION-2026-07-LEARNING.md), "LLM-
@@ -12056,8 +12140,11 @@ class SimulationEngine:
                     ('humans',),
                 )
 
-            self._schedule_llm_job(
-                "skill_mastery", prompt, skill_mastery.SYSTEM_PROMPT, fallback, apply, critical=False,
+            self._submit_and_resolve(
+                'skill_mastery', 'skill_mastery',
+                lambda: self._schedule_llm_job(
+                    "skill_mastery", prompt, skill_mastery.SYSTEM_PROMPT, fallback, apply, critical=False,
+                ),
             )
 
     def _maybe_schedule_nature_causal_reasoning(self) -> None:
@@ -12157,9 +12244,12 @@ class SimulationEngine:
             # the cycle here could stomp a concurrently in-flight
             # nature_mind call's own stage transition.
 
-        self._schedule_llm_job(
-            "nature_causal_reasoning", prompt, nature_causal_reasoning.SYSTEM_PROMPT, fallback, apply,
-            critical=True,
+        self._submit_and_resolve(
+            'nature_causal_reasoning', 'nature_causal_reasoning:predator_extinction',
+            lambda: self._schedule_llm_job(
+                "nature_causal_reasoning", prompt, nature_causal_reasoning.SYSTEM_PROMPT, fallback, apply,
+                critical=True,
+            ),
         )
         return True
 
@@ -12216,9 +12306,12 @@ class SimulationEngine:
             # own Nature's observe/interpret cycle_stage, so it never
             # calls _pillar_close_cycle("nature").
 
-        self._schedule_llm_job(
-            "nature_causal_reasoning", prompt, nature_causal_reasoning.SYSTEM_PROMPT, fallback, apply,
-            critical=True,
+        self._submit_and_resolve(
+            'nature_causal_reasoning', 'nature_causal_reasoning:grazer_extinction',
+            lambda: self._schedule_llm_job(
+                "nature_causal_reasoning", prompt, nature_causal_reasoning.SYSTEM_PROMPT, fallback, apply,
+                critical=True,
+            ),
         )
         return True
 
@@ -12286,9 +12379,12 @@ class SimulationEngine:
             # Same reasoning as the other two triggers' apply(): no
             # _pillar_close_cycle("nature") call here either.
 
-        self._schedule_llm_job(
-            "nature_causal_reasoning", prompt, nature_causal_reasoning.SYSTEM_PROMPT, fallback, apply,
-            critical=True,
+        self._submit_and_resolve(
+            'nature_causal_reasoning', 'nature_causal_reasoning:succession_stall',
+            lambda: self._schedule_llm_job(
+                "nature_causal_reasoning", prompt, nature_causal_reasoning.SYSTEM_PROMPT, fallback, apply,
+                critical=True,
+            ),
         )
         return True
 
@@ -12921,7 +13017,10 @@ class SimulationEngine:
 
         # Major life decision: a dispute outcome reshapes two lives and
         # settlement history (v1.3.37).
-        self._schedule_llm_job("dispute", prompt, dispute.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True)
+        self._submit_and_resolve(
+            'dispute', 'dispute',
+            lambda: self._schedule_llm_job("dispute", prompt, dispute.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True),
+        )
 
     def _maybe_schedule_faction(self, events: list[str]) -> None:
         """Phase L "Factions" (docs/VISION-2026-07.md, "Society &
@@ -12988,7 +13087,10 @@ class SimulationEngine:
             )
 
         # Cultural evolution: naming a real detected faction (v1.3.37).
-        self._schedule_llm_job("faction", prompt, faction.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True)
+        self._submit_and_resolve(
+            'faction', 'faction',
+            lambda: self._schedule_llm_job("faction", prompt, faction.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True),
+        )
 
     def _maybe_schedule_guild_founding(self, events: list[str]) -> None:
         """Deliberate institution founding — see llm/founding.py and
@@ -13076,7 +13178,10 @@ class SimulationEngine:
                 )
 
         # Major life decision: deliberately founding a guild (v1.3.37).
-        self._schedule_llm_job("guild_founding", prompt, founding.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True)
+        self._submit_and_resolve(
+            'guild_founding', 'guild_founding',
+            lambda: self._schedule_llm_job("guild_founding", prompt, founding.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True),
+        )
 
     def _maybe_schedule_institution_belief(self, events: list[str]) -> None:
         """Institutions Stage 3: once a month, ONE institution with
@@ -13207,9 +13312,12 @@ class SimulationEngine:
         # Council deliberation (and FAMILY/GUILD's own equivalent):
         # institutional belief formation is genuine collective judgment
         # (v1.3.37).
-        self._schedule_llm_job(
-            "institution_belief", prompt, beliefs.INSTITUTION_SYSTEM_PROMPT, fallback, apply,
-            deep_reasoning=True, num_predict_mult=LARGE_SCHEMA_REASONING_NUM_PREDICT_MULT,
+        self._submit_and_resolve(
+            'institution_belief', 'institution_belief',
+            lambda: self._schedule_llm_job(
+                "institution_belief", prompt, beliefs.INSTITUTION_SYSTEM_PROMPT, fallback, apply,
+                deep_reasoning=True, num_predict_mult=LARGE_SCHEMA_REASONING_NUM_PREDICT_MULT,
+            ),
         )
 
     # --- item 8b: inter-settlement diplomacy ------------------------------------
@@ -13279,9 +13387,12 @@ class SimulationEngine:
                 f"between {stl_a.name} and {stl_b.name}: {narration}",
             )
 
-        self._schedule_llm_job(
-            "diplomacy", prompt, diplomacy.SYSTEM_PROMPT, fallback, apply,
-            settlement=a.name, structured_input={"relation": relation, "other_settlement": b.name},
+        self._submit_and_resolve(
+            'diplomacy', 'diplomacy',
+            lambda: self._schedule_llm_job(
+                "diplomacy", prompt, diplomacy.SYSTEM_PROMPT, fallback, apply,
+                settlement=a.name, structured_input={"relation": relation, "other_settlement": b.name},
+            ),
         )
 
     # --- item 8c / §7 item 7: laws, customs, taboos -----------------------------
@@ -13501,7 +13612,10 @@ class SimulationEngine:
 
         # Cultural evolution: a law/custom/taboo is a real normative
         # judgment about the settlement (v1.3.37).
-        self._schedule_llm_job("laws", prompt, laws.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True)
+        self._submit_and_resolve(
+            'laws', 'laws',
+            lambda: self._schedule_llm_job("laws", prompt, laws.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True),
+        )
 
     # --- item 9: occasional LLM nudges for non-core-cast agents -----------------
 
@@ -13586,7 +13700,10 @@ class SimulationEngine:
                         self.conn, tick, agent_id, "plan", f"New plan: {new_plan['intent']}",
                     )
 
-        self._schedule_llm_job("noncore_nudge", prompt, noncore_nudge.SYSTEM_PROMPT, fallback, apply)
+        self._submit_and_resolve(
+            'noncore_nudge', 'noncore_nudge',
+            lambda: self._schedule_llm_job("noncore_nudge", prompt, noncore_nudge.SYSTEM_PROMPT, fallback, apply),
+        )
 
     # --- §2: letters carried by caravans ----------------------------------------
 
@@ -13666,7 +13783,10 @@ class SimulationEngine:
                 ('humans',),
             )
 
-        self._schedule_llm_job("letter", prompt, letters.SYSTEM_PROMPT, fallback, apply)
+        self._submit_and_resolve(
+            'letter', 'letter',
+            lambda: self._schedule_llm_job("letter", prompt, letters.SYSTEM_PROMPT, fallback, apply),
+        )
 
     def _deliver_letters(self) -> None:
         """Daily check (day_end): delivers any queued letter whose
@@ -14018,7 +14138,10 @@ class SimulationEngine:
 
         # Major life decision: whether to leave and found a new
         # settlement (v1.3.37).
-        self._schedule_llm_job("fission", prompt, fission.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True)
+        self._submit_and_resolve(
+            'fission', 'fission',
+            lambda: self._schedule_llm_job("fission", prompt, fission.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True),
+        )
 
     def _maybe_schedule_migration_decision(self) -> None:
         """Individual migration's core-cast half (explicit user
@@ -14099,9 +14222,12 @@ class SimulationEngine:
 
         # Major life decision: weighing a real reason to leave against
         # roots/relationships (v1.3.37).
-        self._schedule_llm_job(
-            "migration_decision", prompt, migration.SYSTEM_PROMPT, fallback, apply, settlement=home.name,
-            deep_reasoning=True,
+        self._submit_and_resolve(
+            'migration_decision', 'migration_decision',
+            lambda: self._schedule_llm_job(
+                "migration_decision", prompt, migration.SYSTEM_PROMPT, fallback, apply, settlement=home.name,
+                deep_reasoning=True,
+            ),
         )
 
     # --- §5 "Ruins mode / successor worlds" (docs/IDEAS-2026-07-EMERGENCE.md) --

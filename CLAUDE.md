@@ -742,6 +742,78 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.232)
+
+Explicit user follow-up: "Can't you build many sites in one run?
+Otherwise this will take ages like tier 0" — direct invocation of the
+standing "never migrate one at a time" workflow rule, applied to W2's
+own remaining sweep after batch 1's deliberately small 4-site proof.
+
+**Batch 2** (42 more real call sites, one AST-driven bulk transform,
+not 42 hand-edits): `chronicle`, `tradition`, `folklore`, `legend`,
+`invention`, `ontology_proposal`, `ontology_evolution`, `composite_
+entity`, `nature_mind`, `species_variant`, `rule_propose`, `composite_
+reaction_propose`, `era_branch`, `festival`, `religion`, `narrative_
+direction`, `culture_digest`, `institution_culture`, `consciousness`,
+`reflection_question`, `reflection`, `self_tuning_advisory`, `self_
+tuning`, `caravan`, `town_brain`, `beliefs`, `dream`, `memory_drift`,
+`skill_mastery`, `nature_causal_reasoning` (×3 distinct subjects —
+predator/grazer extinction, succession stall — deliberately sharing
+ONE workspace, since it's genuinely one job with three trigger paths),
+`dispute`, `faction`, `guild_founding`, `institution_belief`,
+`diplomacy`, `laws`, `noncore_nudge`, `letter`, `fission`, `migration_
+decision`. Every original call's arguments/kwargs preserved verbatim —
+a Python `ast`-based script located each `self._schedule_llm_job(...)`
+call, classified it, and rewrote it as `self._submit_and_resolve(
+"job_name", subject, lambda: self._schedule_llm_job(...))`, the exact
+shared-helper pattern batch 1 established.
+
+This closes W2 down to exactly the sites that were never meant to
+convert: `naming` (already routes through its own dedicated `_naming_
+workspace`, W1's pilot, functionally identical under a different
+attribute name); `rumor_interpret`/`personal_belief`/`mind` (real
+per-agent/per-pair call sites — W3's own territory, a distinct
+settlement-scoped-`GlobalWorkspace`-granularity design decision the
+roadmap explicitly defers, not a site this sweep should touch); and
+`sim_summary`/`chronicler`/`pillar_chat_*`/`away_digest` (real
+user-triggered on-demand jobs, an explicit player action rather than a
+periodic cadence a workspace should arbitrate over). A structural AST
+proof (new `scripts/verify_w2_batch2_full_sweep.py`) confirms this is
+the COMPLETE set, not a partial sweep: exactly 46 real `_submit_and_
+resolve` call sites in the file (4 from batch 1 + 42 here), each
+verified to wrap a real `_schedule_llm_job` call inside a real lambda,
+and exactly 8 real un-wrapped `_schedule_llm_job` calls remaining,
+every one of them matching this exact deliberate-exclusion list — not
+asserted, mechanically checked against the real source file.
+
+New `scripts/verify_w2_batch2_full_sweep.py` (structural AST proof +
+representative functional checks — `town_brain`/`dream` each driven to
+their own real staggered monthly day through genuine `_tick_once()`
+calls rather than a synthetic day override; the shared-workspace
+multi-subject `nature_causal_reasoning` trio; `letter`'s real monthly
+gate; a real 8000-tick LLM-disabled production soak confirming 12
+distinct newly-converted jobs fire organically with a real winner on
+every single cycle, proving the shared-per-job-name-workspace
+mechanism scales cleanly across this many job names with zero cross-
+contamination) — all pass, first run except two real test-setup fixes
+(the synthetic engine's `agents` field is a list not a dict; `_monthly_
+gate` needs the job's own real staggered day-of-month, reached by
+ticking the real engine forward rather than trying to set the derived
+`day_of_month` property directly) — no bug found in the module under
+test.
+
+Verified: the new script; `verify_b1_global_workspace.py` through
+`verify_b7_learned_bidding.py`, `verify_phase35_w1_naming_workspace.py`,
+`verify_h1_cognitive_domains.py`, `verify_w2_batch1_narrative_jobs.py`
+re-run clean; `pyflakes` clean on both touched files (only the six
+known pre-existing forward-ref findings in `engine.py`); `scripts/
+verify_replay_hash.py` (800 ticks, seed 777) — MATCH; `scripts/verify_
+native_soak.py` (seeds 1/55, 800 ticks) — MATCH (both required —
+`simulation/engine.py` changed extensively this pass). Remaining open:
+W3 (settlement-scoped `GlobalWorkspace` granularity for the three
+real per-agent/per-pair sites named above) is the only real work left
+in Phase 3.5 — resume only on future explicit direction.
+
 ## Current state (v1.34.231)
 
 Explicit user instruction: "W2" — the real sweep of remaining
