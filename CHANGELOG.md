@@ -4,6 +4,62 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.231] — Phase 3.5 W2, batch 1: the real sweep begins
+
+Explicit user instruction: "W2." The real sweep of remaining
+`_schedule_llm_job` call sites onto Stage B's workspace, now that W1's
+pilot has proven the pattern is genuinely behavior-preserving.
+
+New shared `SimulationEngine._submit_and_resolve(job_name, subject,
+resolver)` helper factors W1's own submit/arbitrate/resolve pattern
+out of `_naming_workspace`'s bespoke one-off shape, so each new
+migrated call site becomes a one-line wrap rather than duplicating that
+boilerplate at every new site. `self._w2_workspaces` lazily creates one
+dedicated `GlobalWorkspace` per job name — nothing else ever submits to
+a given job's workspace, so every real cycle stays a genuine "coalition
+of one," the same provably-behavior-preserving reasoning `_naming_
+workspace`'s own docstring already gives in full.
+
+**Batch 1, four real call sites:** `documentary` (year-end narration),
+`musing` (daily Reflection voice), `omen` (rare ambiguous flavor
+event), `record` (a departed villager's written artifact — the one
+PER-CANDIDATE loop in this batch, converted with the same "multiple
+independent cycles within one call" shape as W1's own multi-settlement
+naming case, proving the pattern generalizes beyond a single-entity
+call). Deliberately excluded from this batch: `sim_summary`/`away_
+digest` — both user-triggered (`POST /summary/request`/`POST /digest/
+request`) with their own docstrings explicitly reasoning about NOT
+being part of the coincident monthly job cluster the backpressure gate
+exists to smooth; migrating those needs its own real judgment call
+about whether arbitration changes that reasoning, not rushed into this
+batch alongside four unrelated ambient jobs.
+
+New `scripts/verify_w2_batch1_narrative_jobs.py` (12 checks — the
+shared helper's own contract proven directly first: a resolver fires
+on a real coalition-of-one win, and two different job names genuinely
+get separate dedicated workspaces; each of the four real sites' own
+arbitration cycle runs correctly through the real production code
+path with a minimal fake `LLMAdapter` standing in for a live server;
+`record`'s per-candidate loop produces two independent arbitration
+cycles for two real candidates submitted within one call, each naming
+the correct per-author subject; `omen`'s real `phase_g_intensity=0.0`
+early-out correctly never touches the workspace at all) — all pass,
+first run, no bug found.
+
+Verified: the new script (12 checks); `verify_b1_global_workspace.py`
+through `verify_b7_learned_bidding.py`, `verify_phase35_w1_naming_
+workspace.py`, `verify_h1_cognitive_domains.py` re-run clean;
+`pyflakes` clean on all touched/new files (only the six known
+pre-existing forward-ref findings in `engine.py`); `scripts/verify_
+replay_hash.py` (800 ticks, seed 777, `--in-process`) — MATCH,
+byte-identical; `scripts/verify_native_soak.py` (seeds 1/55, 800
+ticks) — MATCH (both required this pass since `simulation/engine.py`
+itself changed again). Remaining: ~74 more `_append_emergence`-
+adjacent + ~29 `_send_pillar_message` arrows, in further W2 batches —
+never one at a time, never all at once. `W3` (settlement-scoped
+granularity for per-agent cognition/dialogue traffic, the largest real
+LLM-volume share) stays gated on W2 progressing further.
+
 ## [1.34.230] — Phase 3.5 W1 (real production wiring pilot) + HCA Stage H's H1 (cognitive domains)
 
 Explicit user instruction: "Start phase 3.5 W1 and a parallel task of

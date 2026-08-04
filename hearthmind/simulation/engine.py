@@ -27,7 +27,7 @@ import re
 import sqlite3
 import time
 from collections import deque
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 try:
     import resource  # Unix-only; used for peak-RSS diagnostics, gracefully absent on Windows.
@@ -2692,6 +2692,19 @@ class SimulationEngine:
         standing gap this audit found: `llm_stats.latency_ms_p50/p95`
         was already aggregate-only, with no way to tell whether a slow
         p95 traces to one verbose job type or all of them evenly."""
+        self._w2_workspaces: dict[str, GlobalWorkspace] = {}
+        """W2 (docs/ROADMAP-2026-07-REMAINING.md, Phase 3.5, explicit
+        user instruction "W2" -- the real sweep W1's pilot proved
+        safe): one dedicated `GlobalWorkspace` per migrated job name,
+        lazily created and cached here rather than one bespoke instance
+        attribute per site (`_naming_workspace` below is W1's own
+        pre-existing one-off; new migrations go through `self._submit_
+        and_resolve` instead, see its own docstring). Same "own
+        dedicated workspace, not a shared one" discipline as `_naming_
+        workspace` -- nothing else in this codebase submits to a given
+        job's workspace, so every real cycle stays a genuine "coalition
+        of one," provably behavior-preserving by the identical
+        reasoning `_naming_workspace`'s own docstring gives in full."""
         self._naming_workspace = GlobalWorkspace()
         """Phase 3.5 W1 (docs/ROADMAP-2026-07-REMAINING.md, explicit
         user instruction "Start phase 3.5 W1"): the real production
@@ -4586,6 +4599,32 @@ class SimulationEngine:
         clock = self.world.clock
         month_ordinal = clock.year * len(self.world.config.days_per_month) + clock.month_index
         return pool[month_ordinal % len(pool)]
+
+    def _submit_and_resolve(self, job_name: str, subject: str, resolver: Callable[[], None]) -> None:
+        """W2's shared per-call-site helper (docs/ROADMAP-2026-07-
+        REMAINING.md, Phase 3.5) -- every W2-migrated job routes its
+        real scheduling decision through this instead of calling
+        `_schedule_llm_job` directly, mirroring W1's own naming-pilot
+        pattern (`self._naming_workspace`) without duplicating its
+        submit/arbitrate/resolve boilerplate at each new site. `job_
+        name` selects (lazily creating) this job's own dedicated entry
+        in `self._w2_workspaces` -- nothing else ever submits to it, so
+        every real cycle is a genuine "coalition of one" (`Bid.
+        score=1.0`), the same provably-behavior-preserving shape `_
+        naming_workspace`'s own docstring reasons through in full:
+        `arbitrate()`'s `max()` always returns the sole bid, so this
+        real B1 arbitration cycle's OUTCOME is identical to the old
+        unconditional `_schedule_llm_job(...)` call it replaces, every
+        time. `resolver` is the caller's own zero-arg closure wrapping
+        its real `_schedule_llm_job(...)` call -- invoked here only
+        when `arbitrate()` returns a winner (never on a genuinely empty
+        cycle, which can't happen for a lone bid, but the check stays
+        honest to B1's own real contract rather than assuming it)."""
+        workspace = self._w2_workspaces.setdefault(job_name, GlobalWorkspace())
+        workspace.submit(Bid(specialist_id=job_name, subject=subject, score=1.0, resolver=resolver))
+        winner = workspace.arbitrate()
+        if winner is not None:
+            winner.resolver()
 
     # --- the one scheduling path for settlement-level LLM jobs -----------------
 
@@ -6719,7 +6758,10 @@ class SimulationEngine:
                 ('village',),
             )
 
-        self._schedule_llm_job("documentary", prompt, documentary.SYSTEM_PROMPT, fallback, apply)
+        self._submit_and_resolve(
+            "documentary", "documentary",
+            lambda: self._schedule_llm_job("documentary", prompt, documentary.SYSTEM_PROMPT, fallback, apply),
+        )
 
     # --- on-demand simulation summary (user-triggered, not cadence-gated) ------
 
@@ -11023,7 +11065,10 @@ class SimulationEngine:
                 ('reflection',),
             )
 
-        self._schedule_llm_job("musing", prompt, musing.SYSTEM_PROMPT, fallback, apply)
+        self._submit_and_resolve(
+            "musing", "musing",
+            lambda: self._schedule_llm_job("musing", prompt, musing.SYSTEM_PROMPT, fallback, apply),
+        )
 
     # --- caravans: a first, scoped step toward "external settlements and trade" ---
 
@@ -12487,7 +12532,10 @@ class SimulationEngine:
                     }
                     self._log("prophecy_formed", f"{target.name or 'The village'} noticed something spoken half in jest: \"{text}\"")
 
-        self._schedule_llm_job("omen", prompt, omens.SYSTEM_PROMPT, fallback, apply)  # ambient texture, stays fast
+        self._submit_and_resolve(
+            "omen", "omen",
+            lambda: self._schedule_llm_job("omen", prompt, omens.SYSTEM_PROMPT, fallback, apply),
+        )  # ambient texture, stays fast
 
     # --- v0.64.0 audit-backlog jobs ---------------------------------------------
 
@@ -12600,7 +12648,16 @@ class SimulationEngine:
             ) -> None:
                 self._apply_record(author, artifacts.parse_record(result, fallback), sid)
 
-            self._schedule_llm_job("record", prompt, artifacts.SYSTEM_PROMPT, fallback, apply)
+            # W2: same per-candidate submit+arbitrate loop shape as W1's
+            # naming pilot's multi-settlement case -- each departed
+            # villager's record is its own independent arbitration
+            # cycle within this one call, never one suppressing another.
+            self._submit_and_resolve(
+                "record", f"record:{author}",
+                lambda p=prompt, fb=fallback, ap=apply: self._schedule_llm_job(
+                    "record", p, artifacts.SYSTEM_PROMPT, fb, ap,
+                ),
+            )
 
     def _apply_record(self, author: str, text: str, settlement_id: int = 0) -> None:
         self._settlement_by_id(settlement_id).add_record(self.world.clock.tick_count, author, text)

@@ -2124,14 +2124,46 @@ cannot state one does not ship.
   settlements eligible in the SAME call each get their own
   independent cycle rather than suppressing one another) — all pass,
   first run.
-- [ ] **W2**-**W3** — the real sweep, gated on `W1`'s pattern being
-  proven safe (it is): convert the remaining call sites in batches
-  (~78 `_append_emergence`-adjacent + ~29 `_send_pillar_message`
-  arrows), settlement-scoped `GlobalWorkspace` granularity for
-  per-agent traffic. *Test:* B1's own originally-stated test, finally
-  attempted for real — "pillar-level call share rises from 1.4% to
-  > 15% without raising total calls." See the phase-sequence section
-  above for full detail.
+- [ ] **W2 — IN PROGRESS, batch 1 shipped v1.34.231.** The real sweep,
+  gated on `W1`'s pattern being proven safe (it is). New shared
+  `SimulationEngine._submit_and_resolve(job_name, subject, resolver)`
+  helper factors W1's own submit/arbitrate/resolve pattern out of
+  `_naming_workspace`'s one-off shape so each new migrated site is a
+  one-line call, not a bespoke instance attribute — `self._w2_
+  workspaces` lazily creates one dedicated `GlobalWorkspace` per job
+  name, same "own dedicated workspace, provably a coalition of one"
+  discipline as `_naming_workspace`. Batch 1 (four real call sites):
+  `documentary` (year-end narration), `musing` (daily Reflection
+  voice), `omen` (rare ambiguous flavor event), `record` (a departed
+  villager's written artifact — the one PER-CANDIDATE loop in this
+  batch, same "multiple independent cycles within one call" shape as
+  W1's own multi-settlement naming case). Deliberately excluded from
+  this batch: `sim_summary`/`away_digest` — both are user-triggered
+  (`POST /summary/request`/`POST /digest/request`) and their own
+  docstrings explicitly reason about NOT being part of the coincident-
+  job backpressure cluster; migrating them needs its own judgment call
+  about whether arbitration changes that reasoning, not rushed into
+  this batch. *Test (passed):* `scripts/verify_w2_batch1_narrative_
+  jobs.py` (12 checks — each site's own real arbitration cycle runs in
+  its own dedicated workspace; `record`'s per-candidate loop produces
+  two independent cycles for two candidates in one call; `omen`'s real
+  early-out (`phase_g_intensity=0.0`) still correctly never touches the
+  workspace) — all pass, first run. `scripts/verify_replay_hash.py`
+  (800 ticks, seed 777) and `scripts/verify_native_soak.py` (seeds
+  1/55, 800 ticks) — both MATCH, byte-identical.
+  Remaining: ~74 more `_append_emergence`-adjacent + ~29 `_send_
+  pillar_message` arrows, in further batches — never one at a time,
+  never all at once, per this project's own standing discipline.
+- [ ] **W3** — settlement-scoped `GlobalWorkspace` granularity for
+  per-agent traffic (cognition/dialogue — the largest single share of
+  real LLM volume, needing its own bid-granularity decision before
+  migrating: one `GlobalWorkspace` per settlement, never one shared
+  across the whole world, so competing agents within a settlement
+  genuinely arbitrate against each other). *Test:* B1's own
+  originally-stated test, finally attempted for real once W2 is
+  further along — "pillar-level call share rises from 1.4% to > 15%
+  without raising total calls." See the phase-sequence section above
+  for full detail.
 - [ ] **C1** — the four typed impasses as the deliberation trigger.
   *Test:* every LLM call in a soak carries a named impasse.
 - [ ] **C2** — chunking. *Test:* the 591st family extinction consumes

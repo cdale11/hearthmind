@@ -742,6 +742,48 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.231)
+
+Explicit user instruction: "W2" — the real sweep of remaining
+`_schedule_llm_job` call sites onto Stage B's workspace, now that W1's
+pilot proved the pattern behavior-preserving.
+
+New shared `SimulationEngine._submit_and_resolve(job_name, subject,
+resolver)`: factors W1's own submit/arbitrate/resolve pattern out of
+`_naming_workspace`'s bespoke one-off shape, so each new migrated site
+is a one-line wrap. `self._w2_workspaces` lazily creates one dedicated
+`GlobalWorkspace` per job name — nothing else submits to a given job's
+workspace, so every real cycle stays a genuine "coalition of one,"
+same provably-behavior-preserving reasoning `_naming_workspace`'s own
+docstring already gives.
+
+**Batch 1** (four real call sites): `documentary` (year-end narration),
+`musing` (daily Reflection voice), `omen` (rare ambiguous flavor
+event), `record` (a departed villager's written artifact — the one
+per-candidate loop in this batch, proving the pattern generalizes
+beyond a single-entity call, same shape as W1's own multi-settlement
+naming case). Deliberately excluded: `sim_summary`/`away_digest`, both
+user-triggered with their own docstrings explicitly reasoning about
+NOT being part of the coincident monthly job cluster — migrating those
+needs its own judgment call, not rushed into this batch.
+
+New `scripts/verify_w2_batch1_narrative_jobs.py` (12 checks — the
+shared helper's own contract; each site's real arbitration cycle
+through the real production path with a fake `LLMAdapter`; `record`'s
+per-candidate loop producing two independent cycles for two real
+candidates; `omen`'s real `phase_g_intensity=0.0` early-out correctly
+never touching the workspace) — all pass, first run, no bug found.
+
+Verified: the new script; `verify_b1_global_workspace.py` through
+`verify_b7_learned_bidding.py`, `verify_phase35_w1_naming_workspace.py`,
+`verify_h1_cognitive_domains.py` re-run clean; `pyflakes` clean;
+`scripts/verify_replay_hash.py` (800 ticks, seed 777) — MATCH;
+`scripts/verify_native_soak.py` (seeds 1/55, 800 ticks) — MATCH (both
+required since `simulation/engine.py` changed again). Remaining: ~74
+more `_append_emergence`-adjacent + ~29 `_send_pillar_message` arrows,
+in further batches — never one at a time, never all at once. `W3`
+stays gated on W2 progressing further.
+
 ## Current state (v1.34.230)
 
 Explicit user instruction: "Start phase 3.5 W1 and a parallel task of
