@@ -1,9 +1,12 @@
-"""Tier 7 HCA Stage E, E2 (docs/ROADMAP-2026-07-REMAINING.md, Phase 7,
-explicit user instruction "Start E2"): workspace contents + the
-losing coalitions panel — docs/COGNITIVE-ARCHITECTURE-2026-08-02.md's
-own Observatory spec: "workspace contents AND the losing coalitions,"
-the deliberate correction (§2.10/§3.3) over a plain priority queue,
-which can only ever show a winner.
+"""Tier 7 HCA Stage E, E2/E3 (docs/ROADMAP-2026-07-REMAINING.md, Phase
+7): the workspace + memory-activation halves of the Cognitive
+Observatory.
+
+**E2** (explicit user instruction "Start E2"): workspace contents +
+the losing coalitions panel — docs/COGNITIVE-ARCHITECTURE-2026-08-02.
+md's own Observatory spec: "workspace contents AND the losing
+coalitions," the deliberate correction (§2.10/§3.3) over a plain
+priority queue, which can only ever show a winner.
 
 Unlike Stage C (C1/C2/C3), this one has real production data to show
 from day one: B1's `GlobalWorkspace` has been wired into ~54 real
@@ -24,9 +27,38 @@ same real gap Phase 8 (wiring a genuine multi-bid competition, e.g.
 Stage C's chunk/model/LLM ladder as competing bids) would close.
 `describe_competition`/`workspace_snapshot` themselves make no
 assumption about coalition size, so they need no change once a real
-multi-bid cycle exists."""
+multi-bid cycle exists.
+
+**E3, memory-activation half** (explicit user instruction "Start E3"):
+`describe_memory_activation` is a real, live read of D1's ACT-R
+formula (`hearthmind.cognition.activation.memory_activation`) applied
+to one agent's own real `memories`/`memory_salience`/`memory_ticks`/
+`memory_causes` — "what's active in this agent's declarative memory
+right now," ranked, not just the newest slice. Real production state
+(`_remember` stamps every one of these fields on every real memory,
+unconditionally, whether or not `retrieve_relevant_memories` is ever
+called for that agent) — a genuine rendering pass, same as E2.
+Deliberately scored with `relevance=0.0` (no live retrieval context to
+compare against, unlike a real `retrieve_relevant_memories` call) —
+this is a standing snapshot of what's active, not an answer to a
+specific query.
+
+**E3, competing-goals half: NOT shipped this pass, stated honestly.**
+Investigated first, not assumed: this codebase's real per-agent goal
+selection (`llm/cognition.py`'s `fallback_goal`) is a flat sequential
+if-chain, never a scored competition — there is no real Bid-based
+goal-vs-goal arbitration anywhere in production to render a panel
+over. Building one would be a genuinely NEW mechanism (a per-agent
+`GlobalWorkspace` over candidate goals with real utilities), not a
+presentation pass over already-real state like every other E-item
+shipped so far — flagged as real, distinct future work rather than
+forced through as a fabricated panel over numbers nothing computes
+today."""
 from __future__ import annotations
 
+from typing import Any
+
+from hearthmind.cognition.activation import memory_activation
 from hearthmind.cognition.workspace import Bid, CompetitionRecord, GlobalWorkspace
 
 
@@ -63,3 +95,37 @@ def workspace_snapshot(workspace: "GlobalWorkspace", recent: int = 20) -> list[d
     dev-console field in this codebase already uses (e.g. `learn_log_
     recent`)."""
     return [describe_competition(record) for record in workspace.history[-recent:]]
+
+
+def describe_memory_activation(agent: "Any", current_tick: int, top_n: int = 10) -> list[dict]:
+    """A real, live snapshot of one agent's declarative memory
+    activation — D1's ACT-R `memory_activation` formula applied to
+    every real entry in `agent.memories`, ranked highest-first.
+
+    Every input is read straight off real, already-populated `Agent`
+    state (`memory_salience`/`memory_ticks`/`memory_causes`, all
+    index-aligned with `memories` per D1's own persisted-field
+    discipline) — no synthetic stand-in. `relevance=0.0` throughout:
+    this is a standing "what's active right now" reading, not a scored
+    answer to a specific retrieval query (a real `retrieve_relevant_
+    memories` call supplies its own real relevance term instead).
+    Bounded to the top `top_n` — the same "don't dump an unbounded list
+    into a dev-console panel" discipline `workspace_snapshot`'s own
+    `recent` bound already holds."""
+    entries = []
+    for i, text in enumerate(agent.memories):
+        salience = agent.memory_salience[i] if i < len(agent.memory_salience) else 0.0
+        formed_at = agent.memory_ticks[i] if i < len(agent.memory_ticks) else current_tick
+        causal_present = bool(agent.memory_causes[i]) if i < len(agent.memory_causes) else False
+        score = memory_activation(
+            [formed_at], current_tick, salience=salience, relevance=0.0, causal_present=causal_present,
+        )
+        entries.append({
+            "text": text,
+            "activation": round(score, 4),
+            "salience": round(salience, 4),
+            "age_ticks": max(0, current_tick - formed_at),
+            "causal_link": causal_present,
+        })
+    entries.sort(key=lambda e: -e["activation"])
+    return entries[:top_n]

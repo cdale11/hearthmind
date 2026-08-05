@@ -4,6 +4,63 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.244] — Tier 7 HCA Stage E, E3: memory-activation panel (goals half explicitly deferred)
+
+Explicit user instruction: "Start E3."
+
+**E3.** The roadmap names E3 as two panels — "memory-activation and
+competing-goals." Investigated first, not assumed: only one half has
+real backing state to render. The memory half is real and buildable —
+D1 (v1.34.240) already stamps `Agent.memory_ticks`/`memory_salience`/
+`memory_causes` on every real memory, unconditionally, whether or not
+`retrieve_relevant_memories` is ever called for that agent. The
+competing-goals half is NOT buildable as a rendering pass — `llm/
+cognition.py`'s `fallback_goal` is a flat sequential if-chain, never a
+scored Bid-based competition; there is no real per-agent workspace
+arbitrating candidate goals anywhere in production. Building one would
+be a genuinely NEW mechanism (a real per-agent `GlobalWorkspace` over
+candidate goals with real utilities), not a presentation pass like
+every other E-item shipped so far — flagged as real, distinct future
+work rather than forced through as a panel over numbers nothing
+computes today.
+
+New `hearthmind.cognition.observatory.describe_memory_activation(agent,
+current_tick, top_n=10)`: D1's real `memory_activation` formula
+(base-level + spreading activation) applied to every real entry in
+`agent.memories`, ranked highest-first, bounded to `top_n`. Scored with
+`relevance=0.0` throughout — deliberately a standing "what's active
+right now" snapshot, not a scored answer to a specific retrieval query
+(a real `retrieve_relevant_memories` call supplies its own real
+relevance term instead). New `SimulationEngine._memory_activation_
+snapshot()` picks the agent via `_observer_favorite_agent()` — the
+same real target-selection function Phase G's own interventions
+already use, reused rather than inventing a second agent-picking rule
+— surfaced via `full_diagnostics()['memory_activation_snapshot']`
+(honest `None` before the observer has inspected any core-cast agent).
+New dev-console "HCA E3: memory activation" panel
+(`renderMemoryActivation`, `app.js`), same plain-formatted-text
+presentation discipline every prior E-panel already established.
+
+New `scripts/verify_e3_memory_activation.py` (16 checks — `describe_
+memory_activation`'s own correctness against a real `Agent` driven
+through the real production `_remember`/`set_current_tick` call path;
+a real end-to-end proof through a real `SimulationEngine` confirming
+`memory_activation_snapshot` honestly `None` before any inspection,
+then populated with the real favored core-cast agent's real memory
+once `_record_observer_attention` fires) — all pass, first run, no bug
+found.
+
+Verified: the new script (16 checks); `verify_e2_workspace_
+activity.py`/`verify_d1_activation.py`/`verify_phase35_w1_naming_
+workspace.py` re-run clean (unaffected); `node --check` clean on
+`app.js`; `pyflakes` clean on all touched/new files (only the six
+known pre-existing forward-ref findings in `engine.py`). No persisted
+`World`/`Agent` schema or tick-loop logic changed (`full_diagnostics()`
+is a pure read-only diagnostics report) — no replay-hash/native-soak
+re-run needed. The competing-goals half remains open — resume only on
+future explicit direction naming a real goal-arbitration mechanism to
+build first.
+
 ## [1.34.243] — Tier 7 HCA Stage E, E2: workspace contents + the losing coalitions panel
 
 Explicit user instruction: "Start E2."

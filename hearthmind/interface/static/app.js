@@ -434,6 +434,7 @@ devFullReportBtn.addEventListener("click", async () => {
     renderAdaptiveRuntimeStatus(report.engine);
     renderLearningSpecialistCurve(report.engine);
     renderWorkspaceActivity(report.engine);
+    renderMemoryActivation(report.engine);
     try {
       await navigator.clipboard.writeText(text);
       devReportStatus.textContent = "copied to clipboard";
@@ -623,6 +624,28 @@ function renderWorkspaceActivity(engineReport) {
 
   el.textContent =
 `Real arbitration cycles from self._naming_workspace (newest first)
+----------------------------------------------------------------------
+${lines.join("\n")}`;
+}
+
+function renderMemoryActivation(engineReport) {
+  const el = document.getElementById("memory-activation-content");
+  if (!el || !engineReport) return;
+  const snapshot = engineReport.memory_activation_snapshot;
+  if (!snapshot) {
+    el.textContent = "no favored agent yet — inspect a core-cast agent on the map first";
+    return;
+  }
+  const entries = snapshot.entries || [];
+  if (!entries.length) {
+    el.textContent = `${snapshot.agent_name} has no memories yet`;
+    return;
+  }
+  const lines = entries.map((e) =>
+    `activation ${e.activation.toFixed(3)}  (salience ${e.salience.toFixed(2)}, age ${e.age_ticks} ticks${e.causal_link ? ", causal link" : ""})\n    "${e.text}"`
+  );
+  el.textContent =
+`Real D1 ACT-R activation ranking for ${snapshot.agent_name} (id ${snapshot.agent_id}), highest first
 ----------------------------------------------------------------------
 ${lines.join("\n")}`;
 }

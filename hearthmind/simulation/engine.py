@@ -98,7 +98,7 @@ from hearthmind.world import legends
 from hearthmind.world import spatial_memory
 from hearthmind.world import culture_aggregate
 from hearthmind.cognition import attention
-from hearthmind.cognition.observatory import workspace_snapshot
+from hearthmind.cognition.observatory import describe_memory_activation, workspace_snapshot
 from hearthmind.cognition.pillar import make_message
 from hearthmind.cognition import runtime_specialist
 from hearthmind.cognition.player_model import PlayerAttentionModel, predict_next_focus, propose_player_model_bid
@@ -6542,6 +6542,21 @@ class SimulationEngine:
         last_id = attention.get("last_agent_id")
         agent = by_id.get(last_id) if last_id is not None else None
         return agent if agent is not None and last_id in core_ids else None
+
+    def _memory_activation_snapshot(self) -> dict | None:
+        """Tier 7 HCA E3, memory-activation half (v1.34.244): the real
+        dev-console panel payload -- a live D1 ACT-R activation ranking
+        over `_observer_favorite_agent()`'s real memories. `None` when
+        the observer hasn't favored anyone yet (that function's own
+        honest `None` case), never a fabricated placeholder agent."""
+        agent = self._observer_favorite_agent()
+        if agent is None:
+            return None
+        return {
+            "agent_id": agent.id,
+            "agent_name": agent.name,
+            "entries": describe_memory_activation(agent, self.world.clock.tick_count),
+        }
 
     def _watched_agent_names(self, limit: int = 5) -> list[str]:
         """§5 "While you were away" digest: names of the agents the
@@ -16244,6 +16259,14 @@ class SimulationEngine:
             # `losers` reads empty until Phase 8's real multi-bid wiring
             # lands -- this panel is real and live regardless.
             "naming_workspace_activity": workspace_snapshot(self._naming_workspace, recent=20),
+            # Tier 7 HCA E3, memory-activation half, v1.34.244: a real,
+            # live read of D1's ACT-R activation formula over whichever
+            # core-cast agent the observer's own attention already
+            # favors (`_observer_favorite_agent`, the same real target-
+            # selection function Phase G's own interventions already
+            # use) -- honest `None` when the observer hasn't inspected
+            # anyone yet, matching that function's own contract.
+            "memory_activation_snapshot": self._memory_activation_snapshot(),
             # Tier 5 B2's real control point (see `BROADCAST_SUBSYSTEM_
             # BUDGET_SECONDS`'s docstring): real, never-silently-reset
             # overrun debt for the one job B2 actually schedules today —
