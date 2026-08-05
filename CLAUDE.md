@@ -742,6 +742,43 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.239)
+
+Explicit user instruction: "Start C3 and stale docs" — two
+independent pieces, one batch. **This closes Tier 7 HCA Stage C in
+full** (C1 v1.34.237, C2 v1.34.238, C3 here).
+
+**C3.** New `hearthmind/cognition/dispatch.py`'s `dispatch_impasse(
+impasse, store, tick, llm_resolver, model_resolver=None)`: the real
+"cached chunk → learned model → LLM" ladder. C2's `ChunkStore.
+lookup()` is tried first (free); an optional caller-supplied learned-
+model resolver next; the caller's own genuine deliberation
+(`llm_resolver`) only as a real last resort — and ONLY the LLM tier
+compiles a new chunk, since a chunk-hit or model result is already
+cheap enough that caching it again buys nothing.
+
+New `scripts/verify_c3_dispatch.py` (15 checks): the real ladder
+order proven directly (a chunk hit never touches model/LLM; a model
+resolver never falls through to the LLM; the LLM tier alone compiles
+a real chunk, and the SAME impasse recurring afterward hits that
+chunk instead of re-deliberating); C3's own stated headline number
+(">30% of workspace winners resolve without an LLM call") verified
+statistically over a real 2000-cycle recurring-impasse soak (a
+handful of subjects recur 70% of the time, per HCA's own §1.4
+finding) — 70.0% resolved without an LLM call, well past the stated
+bar. Deliberately NOT wired into any real production `_schedule_
+llm_job` call site — that retrofit is real, distinct future work,
+same "ship the interface, wire the first real consumer next"
+discipline C1/C2 already used.
+
+**Stale-docs pass.** The consolidated Tier 7 checklist's `C3` entry,
+Phase 5's own numbered-list `C3` entry, and the checklist's closing
+note (previously "Stages A, B, G, and H shipped, Stage C partial")
+all corrected to reflect Stage C now closing in full.
+
+Verified: the new script (15 checks); `pyflakes` clean on both new
+files. No native module or `simulation/engine.py` code path touched.
+
 ## Current state (v1.34.238)
 
 Explicit user instruction: "C2 and stale docs" — two independent

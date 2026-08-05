@@ -4,6 +4,53 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.239] — Tier 7 HCA Stage C, C3: cheap-resolver dispatch (Stage C closed in full); roadmap stale-docs pass
+
+Explicit user instruction: "Start C3 and stale docs."
+
+**C3.** New `hearthmind/cognition/dispatch.py`'s `dispatch_impasse(
+impasse, store, tick, llm_resolver, model_resolver=None)`: the real
+"cached chunk → learned model → LLM" ladder (HCA §3/Layer 3). C2's
+`ChunkStore.lookup()` is tried first (free); an optional caller-
+supplied learned-model resolver next; the caller's own genuine
+deliberation (`llm_resolver`) only as a real last resort — and ONLY
+the LLM tier compiles a new chunk (`ChunkStore.compile`), since a
+chunk-hit or model result is already cheap enough that caching it
+again buys nothing. `RESOLVED_VIA_KINDS = ("chunk", "model", "llm")`
+names the three real tiers, cheapest first.
+
+New `scripts/verify_c3_dispatch.py` (15 checks): the real ladder order
+proven directly (a chunk hit never touches model/LLM; a model resolver
+never falls through to the LLM; the LLM tier alone compiles a real
+chunk, and the SAME impasse recurring afterward hits that chunk
+instead of re-deliberating); C3's own stated headline number (">30%
+of workspace winners resolve without an LLM call") verified
+statistically over a real 2000-cycle recurring-impasse soak (a
+realistic distribution — a handful of subjects recur 70% of the time,
+the rest are genuinely novel, per HCA's own §1.4 finding) — 70.0%
+resolved without an LLM call, well past the stated bar — all pass,
+first run, no bug found. Deliberately NOT wired into any real
+production `_schedule_llm_job` call site — that retrofit (one
+low-risk ambient job first, then a wider sweep) is real, distinct
+future work, same "ship the interface, wire the first real consumer
+next" discipline C1/C2 already used; a live-production measurement of
+the stated >30% bar needs that wiring pass first.
+
+**This closes Tier 7 HCA Stage C in full** (`C1` v1.34.237, `C2`
+v1.34.238, `C3` here) — the project's own headline falsification test
+(deliberative cost per unit of emergence, trended over a soak) is now
+MEASURABLE for the first time, though actually measuring it live
+still needs the production wiring pass named above.
+
+**Roadmap stale-docs pass.** The consolidated Tier 7 checklist's `C3`
+entry, Phase 5's own numbered-list `C3` entry, and the checklist's
+closing "Stages A, B, G, and H... Stage C partially shipped" note
+(written for the prior commit, now stale since C3 just closed Stage C
+in full) all corrected in the same batch.
+
+Verified: the new script (15 checks); `pyflakes` clean on both new
+files. No native module or `simulation/engine.py` code path touched.
+
 ## [1.34.238] — Tier 7 HCA Stage C, C2: chunking; further roadmap stale-docs pass
 
 Explicit user instruction: "C2 and stale docs."

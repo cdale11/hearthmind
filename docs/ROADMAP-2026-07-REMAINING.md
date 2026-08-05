@@ -2297,8 +2297,34 @@ cannot state one does not ship.
   both a just-compiled chunk and any chunk genuinely still being
   reused. Dispatch (actually consulting `ChunkStore.lookup()` before
   ever considering an LLM call) is C3's job, not attempted here.
-- [ ] **C3** — cheap-resolver dispatch (chunk → model → LLM). *Test:*
-  > 30% of workspace winners resolve without an LLM call.
+- [x] **C3 — SHIPPED, v1.34.239 (explicit user instruction: "Start C3
+  and stale docs").** Cheap-resolver dispatch, preferring the cheapest
+  resolver that suffices. New `hearthmind.cognition.dispatch.
+  dispatch_impasse(impasse, store, tick, llm_resolver, model_
+  resolver=None)`: tries C2's `ChunkStore.lookup()` first (free — an
+  O(1) dict read); falls to an optional caller-supplied `model_
+  resolver` next; only calls `llm_resolver` (the caller's own genuine
+  deliberation) as a real last resort, and ONLY the LLM tier compiles
+  a new chunk (`ChunkStore.compile`) — a model or chunk-hit result is
+  already cheap, nothing gained caching it again. **Closes Tier 7 HCA
+  Stage C in full** (`C1`→`C2`→`C3`). *Test (passed):* `scripts/
+  verify_c3_dispatch.py` (15 checks) — the real ladder order proven
+  directly (a chunk hit never touches model/LLM; a model resolver
+  never falls through to the LLM; the LLM tier alone compiles a real
+  chunk, and the SAME impasse recurring afterward hits that chunk
+  instead of deliberating again); C3's own stated headline number
+  (">30% of workspace winners resolve without an LLM call") verified
+  statistically over a real 2000-cycle recurring-impasse soak (a
+  realistic shape — a handful of subjects recur often, most fire once
+  — per HCA's own §1.4 finding) — 70.0% resolved without an LLM call,
+  well past the stated bar. Deliberately NOT wired into any real
+  production `_schedule_llm_job` call site — that retrofit (picking
+  one low-risk ambient job to route through this dispatcher instead
+  of unconditionally scheduling its LLM job, then a wider sweep) is
+  real, distinct future work, same "ship the interface, wire the
+  first real consumer next, then sweep" discipline B0.3/W1-W4 already
+  used elsewhere in this codebase — a live-production measurement of
+  the stated >30% bar needs that wiring pass first.
 - [ ] **D1** — ACT-R activation replacing four hand-tuned mechanisms
   (`MEMORY_RETRIEVAL_*` weights, `memory_salience`, `memory_access`,
   bag-of-words relevance). *Test:* retrieval quality holds on the
@@ -2485,8 +2511,7 @@ with extra steps and this direction should be abandoned.**
 Same standing convention as every vision document here: work from a
 `[ ]` item only on explicit future direction naming it. (This was
 originally filed docs-only, "nothing is implemented" — stale now that
-Stages A, B, G, and H are all fully shipped and Stage C is partially
-shipped (`C1`/`C2`, dispatch `C3` still open), corrected here rather
+Stages A, B, C, G, and H are all fully shipped, corrected here rather
 than left to mislead a future read of this checklist.)
 
 ---
@@ -3174,11 +3199,27 @@ name without one.
    consumes no LLM call") is C2+C3's combined outcome. No `simulation/
    engine.py` code path touched — no replay-hash/native-soak re-run
    needed.
-3. `C3` — cheap-resolver dispatch (chunk → learned model → LLM),
-   preferring the cheapest resolver that suffices.
-   *Stage C fully closes here. Ships the project's own headline
-   falsification test becoming measurable for the first time:
-   deliberative cost per unit of emergence, trended over a soak.*
+3. [x] `C3` — SHIPPED, v1.34.239. Cheap-resolver dispatch (chunk →
+   learned model → LLM), preferring the cheapest resolver that
+   suffices. New `hearthmind/cognition/dispatch.py`'s `dispatch_
+   impasse`: C2's `ChunkStore.lookup()` tried first (free), an
+   optional caller-supplied learned-model resolver next, the caller's
+   real LLM deliberation only as a genuine last resort — and only the
+   LLM tier compiles a new chunk, so the identical impasse never pays
+   that cost twice. *Test (passed):* `scripts/verify_c3_dispatch.py`
+   (15 checks) — the real ladder order, the LLM-only chunk-compilation
+   rule, a real recurrence correctly hitting the compiled chunk
+   instead of re-deliberating, and a real 2000-cycle statistical soak
+   resolving 70.0% of cycles without an LLM call (well past the
+   item's own >30% bar). Real production wiring (retrofitting an
+   actual `_schedule_llm_job` call site to route through this
+   dispatcher) remains explicitly flagged future work, same "ship the
+   interface first" discipline C1/C2 already used.
+   **Stage C fully closes here** (`C1` v1.34.237, `C2` v1.34.238,
+   `C3` here). Ships the project's own headline falsification test
+   becoming MEASURABLE for the first time (deliberative cost per unit
+   of emergence, trended over a soak) — actually MEASURING it live
+   still needs the real production wiring pass named above.
 
 **Phase 6 — HCA Stage D: ACT-R memory activation (`D1`→`D2`).** No hard
 dependency on anything above — could genuinely be pulled forward to run
