@@ -742,6 +742,60 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.237)
+
+Explicit user instruction: "So now phase 5 if phase 4 is done. Start
+C1. And fix stale docs parallely" — two independent pieces, one
+batch.
+
+**C1.** New `hearthmind/cognition/impasse.py` (`ImpasseKind`/
+`Impasse` + four classifiers): Soar's four typed impasses, each
+classifying an EXISTING real signal this codebase already maintains
+rather than inventing a new detection mechanism — `detect_tie_from_
+competition` reads a real `CompetitionRecord` (B1, every real
+`GlobalWorkspace.arbitrate()` cycle already produces one — a tie is
+the winner scoring within `TIE_SCORE_TOLERANCE` of the closest real
+loser); `detect_no_change` classifies a real caller-supplied streak
+(e.g. `Institution.objective_ticks_unmet`) crossing its own real
+threshold — the HCA doc's own worked example, "590 family
+extinctions, no rule"; `detect_conflict` classifies a real `Pillar.
+disagrees_with(subject)` result (B4); `detect_novelty` classifies a
+real `SurpriseSpecialist.error()` reading (A1) against the real
+production `EMERGENCE_SURPRISE_THRESHOLD`.
+
+New `scripts/verify_c1_impasse.py` (16 checks, every one run against
+a REAL production data structure/signal — a real arbitrated
+`CompetitionRecord`, a real `Institution`, a real `Pillar`, a real
+`SimulationEngine._emergence_surprise` — not a synthetic stand-in) —
+all pass, one real test-design issue caught and fixed before shipping
+(an exact-floating-point tolerance-boundary assertion was brittle
+against ordinary float rounding; replaced with two real gaps clearly
+inside/outside tolerance), no bug found in the module under test.
+Deliberately scoped to the trigger primitive alone: C1's own stated
+test ("every LLM call in a soak carries a named impasse") describes
+the end state of `C1`+`C2`+`C3` combined in production — a real,
+larger dispatch migration left to `C3`, same "ship the interface,
+wire the first real consumer next" discipline every prior Stage A/B/
+G/H item here used. No `simulation/engine.py` code path touched —
+pure offline `cognition/` primitive, same scope class as A1's own
+`surprise.py` — no replay-hash/native-soak re-run needed.
+
+**Stale-docs pass.** `docs/ROADMAP-2026-07-REMAINING.md`'s
+consolidated Tier 7 checklist (the section that had repeatedly gone
+stale before, e.g. the v1.34.229/.222/.212/.202 audits) still showed
+`H2`/`H3`/`H4` as unchecked `[ ]` despite all three shipping
+(v1.34.235/.236) — corrected with real shipped detail and version
+numbers. `H1`'s own "flagged as real future work once `H2`/`H4` give
+the write-scope enforcement a real specialist" note updated to
+reflect both now exist. `E6`'s "depends on Stage H" note updated to
+"now closed, genuinely unblocked." The checklist's own closing
+"nothing is implemented" line (stale — four of eight stages now
+fully shipped) corrected to point at the real per-item state instead
+of a blanket claim.
+
+Verified: the new script (16 checks); `pyflakes` clean on both new
+files. No native module or `simulation/engine.py` code path touched.
+
 ## Current state (v1.34.236)
 
 Explicit user instruction: "Continue H4" — the last item Stage H

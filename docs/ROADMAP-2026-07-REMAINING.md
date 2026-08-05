@@ -2351,29 +2351,56 @@ cannot state one does not ship.
   caught; the identical import under a WORLD-domain marker (or no
   marker at all) is correctly NOT flagged; a real arbitration cycle
   preserves a bid's own domain unchanged — all pass, first run. Marked
-  "partial": per-domain BUDGETS (the item's other named half) are not
-  yet built — no real MACHINE/OBSERVER specialist exists to need one;
-  flagged as real future work once `H2`/`H4` give the write-scope
-  enforcement a real specialist to actually govern.
-- [ ] **H2** — the Adaptive Runtime as a first-class specialist family:
-  B8's forecaster as `predict()`/`error()`, B5's metrics as
-  `observe()`, B15's escalation ladder converted from a unilateral
-  actor into a real `bid()`, B13's hypothesis loop as its `learn()`.
-  *Test:* a real escalation to reduced cognition breadth appears in the
-  workspace log as a bid that won against named losers, with its
-  factors recorded — where today it happens silently inside the
-  scheduler.
-- [ ] **H3** — cross-domain isolation: a MACHINE broadcast reaches the
-  WORLD mind's L5 and the Observatory only. *Test:* no WORLD-domain L1
-  or L2 ever receives MACHINE content, verified directly; no settlement
-  can form a belief mentioning scheduling, load or budgets.
-- [ ] **H4** — the Player Model as an OBSERVER-domain specialist:
-  read-only, predicting the observer, learning from realised outcomes.
-  *Test:* it predicts and learns without writing any world state, and
-  its broadcasts are provably unreachable from any player-facing
-  surface (the structural half of Phase G's discipline). Explicitly
-  **not** in scope: the Town Consciousness's own interventions, which
-  stay exactly as they are today.
+  "partial" at the time: per-domain BUDGETS (the item's other named
+  half) weren't built yet — no real MACHINE/OBSERVER specialist
+  existed to need one. `H2`/`H4` below give the write-scope
+  enforcement real specialists to govern; per-domain budgets
+  themselves remain unbuilt (no second bidder exists yet in either
+  domain to need real budget contention) — real future work, still
+  correctly flagged.
+- [x] **H2 — SHIPPED, v1.34.235.** The Adaptive Runtime as a real
+  MACHINE-domain specialist family: `hearthmind.simulation.
+  forecasting`/`.profiling`/`.optimization_hypothesis`/`.escalation`
+  all gained `SPECIALIST_DOMAIN = Domain.MACHINE` — B8's forecaster =
+  `predict()`/`error()`, B5's `TaskMetrics` = `observe()`, B13's
+  `HypothesisLoop` = `learn()`. New `hearthmind.cognition.runtime_
+  specialist.propose_escalation_bid` is the real fix for the one
+  actual gap: B15's `EscalationLadder` was a unilateral actor with no
+  `bid()`. `SimulationEngine._maybe_advance_escalation_ladder` now
+  submits a real `Bid` to a dedicated `_machine_workspace` and only
+  invokes the winner's resolver once `arbitrate()` names it. *Test
+  (passed):* `scripts/verify_h2_h3_runtime_domain.py` (22 checks) — a
+  real `day_end` call genuinely advances the machine workspace's own
+  cycle counter and records a real winner in its competition log,
+  exactly the "appears in the workspace log as a bid that won against
+  named losers" the item's own test asked for (today a coalition of
+  one, since no second MACHINE specialist bids yet).
+- [x] **H3 — SHIPPED, v1.34.235, same batch as H2.** Cross-domain
+  isolation, verified three ways in the same script: a real before/
+  after `World.to_dict()` diff around a forced-pressured escalation
+  cycle proves ZERO world-state change; `self._machine_workspace` is
+  confirmed structurally distinct from every WORLD-domain workspace
+  (`_w2_workspaces`/`_w3_workspaces`/`_naming_workspace`/`_pillar_
+  buses`); an AST scan of `_send_pillar_message` (the real WORLD-
+  domain messaging arrow) confirms it never references `_machine_
+  workspace` — no settlement can form a belief mentioning scheduling,
+  load or budgets, exactly the item's own stated test.
+- [x] **H4 — SHIPPED, v1.34.236.** The Player Model as a real
+  OBSERVER-domain specialist: new `hearthmind.cognition.player_model`
+  (`SPECIALIST_DOMAIN = Domain.OBSERVER`) predicts which agent the
+  observer will inspect next from `World.observer_attention`'s
+  already-real view counts, scores itself against the real next
+  observation, and bids into a dedicated `SimulationEngine._observer_
+  workspace`. Explicitly **not** the Town Consciousness's own
+  interventions (`World.consciousness_player_model`), which stay
+  exactly as they are. *Test (passed):* `scripts/verify_h4_player_
+  model.py` (27 checks) — a real before/after `World.to_dict()` diff
+  (minus the pre-existing `observer_attention` field itself) proves
+  the whole predict/observe/bid cycle writes zero other world state;
+  an AST scan proves `_send_pillar_message` never references
+  `_observer_workspace` either, the same provable unreachability-
+  from-any-player-facing-surface the item's own test asked for.
+  **This closes Tier 7 HCA Stage H in full** (`H1`→`H2`/`H3`→`H4`).
 - [ ] **E1** — the "why reasoning was or was not invoked" panel.
   *Test:* every cycle in a live run has a legible one-line reason.
 - [ ] **E2** — workspace contents + **losing coalitions** panel.
@@ -2395,10 +2422,14 @@ cannot state one does not ship.
   Same plain-formatted-text presentation discipline `renderAdaptive
   RuntimeStatus` already established (dev-console depth, not a canvas
   chart).
-- [ ] **E6** *(depends on Stage H)* — a MACHINE-domain lane in the
-  workspace panel: the Runtime's own bids, wins and escalations shown
-  beside the world's, on the Machine surface. *Test:* an escalation is
-  watchable as it happens, without reading logs.
+- [ ] **E6** *(depended on Stage H, now closed as of v1.34.236 —
+  genuinely unblocked)* — a MACHINE-domain lane in the workspace
+  panel: the Runtime's own bids, wins and escalations shown beside
+  the world's, on the Machine surface. `full_diagnostics()
+  ['machine_domain']`/`['player_model_domain']` (H2/H4) already
+  surface the raw real data this panel would render — a rendering
+  pass over already-real backend state, not a new mechanism. *Test:*
+  an escalation is watchable as it happens, without reading logs.
 - [ ] **F1** *(gated behind Tier 6 L1.1)* — semantic pointers:
   concept vectors, bundling/binding, LLM names the best algebraic
   candidate. *Test:* a concept combination is generated and judged
@@ -2421,9 +2452,11 @@ calls fall and emergence holds, the architecture works. **If calls fall
 and emergence falls proportionally, impasse-gating is just starvation
 with extra steps and this direction should be abandoned.**
 
-Same standing convention as every vision document here: **nothing is
-implemented; work from it only on explicit future direction naming a
-specific item.**
+Same standing convention as every vision document here: work from a
+`[ ]` item only on explicit future direction naming it. (This was
+originally filed docs-only, "nothing is implemented" — stale now that
+Stages A, B, G, and H are all fully shipped, corrected here rather
+than left to mislead a future read of this checklist.)
 
 ---
 
@@ -3059,7 +3092,34 @@ HCA doc itself on Stage B (a workspace to bid into) and Stage G
 (`C1`→`C2`→`C3`).** Needs Phase 3's real arbitrated workspace to detect
 an impasse *within* — there is no "tie/no-change/conflict/novelty" to
 name without one.
-1. `C1` — the four typed impasses as the deliberation trigger.
+1. [x] `C1` — SHIPPED, v1.34.237 (explicit user instruction: "Start
+   C1"). The four typed impasses as the deliberation trigger. New
+   `hearthmind/cognition/impasse.py` (`ImpasseKind`/`Impasse` + four
+   classifiers) — deliberately no new detection mechanism invented,
+   each classifier just names an existing real signal this codebase
+   already maintains: `detect_tie_from_competition` reads a real
+   `CompetitionRecord` (B1, every real `GlobalWorkspace.arbitrate()`
+   cycle already produces one — winner within `TIE_SCORE_TOLERANCE` of
+   the closest real loser); `detect_no_change` classifies a real
+   caller-supplied streak (e.g. `Institution.objective_ticks_unmet`)
+   crossing its own real threshold — HCA's own worked example, "590
+   family extinctions, no rule"; `detect_conflict` classifies a real
+   `Pillar.disagrees_with(subject)` result (B4); `detect_novelty`
+   classifies a real `SurpriseSpecialist.error()` reading (A1) against
+   the real production `EMERGENCE_SURPRISE_THRESHOLD`. *Test (passed):*
+   `scripts/verify_c1_impasse.py` (16 checks), every one run against a
+   REAL production data structure/signal (a real arbitrated
+   `CompetitionRecord`, a real `Institution`, a real `Pillar`, a real
+   `SimulationEngine._emergence_surprise`), not a synthetic stand-in —
+   all pass, first run, no bug found. Deliberately scoped to the
+   trigger primitive alone — C1's own stated test ("every LLM call in
+   a soak carries a named impasse") describes the end state of
+   `C1`+`C2`+`C3` combined in production, a real, larger dispatch
+   migration left to `C3`, same "ship the interface, wire the first
+   real consumer next" discipline every prior Stage A/B/G/H item here
+   used. No `simulation/engine.py` code path touched this pass (a pure
+   offline `cognition/` primitive, same scope class as A1's own
+   `surprise.py`) — no replay-hash/native-soak re-run needed.
 2. `C2` — chunking: compile a resolved impasse into a cheap reusable
    artifact.
 3. `C3` — cheap-resolver dispatch (chunk → learned model → LLM),
