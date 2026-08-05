@@ -3021,16 +3021,39 @@ HCA doc itself on Stage B (a workspace to bid into) and Stage G
    WORLD-domain messaging arrow) confirms it never references `_machine_
    workspace` — a MACHINE bid genuinely cannot flow into a settlement's
    own belief formation.
-4. `H4` — the Player Model as an OBSERVER-domain specialist,
-   read-only, explicitly distinct from the Town Consciousness's own
-   interventions (which stay exactly as they are). Only needs `H1`'s
-   domain type to exist — independent of `H2`/`H3`, now shipped —
-   could have run in parallel, didn't need to. The one remaining item
-   before Stage H closes in full.
-   *Stage H fully closes once `H4` ships. Ships: the Runtime's own
-   scheduling decisions visible in the workspace log as real bids that
-   won against named losers — legible for the first time, mechanically
-   incapable of quietly overruling the world it serves.*
+4. [x] `H4` — SHIPPED, v1.34.236 (explicit user instruction: "Continue
+   H4"). The Player Model as a real OBSERVER-domain specialist,
+   read-only, explicitly distinct from `World.consciousness_player_
+   model` (the Town Consciousness's own hidden theory about the
+   player, Phase N — untouched by this item, since it DOES feed real
+   interventions and stays exactly as it is). New `hearthmind.
+   cognition.player_model` (`SPECIALIST_DOMAIN = Domain.OBSERVER`,
+   zero imports from `hearthmind.world`/`.agents`/`.settlement`/
+   `.economy`): `predict_next_focus`/`prediction_error` are the real
+   `predict()`/`error()` over `World.observer_attention`'s already-
+   real `agent_view_counts` (the one real signal already tracked
+   about the observer, §4/§5); `PlayerAttentionModel` is the real
+   bounded, measured hit-rate state; `propose_player_model_bid` is
+   the real `bid()`, submitted to a dedicated `SimulationEngine.
+   _observer_workspace` (structurally distinct from `_machine_
+   workspace` and every WORLD-domain workspace). `_record_observer_
+   attention` (the real `POST /observer/attention` call site) now
+   predicts BEFORE the new observation lands, scores the prediction
+   against the real agent actually viewed, and submits/arbitrates a
+   real Bid whose winning resolver only ever appends to a bounded
+   `_player_model_history` — never touches `hearthmind.world`/
+   `Settlement`/`Agent` state, verified by a real before/after
+   `World.to_dict()` diff (every field but the pre-existing `observer_
+   attention` bookkeeping itself stays byte-identical). Surfaced via
+   `full_diagnostics()['player_model_domain']` (dev-console/
+   Observatory-only, per "OBSERVER content is dev-console-only by
+   domain rule").
+   **This closes Tier 7 HCA Stage H in full** (H1 v1.34.230, H2+H3
+   v1.34.235, H4 here) — the Runtime's own scheduling decisions and
+   the Player Model's own read-only predictions are both now visible
+   in a real workspace log as real bids that won against named
+   losers — legible for the first time, mechanically incapable of
+   quietly overruling the world they observe.
 
 **Phase 5 — HCA Stage C: impasse-gated deliberation + chunking
 (`C1`→`C2`→`C3`).** Needs Phase 3's real arbitrated workspace to detect

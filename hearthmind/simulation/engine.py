@@ -100,6 +100,7 @@ from hearthmind.world import culture_aggregate
 from hearthmind.cognition import attention
 from hearthmind.cognition.pillar import make_message
 from hearthmind.cognition import runtime_specialist
+from hearthmind.cognition.player_model import PlayerAttentionModel, predict_next_focus, propose_player_model_bid
 from hearthmind.cognition.surprise import SurpriseSpecialist
 from hearthmind.cognition.workspace import Bid, GlobalWorkspace, PillarBus
 from hearthmind.world.disasters import FLOOD_PRESSURE_THRESHOLD, GOVERNOR_TUNING_BAND, HEATWAVE_PRESSURE_THRESHOLD, WILDFIRE_CHANCE_PER_WEEK
@@ -1141,6 +1142,12 @@ ADAPTIVE_TUNING_LOG_MAX = 200
 """Bounded ring-buffer size for `SimulationEngine._adaptive_tuning_
 log` — same cap-and-append discipline as every other unbounded-growth-
 prone list in this codebase (traditions/inventions/events/etc.)."""
+
+PLAYER_MODEL_HISTORY_MAX = 200
+"""Tier 7 HCA Stage H, H4: bounded ring-buffer size for `Simulation
+Engine._player_model_history` — same cap-and-append discipline as
+`ADAPTIVE_TUNING_LOG_MAX`/`WORKLOAD_LEARN_LOG_MAX` and every other
+runtime-only diagnostic history in this codebase."""
 
 WORKLOAD_REPLAY_CAPACITY = 300
 """Tier 7 HCA G2: the `LearningSpecialist` wrapping B8.1/L3.2's
@@ -2235,6 +2242,33 @@ class SimulationEngine:
         per H3's own cross-domain isolation rule (a MACHINE broadcast
         reaches the Observatory, never a settlement's own belief
         formation -- see `scripts/verify_h2_h3_runtime_domain.py`)."""
+
+        self._observer_workspace = GlobalWorkspace()
+        """Tier 7 HCA Stage H, H4 (explicit user instruction "Continue
+        H4" -- the last item Stage H names): a dedicated OBSERVER-
+        domain `GlobalWorkspace`, structurally distinct from `_machine_
+        workspace` and every WORLD-domain workspace, per the same
+        "domains never compete for each other's budget" rule H2/H3
+        already established for MACHINE. `_record_observer_attention`
+        is the one real bidder today (see `hearthmind.cognition.
+        player_model.propose_player_model_bid`) -- a real, read-only
+        prediction about which agent the observer will inspect next,
+        never a world-state write. Surfaced via `full_diagnostics()
+        ['player_model_domain']` -- dev-console/Observatory-only, same
+        depth as `machine_domain`, per CLAUDE.md's own "OBSERVER
+        content is dev-console-only by domain rule.\""""
+        self._player_model = PlayerAttentionModel()
+        """H4's own small learned state -- a bounded (predicted, hit)
+        history and the real, measured hit rate this predictor has
+        earned so far. Runtime-only, never persisted (same "re-
+        baselines on restart" discipline every other runtime-only
+        attention/history structure in this codebase already holds
+        to — e.g. every `DormancyManager` instance)."""
+        self._player_model_history: deque[dict] = deque(maxlen=PLAYER_MODEL_HISTORY_MAX)
+        """Bounded, browsable record of every real player-model cycle
+        (H4's own dev-console visibility) — tick, predicted agent id,
+        actual agent id, hit/miss. Capped the same way `_adaptive_
+        tuning_log`/`_workload_learn_log` already are."""
 
         self._reserved_this_tick = 0
         """Jobs actually scheduled (a task created) so far THIS tick,
@@ -6416,7 +6450,19 @@ class SimulationEngine:
         intervention uses. `agent_id` need not currently resolve to a
         living agent (a since-departed agent can still legitimately be
         "the observer's favorite" historically); only the increment/
-        eviction bookkeeping happens here."""
+        eviction bookkeeping happens here.
+
+        Tier 7 HCA Stage H, H4 (explicit user instruction "Continue
+        H4"): this is also the one real production call site for the
+        Player Model's `predict()`/`error()`/`bid()` cycle. `predicted`
+        is computed from the view counts AS THEY STOOD BEFORE this
+        observation — a genuine prediction, not one peeking at its own
+        answer — then scored against the real `agent_id` that just
+        arrived. The resolver only ever appends to a bounded engine-
+        level history for dev-console display; it never touches
+        `self.world`/`Settlement`/`Agent` state, verified directly in
+        `scripts/verify_h4_player_model.py` the same way H3 verified
+        it for the MACHINE domain."""
         try:
             agent_id = int(agent_id)
         except (TypeError, ValueError):
@@ -6425,14 +6471,32 @@ class SimulationEngine:
         if not attention:
             attention = {"agent_view_counts": {}, "last_agent_id": None, "last_seen_tick": -1}
         counts = attention.setdefault("agent_view_counts", {})
+
+        predicted = predict_next_focus(counts)
+        tick = self.world.clock.tick_count
+
         counts[agent_id] = counts.get(agent_id, 0) + 1
         if len(counts) > OBSERVER_ATTENTION_MAX_TRACKED:
             least_viewed = min(counts, key=lambda aid: counts[aid])
             if least_viewed != agent_id:
                 del counts[least_viewed]
         attention["last_agent_id"] = agent_id
-        attention["last_seen_tick"] = self.world.clock.tick_count
+        attention["last_seen_tick"] = tick
         self.world.observer_attention = attention
+
+        error = self._player_model.record(predicted, agent_id)
+
+        def resolver(predicted: int | None = predicted, actual: int = agent_id, tick: int = tick, error: float = error) -> None:
+            self._player_model_history.append({
+                "tick": tick, "predicted_agent_id": predicted, "actual_agent_id": actual,
+                "hit": error == 0.0,
+            })
+
+        bid = propose_player_model_bid(predicted, error, resolver)
+        self._observer_workspace.submit(bid)
+        winner = self._observer_workspace.arbitrate()
+        if winner is not None:
+            winner.resolver()
 
     def _observer_favorite_agent(self) -> "Agent | None":
         """Most-inspected agent who is both still alive and still a
@@ -16488,6 +16552,17 @@ class SimulationEngine:
                     }
                     for record in self._machine_workspace.history[-10:]
                 ],
+            },
+            # Tier 7 HCA Stage H, H4: the Player Model's own real
+            # cycle history — dev-console/Observatory-only, "OBSERVER
+            # content is dev-console-only by domain rule." `hit_rate`
+            # is the real measured accuracy this predictor has earned
+            # so far (`None` with no observations yet); `history_
+            # recent` names every real (predicted, actual, hit/miss)
+            # outcome, newest-last, same shape `machine_domain` uses.
+            "player_model_domain": {
+                "hit_rate": self._player_model.hit_rate(),
+                "history_recent": list(self._player_model_history)[-10:],
             },
             # Tier 5 B12's real first consumer — the emergence-log
             # compression ladder's own live state, dev-console/raw-JSON

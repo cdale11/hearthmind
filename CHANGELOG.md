@@ -4,6 +4,71 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.236] — Tier 7 HCA Stage H, H4: the Player Model as a real OBSERVER-domain specialist (Stage H closed in full)
+
+Explicit user instruction: "Continue H4" — the last item Stage H
+names, independent of H2/H3 (only needed H1's domain type to exist).
+
+New `hearthmind/cognition/player_model.py` (`SPECIALIST_DOMAIN =
+Domain.OBSERVER`, zero imports from `hearthmind.world`/`.agents`/
+`.settlement`/`.economy`): a real, read-only prediction about the
+observer, deliberately distinct from `World.consciousness_player_
+model` (the Town Consciousness's own hidden theory about the player,
+Phase N — untouched here, since it DOES write real interventions and
+stays exactly as it is). `predict_next_focus`/`prediction_error` are
+the real `predict()`/`error()` over `World.observer_attention`'s
+already-tracked `agent_view_counts` (§4/§5's own existing signal —
+which agent has the observer inspected most); `PlayerAttentionModel`
+holds the real bounded, measured hit-rate state; `propose_player_
+model_bid` is the real `bid()`.
+
+`SimulationEngine` gained a dedicated `self._observer_workspace`
+(structurally distinct from `_machine_workspace` and every WORLD-
+domain workspace, per "domains never compete for each other's
+budget") and `self._player_model`/`self._player_model_history`
+(bounded). `_record_observer_attention` (the real `POST /observer/
+attention` call site) now computes `predicted = predict_next_focus
+(counts)` from the view counts AS THEY STOOD BEFORE the new
+observation, updates `World.observer_attention`'s ordinary §4
+bookkeeping unchanged, scores the prediction against the real agent
+that just arrived, and submits/arbitrates a real `Bid` — the winning
+resolver only ever appends to `_player_model_history` for dev-console
+display, never touches `hearthmind.world`/`Settlement`/`Agent` state.
+Surfaced via `full_diagnostics()['player_model_domain']` (dev-console/
+Observatory-only, per "OBSERVER content is dev-console-only by domain
+rule").
+
+New `scripts/verify_h4_player_model.py` (27 checks — the module's own
+domain marker and the real tree staying clean under `check_domain_
+write_scope()`; `predict_next_focus`/`prediction_error` as pure
+functions incl. the no-RNG tie-break; `PlayerAttentionModel`'s real
+measured hit rate; a solo-bidder `GlobalWorkspace` resolving every
+real cycle; `SimulationEngine._observer_workspace`'s real construction
+and distinctness from every other workspace; a real first/repeat/
+different-agent observation sequence scored correctly (miss/hit/miss);
+the H4 headline test — a real before/after `World.to_dict()` diff
+(minus the pre-existing `observer_attention` field itself) proves
+every other field stays byte-identical; the cross-domain-content AST
+proof that `_send_pillar_message` never references `_observer_
+workspace`; real `full_diagnostics()` surfacing) — all pass, first
+run, no bug found.
+
+**This closes Tier 7 HCA Stage H in full** (H1 v1.34.230, H2+H3
+v1.34.235, H4 here) — both the Adaptive Runtime's own scheduling
+decisions and the Player Model's own read-only predictions are now
+visible in a real workspace log as real bids that won against named
+losers.
+
+Verified: the new script (27 checks); `scripts/verify_h2_h3_runtime_
+domain.py` (22 checks) re-run clean; `verify_h1_cognitive_domains.py`/
+`verify_b1_global_workspace.py`/`verify_b2_starvation_gain.py`/
+`verify_b3_pillar_bus.py`/`verify_phase35_w1_naming_workspace.py`
+re-run clean; `pyflakes` clean on all touched/new files (only the six
+known pre-existing forward-ref findings in `engine.py`); `scripts/
+verify_replay_hash.py` (800 ticks, seed 777, `--in-process`) — MATCH,
+byte-identical; `scripts/verify_native_soak.py` (seeds 1/55, 800
+ticks) — MATCH.
+
 ## [1.34.235] — Tier 7 HCA Stage H, H2+H3: the Adaptive Runtime as a real MACHINE-domain specialist family, cross-domain isolation verified
 
 Explicit user instructions, in one batch: "Start H3" / "Start H2" (H2

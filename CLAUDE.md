@@ -742,6 +742,64 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.236)
+
+Explicit user instruction: "Continue H4" — the last item Stage H
+names, independent of H2/H3 (only needed H1's domain type to exist).
+**This closes Tier 7 HCA Stage H in full** (H1 v1.34.230, H2+H3
+v1.34.235, H4 here).
+
+New `hearthmind/cognition/player_model.py` (`SPECIALIST_DOMAIN =
+Domain.OBSERVER`, zero imports from `hearthmind.world`/`.agents`/
+`.settlement`/`.economy`): a real, read-only prediction about the
+observer, deliberately distinct from `World.consciousness_player_
+model` (the Town Consciousness's own hidden theory about the player,
+Phase N — untouched here, since it DOES write real interventions and
+stays exactly as it is). `predict_next_focus`/`prediction_error` are
+the real `predict()`/`error()` over `World.observer_attention`'s
+already-tracked `agent_view_counts` (§4/§5's own existing signal);
+`PlayerAttentionModel` holds the real bounded, measured hit-rate
+state; `propose_player_model_bid` is the real `bid()`.
+
+New `SimulationEngine._observer_workspace` (structurally distinct
+from `_machine_workspace` and every WORLD-domain workspace) +
+`_player_model`/`_player_model_history` (bounded). `_record_observer_
+attention` (the real `POST /observer/attention` call site) now
+predicts BEFORE the new observation lands, updates `World.observer_
+attention`'s ordinary bookkeeping unchanged, scores the prediction
+against the real agent that just arrived, and submits/arbitrates a
+real `Bid` — the winning resolver only ever appends to `_player_
+model_history` for dev-console display, never touches `hearthmind.
+world`/`Settlement`/`Agent` state. Surfaced via `full_diagnostics()
+['player_model_domain']` (dev-console/Observatory-only, per "OBSERVER
+content is dev-console-only by domain rule").
+
+New `scripts/verify_h4_player_model.py` (27 checks — the module's own
+domain marker and the real tree staying clean under `check_domain_
+write_scope()`; `predict_next_focus`/`prediction_error` as pure
+functions incl. the no-RNG tie-break; `PlayerAttentionModel`'s real
+measured hit rate; a solo-bidder workspace resolving every real
+cycle; `_observer_workspace`'s real construction/distinctness; a real
+first/repeat/different-agent observation sequence scored correctly
+(miss/hit/miss); a real before/after `World.to_dict()` diff proving
+every field but `observer_attention` itself stays byte-identical;
+the cross-domain-content AST proof; real `full_diagnostics()`
+surfacing) — all pass, first run, no bug found.
+
+Verified: the new script (27 checks); `scripts/verify_h2_h3_runtime_
+domain.py` (22 checks) re-run clean; `verify_h1_cognitive_domains.py`/
+`verify_b1_global_workspace.py`/`verify_b2_starvation_gain.py`/
+`verify_b3_pillar_bus.py`/`verify_phase35_w1_naming_workspace.py`
+re-run clean; `pyflakes` clean on all touched/new files (only the six
+known pre-existing forward-ref findings in `engine.py`); `scripts/
+verify_replay_hash.py` (800 ticks, seed 777, `--in-process`) — MATCH,
+byte-identical; `scripts/verify_native_soak.py` (seeds 1/55, 800
+ticks) — MATCH. Closes Stage H — Stages A, B, G, and H are now all
+fully shipped; Stage C (impasse-gated deliberation + chunking, needs
+Phase 3's arbitrated workspace), Stage D (ACT-R memory activation),
+and Stage E (the Cognitive Observatory) remain the open items in the
+Tier 7 roadmap — resume only on future explicit direction naming one.
+
 ## Current state (v1.34.235)
 
 Explicit user instructions: "Start H3" / "Start H2" — H2 first, since
