@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-"""Tier 7 HCA Phase 8, step 1 (docs/ROADMAP-2026-07-REMAINING.md,
-explicit user instruction "Start phase 8"): the pilot — wiring Stage
-C's chunk/dispatch ladder (C1's `detect_no_change`, C2's `ChunkStore`,
-C3's `dispatch_impasse`) into `SimulationEngine._maybe_schedule_
-musing`, the first real production `_schedule_llm_job` call site to
-actually consult a real `Impasse`/`DispatchOutcome` pair.
+"""Tier 7 HCA Phase 8 (docs/ROADMAP-2026-07-REMAINING.md, explicit
+user instructions "Start phase 8" then "Start step 2"): step 1, the
+pilot — wiring Stage C's chunk/dispatch ladder (C1's `detect_no_
+change`, C2's `ChunkStore`, C3's `dispatch_impasse`) into
+`SimulationEngine._maybe_schedule_musing`, the first real production
+`_schedule_llm_job` call site to actually consult a real `Impasse`/
+`DispatchOutcome` pair; and step 2, "E1 goes live" — every real cycle
+above now also records E1's own `explain_cycle()` line into `self.
+_musing_explain_history`, reachable via `full_diagnostics()
+["musing_explain"]` for the real dev-console panel.
 
 Verifies the real production method directly, driving the real clock
 across real day_end boundaries and seeding a real, static open
@@ -15,7 +19,10 @@ forecaster.py`/`verify_e4_learning_chart.py` already established).
 C3's own stated test (">30% of real cycles resolve without an LLM
 call") is measured live over a real multi-day soak on this pilot job
 specifically, not re-asserted from the synthetic proof `verify_c3_
-dispatch.py` already gave the primitive."""
+dispatch.py` already gave the primitive. Step 2's own real explain-
+line content is checked against E1's exact target line shape (CLAUDE.
+md's own "Observatory UI direction" section) at each of the four real
+cycle types this pilot can produce."""
 from __future__ import annotations
 
 import asyncio
@@ -145,6 +152,22 @@ async def main_async() -> int:
     check("the chunk records a real hit",
           next(iter(eng._musing_chunk_store._chunks.values())).hit_count == 1)
 
+    # --- Phase 8 step 2 ("E1 goes live"): explain_cycle()'s own real
+    #     per-cycle line, recorded for every one of the four real
+    #     cycles above, reachable via full_diagnostics() ---
+    explain_history = eng.full_diagnostics()["musing_explain"]["history_recent"]
+    check("four real day_end cycles produced four real explain_cycle() lines",
+          len(explain_history) == 4)
+    check("day 1/2's lines are the real 'no impasse' cheap path, naming the real streak",
+          explain_history[0]["line"] == "no impasse · streak 0/2 · cheap path"
+          and explain_history[1]["line"] == "no impasse · streak 1/2 · cheap path")
+    check("day 3's line names the real IMPASSE(no-change) and the real LLM-tier DELIBERATED resolution",
+          explain_history[2]["line"].startswith("IMPASSE(no-change)")
+          and explain_history[2]["line"].endswith("DELIBERATED"))
+    check("day 4's line names the same real impasse and the real CHUNK HIT resolution",
+          explain_history[3]["line"].startswith("IMPASSE(no-change)")
+          and explain_history[3]["line"].endswith("CHUNK HIT (no deliberation)"))
+
     # --- subject genuinely changes: streak resets, direct path
     #     resumes immediately, even with a populated chunk store ---
     seed_static_hypothesis(eng, text="a genuinely different question")
@@ -154,6 +177,8 @@ async def main_async() -> int:
     await asyncio.sleep(0)
     check("a real subject change resets the streak and resumes direct scheduling immediately",
           eng._musing_no_change_streak == 0 and len(eng.world.musings) == before + 1)
+    check("the real subject-change cycle's explain line reverts to the cheap 'no impasse' path",
+          eng.full_diagnostics()["musing_explain"]["history_recent"][-1]["line"] == "no impasse · streak 0/2 · cheap path")
 
     # --- C3's own stated live-soak bar: over many real days with an
     #     UNCHANGING subject, strictly more than 30% of real day_end

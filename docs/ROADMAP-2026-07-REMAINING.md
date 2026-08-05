@@ -3725,11 +3725,67 @@ resolve, not just a documentation gap this doc keeps repeating.
    — MATCH (both required this pass — `simulation/engine.py`'s own
    `__init__` and a real `_TICK_JOBS`-registered method's scheduling
    logic both changed).
-2. [ ] **E1 goes live.** Once the pilot job produces real `Impasse`/
-   `DispatchOutcome` pairs, wire `explain_cycle()`'s output into a real
-   dev-console panel (or `/diagnostics` field) for that job specifically
-   — the rendering-layer piece E1's own filing deferred, now unblocked.
-   Not attempted this pass — resume only on future explicit direction.
+2. [x] **E1 goes live — SHIPPED, v1.34.248.** Every real musing cycle
+   (all three branches — the cheap "no impasse" path, a genuine LLM
+   dispatch, and a cheap chunk hit) now also records E1's own real
+   `explain_cycle()` line into a new bounded `SimulationEngine._
+   musing_explain_history` (runtime-only, never persisted — same
+   "re-baselines on restart" discipline every other runtime-only
+   Stage/Tier history in this codebase already uses; new constant
+   `MUSING_EXPLAIN_HISTORY_MAX = 20`). The no-impasse branch supplies
+   E1's own `no_impasse_detail` param with the real streak reading
+   (`"streak N/threshold"`) rather than leaving it blank — real,
+   already-in-scope data, not invented; the impasse branch captures
+   `dispatch_impasse`'s own real `DispatchOutcome` (previously
+   discarded) and passes it straight to `explain_cycle`, producing
+   exactly the doc's own two worked example line shapes verbatim
+   (confirmed byte-for-byte via a direct production-path check):
+   `no impasse · streak 0/2 · cheap path` and `IMPASSE(no-change) ·
+   "hypothesis:..." · 2 consecutive occurrences with no progress
+   (threshold 2) · DELIBERATED`/`CHUNK HIT (no deliberation)`.
+   `deliberation_seconds` is deliberately never supplied — this
+   codebase's real LLM calls are fire-and-forget async, so no
+   synchronous elapsed-time figure exists at record time; `explain_
+   cycle`'s own honest degrade (bare `"DELIBERATED"`, no fabricated
+   number) is used exactly as its docstring describes.
+
+   `full_diagnostics()` gained `musing_explain.history_recent`
+   (newest-last, `[-10:]`-windowed, same shape every sibling `history_
+   recent` field already uses). New dev-console "HCA E1: why reasoning
+   fired (musing)" panel (`renderMusingExplain`, `app.js`) — same
+   plain-formatted-text presentation discipline every prior E-panel
+   already established; an honest "(no real musing cycle yet)" line
+   before any real cycle has fired.
+
+   `scripts/verify_phase8_musing_pilot.py` extended (13 -> 18 checks)
+   with direct assertions on the real recorded line content at each
+   of the four real cycle types this pilot produces (the two cheap-
+   path days, the real DELIBERATED dispatch, the real CHUNK HIT, and
+   the real subject-change reversion back to the cheap path) — all
+   pass. Verified live via a real dev server + Playwright pass:
+   confirmed the panel's honest pre-data empty state, then (since a
+   real multi-day soak on a live server takes real wall-clock time to
+   reach the interesting cycles) called the real `renderMusingExplain`
+   function directly against a synthetic report shaped exactly like
+   this pilot's own real recorded output — the same "force a scenario
+   through the real render function" technique this project's own
+   history already established for panels whose backing data takes a
+   real soak to organically produce (e.g. E3's NPC-inspector line) —
+   confirming correct newest-first ordering and exact line rendering
+   with zero console errors (one pre-existing, unrelated `favicon.ico`
+   404 confirmed independently via `curl`, not caused by this change).
+
+   Verified: the updated script (18 checks); `pyflakes` clean on all
+   touched files (only the six known pre-existing forward-ref findings
+   in `engine.py`); `verify_c1_impasse.py`/`verify_c2_chunking.py`/
+   `verify_c3_dispatch.py`/`verify_runtime_invariant.py`/`verify_d2_
+   memory_kind.py`/`verify_e1_explain_cycle.py` re-run clean
+   (unaffected); `node --check` clean on `app.js`; a live dev server +
+   Playwright pass; `scripts/verify_replay_hash.py` (800 ticks, seed
+   777, `--in-process`) — MATCH, byte-identical; `scripts/verify_
+   native_soak.py` (seeds 1/55, 800 ticks) — MATCH (both required
+   again — `simulation/engine.py`'s own `__init__` and the same real
+   `_TICK_JOBS`-registered method both changed further this pass).
 3. [ ] **Sweep.** Once the pilot's own real measured behavior confirms
    the ladder helps (call volume genuinely drops, emergence quality
    holds — the project's own headline falsification test, finally
@@ -3740,11 +3796,12 @@ resolve, not just a documentation gap this doc keeps repeating.
    call-site by call-site. Not attempted this pass — resume only on
    future explicit direction.
 
-Step 1 (the Pilot) is shipped, v1.34.247 — C1-C3 now have a real
-production consumer for the first time, closing the "not wired into
-production" gap this phase exists to fix. Steps 2-3 remain open,
-same standing convention as every other phased item in this doc —
-resume only on future explicit direction naming a step.
+Steps 1-2 (the Pilot, E1 goes live) are shipped, v1.34.247/v1.34.248 —
+C1-C3 now have a real production consumer AND a real dev-console
+panel rendering its output for the first time, closing the "not wired
+into production" gap this phase exists to fix. Step 3 (the Sweep)
+remains open, same standing convention as every other phased item in
+this doc — resume only on future explicit direction.
 
 **Parallel, optional track — semantic embedding (does not block or get
 blocked by anything above).**

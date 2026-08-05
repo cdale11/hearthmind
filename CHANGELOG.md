@@ -4,6 +4,53 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.248] — Tier 7 HCA Phase 8, step 2: E1 goes live
+
+Explicit user instruction: "Start step 2" — Phase 8's second named
+step, following directly off step 1's pilot (v1.34.247). Every real
+musing cycle now also records E1's own real `explain_cycle()` line —
+C1-C3 finally have both a real production consumer AND a real
+dev-console panel rendering its output.
+
+New `SimulationEngine._musing_explain_history` (bounded, runtime-only,
+never persisted, new constant `MUSING_EXPLAIN_HISTORY_MAX = 20`).
+Every branch of `_maybe_schedule_musing` now appends a real line: the
+cheap "no impasse" path supplies E1's own `no_impasse_detail` param
+with the real streak reading instead of leaving it blank; the impasse
+branch captures `dispatch_impasse`'s own real `DispatchOutcome`
+(previously discarded) and feeds it straight to `explain_cycle`,
+producing exactly the doc's own worked example line shapes verbatim
+— `no impasse · streak 0/2 · cheap path` and `IMPASSE(no-change) ·
+"hypothesis:..." · 2 consecutive occurrences with no progress
+(threshold 2) · DELIBERATED`/`CHUNK HIT (no deliberation)`.
+`deliberation_seconds` is deliberately never supplied, since this
+codebase's real LLM calls are fire-and-forget async — `explain_
+cycle`'s own honest degrade (bare `"DELIBERATED"`, never a fabricated
+number) is used as designed.
+
+`full_diagnostics()` gained `musing_explain.history_recent`. New
+dev-console "HCA E1: why reasoning fired (musing)" panel
+(`renderMusingExplain`, `app.js`) — an honest "(no real musing cycle
+yet)" line before any real cycle has fired.
+
+`scripts/verify_phase8_musing_pilot.py` extended (13 -> 18 checks)
+with direct assertions on the real recorded line content at each of
+the four real cycle types this pilot produces — all pass. Verified
+live via a real dev server + Playwright pass: confirmed the panel's
+honest pre-data empty state, then called the real render function
+directly against a synthetic report shaped exactly like this pilot's
+own real recorded output — confirming correct newest-first ordering
+and exact rendering with zero new console errors.
+
+Verified: the updated script (18 checks); `pyflakes` clean (only the
+six known pre-existing forward-ref findings in `engine.py`); every
+Stage C/D2/E1 verify script re-run clean; `node --check` clean on
+`app.js`; a live browser pass; `scripts/verify_replay_hash.py` (800
+ticks, seed 777, `--in-process`) — MATCH, byte-identical; `scripts/
+verify_native_soak.py` (seeds 1/55, 800 ticks) — MATCH. `Sweep`
+(Phase 8's last step) stays open — resume only on future explicit
+direction.
+
 ## [1.34.247] — Tier 7 HCA Phase 8, step 1: the Pilot (Stage C goes live)
 
 Explicit user instruction: "Start phase 8" — Phase 8's first named

@@ -742,6 +742,76 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.248)
+
+Explicit user instruction: "Start step 2" — Phase 8's second named
+step, "E1 goes live," directly following step 1's pilot (v1.34.247).
+C1-C3 now have both a real production consumer AND a real dev-console
+panel rendering its output for the first time.
+
+**E1 goes live.** Every branch of `_maybe_schedule_musing` (the cheap
+"no impasse" path, a genuine LLM dispatch, and a cheap chunk hit) now
+also records E1's own real `explain_cycle()` line into a new bounded
+`SimulationEngine._musing_explain_history` (runtime-only, never
+persisted — same "re-baselines on restart" discipline every other
+runtime-only Stage/Tier history in this codebase already uses; new
+constant `MUSING_EXPLAIN_HISTORY_MAX = 20`). The no-impasse branch
+now supplies E1's own `no_impasse_detail` param with the real streak
+reading (`"streak N/threshold"`) instead of leaving it blank — real,
+already-in-scope data, never invented; the impasse branch captures
+`dispatch_impasse`'s own real `DispatchOutcome` (previously discarded
+by step 1) and feeds it straight to `explain_cycle`, producing
+exactly the doc's own worked example line shapes verbatim (confirmed
+byte-for-byte via a direct production-path check): `no impasse ·
+streak 0/2 · cheap path` and `IMPASSE(no-change) · "hypothesis:..." ·
+2 consecutive occurrences with no progress (threshold 2) ·
+DELIBERATED`/`CHUNK HIT (no deliberation)`. `deliberation_seconds` is
+deliberately never supplied — this codebase's real LLM calls are
+fire-and-forget async, so no synchronous elapsed-time figure exists
+at record time; `explain_cycle`'s own honest degrade (bare
+`"DELIBERATED"`, never a fabricated number) is used exactly as its
+docstring describes.
+
+`full_diagnostics()` gained `musing_explain.history_recent`
+(newest-last, `[-10:]`-windowed, same shape every sibling `history_
+recent` field already uses). New dev-console "HCA E1: why reasoning
+fired (musing)" panel (`renderMusingExplain`, `app.js`) — same plain-
+formatted-text presentation discipline every prior E-panel already
+established; an honest "(no real musing cycle yet)" line before any
+real cycle has fired.
+
+`scripts/verify_phase8_musing_pilot.py` extended (13 -> 18 checks)
+with direct assertions on the real recorded line content at each of
+the four real cycle types this pilot produces (the two cheap-path
+days, the real DELIBERATED dispatch, the real CHUNK HIT, and the real
+subject-change reversion back to the cheap path) — all pass. Verified
+live via a real dev server + Playwright pass: confirmed the panel's
+honest pre-data empty state, then (since a real multi-day soak on a
+live server takes real wall-clock time to reach the interesting
+cycles) called the real `renderMusingExplain` function directly
+against a synthetic report shaped exactly like this pilot's own real
+recorded output — the same "force a scenario through the real render
+function" technique this project's own history already established
+for panels whose backing data takes a real soak to organically
+produce — confirming correct newest-first ordering and exact line
+rendering with zero new console errors (one pre-existing, unrelated
+`favicon.ico` 404 confirmed independently via `curl`, not caused by
+this change).
+
+Verified: the updated script (18 checks); `pyflakes` clean on all
+touched files (only the six known pre-existing forward-ref findings
+in `engine.py`); `verify_c1_impasse.py`/`verify_c2_chunking.py`/
+`verify_c3_dispatch.py`/`verify_runtime_invariant.py`/`verify_d2_
+memory_kind.py`/`verify_e1_explain_cycle.py` re-run clean
+(unaffected); `node --check` clean on `app.js`; a live dev server +
+Playwright pass; `scripts/verify_replay_hash.py` (800 ticks, seed
+777, `--in-process`) — MATCH, byte-identical; `scripts/verify_native_
+soak.py` (seeds 1/55, 800 ticks) — MATCH (both required again —
+`simulation/engine.py`'s own `__init__` and the same real `_TICK_
+JOBS`-registered method both changed further this pass). `Sweep`
+(Phase 8's last step) stays open — resume only on future explicit
+direction.
+
 ## Current state (v1.34.247)
 
 Explicit user instruction: "Start phase 8" — Phase 8's first named

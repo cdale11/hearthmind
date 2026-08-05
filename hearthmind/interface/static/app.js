@@ -437,6 +437,7 @@ devFullReportBtn.addEventListener("click", async () => {
     renderMemoryActivation(report.engine);
     renderLearningChart(report.engine);
     renderMachineSurface(report.engine);
+    renderMusingExplain(report.engine);
     try {
       await navigator.clipboard.writeText(text);
       devReportStatus.textContent = "copied to clipboard";
@@ -729,6 +730,22 @@ ${machineLines.join("\n")}
 
 Player model (OBSERVER domain)
 ${playerLines.join("\n")}`;
+}
+
+// Tier 7 HCA Phase 8, step 2 ("E1 goes live"): E1's own `explain_
+// cycle()` line, finally fed by a real production consumer — the
+// musing pilot's own per-cycle `Impasse`/`DispatchOutcome` record.
+// Pure presentation over `full_diagnostics()['musing_explain']`
+// (see engine.py) — no new mechanism, same "rendering pass over
+// already-real backend state" shape every prior E-panel used.
+function renderMusingExplain(engineReport) {
+  const el = document.getElementById("musing-explain-content");
+  if (!el || !engineReport) return;
+  const section = engineReport.musing_explain;
+  const recent = (section && section.history_recent) || [];
+  el.textContent = recent.length
+    ? recent.slice().reverse().map((e) => `tick ${e.tick}: ${e.line}`).join("\n")
+    : "(no real musing cycle yet)";
 }
 
 concurrencyHypothesisRunBtn?.addEventListener("click", async () => {

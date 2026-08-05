@@ -100,6 +100,7 @@ from hearthmind.world import culture_aggregate
 from hearthmind.cognition import attention
 from hearthmind.cognition.chunk import ChunkStore
 from hearthmind.cognition.dispatch import dispatch_impasse
+from hearthmind.cognition.explain import explain_cycle
 from hearthmind.cognition.impasse import detect_no_change
 from hearthmind.cognition.observatory import (
     compute_deliberation_sample, describe_memory_activation, workspace_snapshot,
@@ -670,6 +671,17 @@ about to be) for 2 prior days with zero real change — a genuinely
 stagnant subject, not a transient one-day coincidence, mirroring
 `SUSTAINED_PRESSURE_THRESHOLD`'s own "not a transient spike" framing
 in `simulation/escalation.py`."""
+
+MUSING_EXPLAIN_HISTORY_MAX = 20
+"""Tier 7 HCA Phase 8, step 2 (docs/ROADMAP-2026-07-REMAINING.md,
+explicit user instruction "Start step 2"): E1's own `explain_cycle()`
+finally has a real per-cycle `Impasse`/`DispatchOutcome` pair to
+render, courtesy of step 1's pilot. Bounded the same way every other
+runtime-only Stage/Tier dev-console history in this codebase is
+(`_adaptive_tuning_log`/`_player_model_history`/etc.) — a handful of
+recent real cycles is what a person actually reads in the panel, not
+a growing archive; 20 covers roughly three real weeks of daily
+firings, well past the panel's own 10-entry display window."""
 
 REFLECTION_ONTOLOGY_IMBALANCE_MIN_TOTAL = 6
 REFLECTION_ONTOLOGY_IMBALANCE_RATIO = 3.0
@@ -2244,6 +2256,12 @@ class SimulationEngine:
         named the exact same real subject as `_musing_last_subject_
         key` — resets to 0 the instant the real subject changes. See
         `MUSING_NO_CHANGE_STREAK_THRESHOLD`'s own docstring."""
+        self._musing_explain_history: deque[dict] = deque(maxlen=MUSING_EXPLAIN_HISTORY_MAX)
+        """Tier 7 HCA Phase 8, step 2: one real `explain_cycle()` line
+        per real musing opportunity (`{"tick": int, "line": str}`),
+        newest-last — the real per-cycle record E1's panel renders for
+        this pilot job. Runtime-only, never persisted, same class as
+        `_musing_chunk_store` above."""
 
         # Tier 5 B7.2 + B8's real control points (explicit user
         # directive: "B8 and MachineProfile persistence and select_
@@ -11508,7 +11526,13 @@ class SimulationEngine:
         suppressed musing is cosmetic texture, never lost Body state —
         and not attempted here, matching this project's own "ship the
         real v1, flag the residual edge case" discipline rather than
-        over-engineering a first pilot."""
+        over-engineering a first pilot.
+
+        Tier 7 HCA Phase 8, step 2 (explicit user instruction "Start
+        step 2"): E1's own `explain_cycle()` panel finally has a real
+        per-cycle line to render — every real firing appends one to
+        `self._musing_explain_history`, whichever branch it takes
+        below (no impasse, a chunk hit, or a genuine LLM dispatch)."""
         if "day_end" not in events:
             return
         subject = self._musing_subject()
@@ -11558,8 +11582,13 @@ class SimulationEngine:
 
         if impasse is None:
             schedule_musing()
+            line = explain_cycle(
+                None, no_impasse_detail=f"streak {self._musing_no_change_streak}/{MUSING_NO_CHANGE_STREAK_THRESHOLD}",
+            )
+            self._musing_explain_history.append({"tick": tick, "line": line})
             return
-        dispatch_impasse(impasse, self._musing_chunk_store, tick, schedule_musing)
+        outcome = dispatch_impasse(impasse, self._musing_chunk_store, tick, schedule_musing)
+        self._musing_explain_history.append({"tick": tick, "line": explain_cycle(impasse, outcome)})
 
     # --- caravans: a first, scoped step toward "external settlements and trade" ---
 
@@ -16764,6 +16793,14 @@ class SimulationEngine:
             "player_model_domain": {
                 "hit_rate": self._player_model.hit_rate(),
                 "history_recent": list(self._player_model_history)[-10:],
+            },
+            # Tier 7 HCA Phase 8, step 2: E1's own `explain_cycle()`
+            # panel, finally fed by a real production consumer — the
+            # musing pilot's own per-cycle `Impasse`/`DispatchOutcome`
+            # line, newest-last, same shape every sibling `history_
+            # recent` window above uses.
+            "musing_explain": {
+                "history_recent": list(self._musing_explain_history)[-10:],
             },
             # Tier 5 B12's real first consumer — the emergence-log
             # compression ladder's own live state, dev-console/raw-JSON
