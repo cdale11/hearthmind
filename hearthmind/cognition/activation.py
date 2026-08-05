@@ -38,6 +38,14 @@ from __future__ import annotations
 
 import math
 
+from hearthmind.cognition.memory_kind import MemoryKind
+
+MEMORY_KIND = MemoryKind.DECLARATIVE
+"""D2 (docs/COGNITIVE-ARCHITECTURE-2026-08-02.md §2.1): this module
+scores DECLARATIVE memory (facts an agent knows) — see `hearthmind.
+cognition.memory_kind`'s own docstring for the real, mechanically-
+enforced separation this marker participates in."""
+
 ACTIVATION_DECAY_EXPONENT = 0.5
 """`d` in the ACT-R base-level equation — the literature's own
 canonical value (docs/COGNITIVE-ARCHITECTURE-2026-08-02.md §2.5,

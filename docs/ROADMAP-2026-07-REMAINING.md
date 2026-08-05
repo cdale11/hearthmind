@@ -2387,7 +2387,61 @@ cannot state one does not ship.
   (declarative/procedural separation made architectural) is the only
   remaining open Stage D item — resume only on future explicit
   direction.
-- [ ] **D2** — declarative/procedural separation made architectural.
+- [x] **D2 — SHIPPED, v1.34.241.** Declarative/procedural separation
+  made architectural — the doc's own §2.1 (Standard Model of Mind)
+  structural commitment, given no stated test of its own (unlike every
+  other Tier 7 item), so a real falsifiable test was designed for it
+  here, same standing discipline. New `hearthmind/cognition/memory_
+  kind.py`: `MemoryKind` (`DECLARATIVE`/`PROCEDURAL`) + `memory_kind_
+  of()`, the real single queryable answer this codebase never had
+  before — `DECLARATIVE_STORE_NAMES` names `Agent`'s real fact-holding
+  fields (`memories`/`semantic_memories`/`core_memories`/`beliefs`/
+  `secrets`/`lessons`/`working_memory`), `PROCEDURAL_STORE_NAMES`
+  names real cached-decision artifact kinds (C2's `ChunkStore` entries,
+  `TriggerRule`, `CompositeReaction`). Mechanically enforced by
+  extending `scripts/verify_runtime_invariant.py` with `check_memory_
+  kind_separation()` — the EXACT `SPECIALIST_DOMAIN`/`check_domain_
+  write_scope()` shape H1 already proved for cognitive domains, a
+  different axis: a module declaring itself `MEMORY_KIND = MemoryKind.
+  DECLARATIVE` may never import from `hearthmind.cognition.chunk`
+  (procedural memory's real home) and vice versa for `PROCEDURAL`
+  importing `hearthmind.agents.agent`/`.activation`. D1's own
+  `activation.py` now marks itself `DECLARATIVE`, C2's `chunk.py`
+  marks itself `PROCEDURAL`; C3's `dispatch.py` deliberately declares
+  NEITHER — it's the real neutral composition layer the two systems
+  meet through by design (imports `chunk` on purpose), not a third
+  kind to invent, exempt from the check the same way an undeclared/
+  WORLD-domain module was exempt from H1's own check. The real tree
+  was already clean under this rule before the check existed — same
+  "formalize/enforce what's already true" shape B0.1/H1 both used.
+
+  New `scripts/verify_d2_memory_kind.py` (13 checks — the type and
+  classification's own correctness incl. a non-overlap proof; the real
+  tree confirmed clean; the real `activation.py`/`chunk.py`/`dispatch.
+  py` markers confirmed directly against the actual files, not a
+  synthetic stand-in; a synthetic DECLARATIVE module importing the
+  real procedural store IS caught; a synthetic PROCEDURAL module
+  importing the real declarative store IS caught; an unmarked module
+  importing BOTH stores is correctly NOT flagged; a real end-to-end
+  scan over a synthetic directory finds exactly the two real
+  violations and nothing else) — all pass, first run, no bug found.
+
+  Verified: the new script (13 checks); `verify_runtime_invariant.py`
+  itself re-run clean (the real tree — 47 governed files plus every
+  `hearthmind/` module scanned for both H1's domain check and this
+  new memory-kind check — reports zero violations either way);
+  `verify_h1_cognitive_domains.py`/`verify_d1_activation.py`/`verify_
+  c1_impasse.py`/`verify_c2_chunking.py`/`verify_c3_dispatch.py`
+  re-run clean (unaffected); `pyflakes` clean on all touched/new
+  files. No `simulation/engine.py` code path or persisted `World`/
+  `Agent` state touched — pure offline `cognition/`+verify-script
+  work, same scope class as C1/C2/C3's own filings — no replay-hash/
+  native-soak re-run needed.
+
+  **This closes Tier 7 HCA Stage D in full** (`D1` v1.34.240, `D2`
+  here). Stage E (the Cognitive Observatory, `E1`-`E6`) is the only
+  remaining unstarted HCA stage in the roadmap's own dependency-
+  ordered sequence — resume only on future explicit direction.
 - [x] **G1 — SHIPPED, v1.34.216.** *(§2.5a, added 2026-08-02 — "every
   subsystem should itself be capable of adaptation")* — `hearthmind/
   ml/specialist.py`'s `LearningSpecialist`: the `learn()` interface on
@@ -3291,9 +3345,13 @@ HCA.
    module-level `population._CURRENT_TICK`, same shape as this file's
    own pre-existing `_pending_memory_evictions`) supplies the real
    elapsed-tick input the equation needs. See the consolidated Tier 7
-   checklist's own D1 entry above for full detail. `D2` remains the
-   only open Stage D item.
-2. `D2` — declarative/procedural separation made architectural.
+   checklist's own D1 entry above for full detail.
+2. `D2` — **SHIPPED, v1.34.241.** Real `MemoryKind`/`MEMORY_KIND`
+   marker (`hearthmind/cognition/memory_kind.py`) + a mechanically-
+   enforced separation check (`scripts/verify_runtime_invariant.py`'s
+   `check_memory_kind_separation()`, the same shape H1's own domain
+   check used). See the consolidated Tier 7 checklist's own D2 entry
+   above for full detail. **Closes Stage D in full.**
 
 **Phase 7 — HCA Stage E: the Cognitive Observatory (`E1`-`E6`). Ship
 incrementally as each backing phase lands — do not batch this to the

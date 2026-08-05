@@ -742,6 +742,69 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.241)
+
+Explicit user instruction: "Start D2" — the last open item in HCA
+Stage D, directly following D1 (v1.34.240).
+
+**D2.** Declarative/procedural separation made architectural — the
+doc's own §2.1 (Standard Model of Mind) structural commitment, the
+one Tier 7 item carrying no stated falsifiable test of its own; a
+real test was designed for it here, matching this project's own
+standing "every Tier 7 item carries a falsifiable test" discipline.
+New `hearthmind/cognition/memory_kind.py`'s `MemoryKind` (`DECLARATIVE`/
+`PROCEDURAL`) + `memory_kind_of()`: the real single queryable answer
+this codebase never had before for "is X a fact an agent knows, or a
+cached decision about how to act." `DECLARATIVE_STORE_NAMES` names
+`Agent`'s real fact-holding fields (`memories`/`semantic_memories`/
+`core_memories`/`beliefs`/`secrets`/`lessons`/`working_memory`);
+`PROCEDURAL_STORE_NAMES` names real cached-decision artifact kinds
+(C2's `ChunkStore` entries, `TriggerRule`, `CompositeReaction`).
+
+Mechanically enforced by extending `scripts/verify_runtime_
+invariant.py` with `check_memory_kind_separation()` — the exact
+`SPECIALIST_DOMAIN`/`check_domain_write_scope()` shape H1 already
+proved for cognitive domains (Stage H), applied to a different axis:
+a module declaring `MEMORY_KIND = MemoryKind.DECLARATIVE` may never
+import from `hearthmind.cognition.chunk` (procedural memory's real
+home), and a `PROCEDURAL`-marked module may never import from
+`hearthmind.agents.agent`/`.activation` (declarative memory's real
+home). D1's own `activation.py` now marks itself `DECLARATIVE`; C2's
+`chunk.py` marks itself `PROCEDURAL`; C3's `dispatch.py` deliberately
+declares NEITHER kind — it's the real neutral composition layer the
+two systems meet through by design (imports `chunk` on purpose),
+exempt from the check the same way an undeclared/WORLD-domain module
+was exempt from H1's own check. The real tree was already clean under
+this rule before the check existed — same "formalize/enforce what's
+already true" shape B0.1/H1 both used.
+
+New `scripts/verify_d2_memory_kind.py` (13 checks — the type and
+classification's own correctness incl. a non-overlap proof; the real
+tree confirmed clean; the real `activation.py`/`chunk.py`/`dispatch.
+py` markers confirmed directly against the actual files, not a
+synthetic stand-in; a synthetic DECLARATIVE module importing the real
+procedural store IS caught; a synthetic PROCEDURAL module importing
+the real declarative store IS caught; an unmarked module importing
+BOTH stores is correctly NOT flagged; a real end-to-end scan over a
+synthetic directory finds exactly the two real violations and nothing
+else) — all pass, first run, no bug found.
+
+**This closes Tier 7 HCA Stage D in full** (D1 v1.34.240, D2 here).
+Stage E (the Cognitive Observatory, `E1`-`E6`) is the only remaining
+unstarted HCA stage in the roadmap's own dependency-ordered sequence
+— resume only on future explicit direction naming a specific item.
+
+Verified: the new script (13 checks); `verify_runtime_invariant.py`
+itself re-run clean (zero violations under both its domain check and
+this new memory-kind check, over the real full `hearthmind/` tree);
+`verify_h1_cognitive_domains.py`/`verify_d1_activation.py`/`verify_
+c1_impasse.py`/`verify_c2_chunking.py`/`verify_c3_dispatch.py` re-run
+clean (unaffected); `pyflakes` clean on all touched/new files. No
+`simulation/engine.py` code path or persisted `World`/`Agent` state
+touched — pure offline `cognition/` + verify-script work, same scope
+class as C1/C2/C3's own filings — no replay-hash/native-soak re-run
+needed.
+
 ## Current state (v1.34.240)
 
 Explicit user instruction: "Start phase 6 is phase 5 is done with D1

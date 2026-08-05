@@ -48,6 +48,27 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
+# D2 (Tier 7 HCA Stage D, docs/COGNITIVE-ARCHITECTURE-2026-08-02.md
+# §2.1): the module-level marker name a real declarative- or
+# procedural-memory module declares itself with — see `hearthmind.
+# cognition.memory_kind`'s own docstring. Same shape as `DOMAIN_
+# MARKER_NAME` above, a different axis (memory kind, not authority
+# domain).
+MEMORY_KIND_MARKER_NAME = "MEMORY_KIND"
+MEMORY_KIND_ATTRS = ("DECLARATIVE", "PROCEDURAL")
+
+# D2: the real import path each memory kind may never reach into —
+# `hearthmind.agents.agent` is declarative memory's real home
+# (`Agent.memories`/`retrieve_relevant_memories`); `hearthmind.
+# cognition.chunk` is procedural memory's real home (`ChunkStore`).
+# `hearthmind.cognition.dispatch` (C3) is deliberately NOT listed here
+# — it's the real neutral composition layer the two systems meet
+# through, not a third kind to invent (see memory_kind.py's docstring).
+MEMORY_KIND_FORBIDDEN_IMPORTS = {
+    "DECLARATIVE": ("hearthmind.cognition.chunk",),
+    "PROCEDURAL": ("hearthmind.agents.agent", "hearthmind.cognition.activation"),
+}
+
 # Directories the prime invariant governs (gameplay/domain logic).
 GOVERNED_DIRS = ("world", "agents", "settlement", "economy")
 
@@ -180,6 +201,61 @@ def check_domain_write_scope(scan_root: Path | None = None) -> dict[str, list[st
     return violations
 
 
+def _declared_memory_kind(tree: ast.AST) -> str | None:
+    """D2's own counterpart to `_declared_domain` above — same tolerant
+    shape (module-level assignment only, any import alias for
+    `MemoryKind` accepted)."""
+    for node in ast.iter_child_nodes(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(isinstance(t, ast.Name) and t.id == MEMORY_KIND_MARKER_NAME for t in node.targets):
+            continue
+        value = node.value
+        if isinstance(value, ast.Attribute):
+            return value.attr
+    return None
+
+
+def _memory_kind_violations_in_file(path: Path) -> list[str]:
+    """D2's own real check: a module declaring itself `DECLARATIVE` or
+    `PROCEDURAL` (via `MEMORY_KIND`) may never import from the OTHER
+    kind's forbidden packages (`MEMORY_KIND_FORBIDDEN_IMPORTS`) — an
+    unmarked module (including the real neutral composition layer,
+    `hearthmind.cognition.dispatch`) is exempt, same as WORLD-domain/
+    undeclared modules are exempt from H1's own domain check."""
+    tree = ast.parse(path.read_text(), filename=str(path))
+    kind = _declared_memory_kind(tree)
+    if kind not in MEMORY_KIND_ATTRS:
+        return []
+    forbidden = MEMORY_KIND_FORBIDDEN_IMPORTS[kind]
+    violations: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if any(alias.name == p or alias.name.startswith(p + ".") for p in forbidden):
+                    violations.append(f"line {node.lineno}: {kind}-kind module imports {alias.name!r}")
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            if any(node.module == p or node.module.startswith(p + ".") for p in forbidden):
+                violations.append(f"line {node.lineno}: {kind}-kind module imports from {node.module!r}")
+    return violations
+
+
+def check_memory_kind_separation(scan_root: Path | None = None) -> dict[str, list[str]]:
+    """D2's public entry point, same shape as `check_domain_write_
+    scope` above — scans every `.py` file under `hearthmind/` for a
+    real `MEMORY_KIND` marker and, where found, verifies it never
+    crosses into the other kind's forbidden imports. Returns `{
+    relative_path: [violations]}` — empty when clean."""
+    root = scan_root if scan_root is not None else (REPO_ROOT / "hearthmind")
+    violations: dict[str, list[str]] = {}
+    for py_file in sorted(root.rglob("*.py")):
+        file_violations = _memory_kind_violations_in_file(py_file)
+        if file_violations:
+            rel = py_file.relative_to(REPO_ROOT) if root.is_relative_to(REPO_ROOT) else py_file
+            violations[str(rel)] = file_violations
+    return violations
+
+
 def main() -> int:
     all_violations: dict[str, list[str]] = {}
     file_count = 0
@@ -214,6 +290,17 @@ def main() -> int:
         return 1
     print("H1 domain write-scope OK — no MACHINE/OBSERVER-domain module "
           "imports world/agents/settlement/economy state.")
+
+    # D2: the memory-kind separation check, over the whole hearthmind/ tree.
+    memory_kind_violations = check_memory_kind_separation()
+    if memory_kind_violations:
+        print("D2 memory-kind separation FAILED — violations found:")
+        for rel, violations in memory_kind_violations.items():
+            for v in violations:
+                print(f"  - {rel}: {v}")
+        return 1
+    print("D2 memory-kind separation OK — no declarative-memory module imports "
+          "a procedural store and vice versa.")
     return 0
 
 

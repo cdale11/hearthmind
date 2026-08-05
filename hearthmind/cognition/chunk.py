@@ -39,6 +39,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from hearthmind.cognition.impasse import Impasse
+from hearthmind.cognition.memory_kind import MemoryKind
+
+MEMORY_KIND = MemoryKind.PROCEDURAL
+"""D2 (docs/COGNITIVE-ARCHITECTURE-2026-08-02.md §2.1): a compiled
+chunk is a cached DECISION (how to act on a recurring impasse), never
+a fact — see `hearthmind.cognition.memory_kind`'s own docstring for
+the real, mechanically-enforced separation this marker participates
+in."""
 
 ARTIFACT_KINDS: tuple[str, ...] = (
     "cached_decision", "model_update", "trigger_rule", "revised_belief",
