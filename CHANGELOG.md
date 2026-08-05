@@ -4,6 +4,56 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.242] — Tier 7 HCA Stage E, E1: the "why reasoning was or was not invoked" panel
+
+Explicit user instruction: "Start phase 7 E1."
+
+**E1.** The "why reasoning was or was not invoked" panel — CLAUDE.md's
+own Observatory UI direction section had already named the exact line
+shape (`IMPASSE(no-change) · "family lines dying out" · 590
+occurrences, no rule · DELIBERATED (94s)` / `no impasse · peak
+surprise 0.3 < threshold 1.5 · cheap path`). New `hearthmind/cognition/
+explain.py`'s `explain_cycle(impasse, outcome=None, deliberation_
+seconds=None, no_impasse_detail="")` produces exactly that line — pure
+presentation built entirely on C1's real `Impasse` (kind/subject/
+detail, verbatim) and C3's real `DispatchOutcome` (`resolved_via`), no
+new detection/dispatch mechanism. All three real resolution tiers get
+their own honest label (`DELIBERATED (Ns)`/bare `DELIBERATED` when no
+elapsed time is supplied/`CHUNK HIT (no deliberation)`/`MODEL
+RESOLVED (no deliberation)`); an impasse with no outcome yet correctly
+carries no fabricated resolution clause; a no-impasse cycle accepts an
+optional caller-supplied `no_impasse_detail`, since `detect_novelty`
+(and its siblings) return `None` with no detail on a sub-threshold
+reading, and a caller wanting to show WHY must pass the raw signal
+itself.
+
+Deliberately no dev-console UI wired this pass, stated up front in the
+new module's own docstring: C1/C2/C3 are not wired into any real
+production `_schedule_llm_job` call site yet — there is no real
+per-cycle `Impasse`/`DispatchOutcome` pair flowing through the live
+tick loop for a panel to render today. Same "ship the interface, wire
+the first real consumer next" discipline every prior Stage A/B/C/D
+item in this codebase has used.
+
+New `scripts/verify_e1_explain_cycle.py` (13 checks — the no-impasse
+cheap-path line both bare and with a real supplied detail; a real
+no_change impasse with no dispatch outcome yet correctly omitting the
+resolution clause; all three real resolution tiers through a real
+`ChunkStore`/`dispatch_impasse` cycle incl. the SAME impasse recurring
+hitting the real compiled chunk; E1's own stated headline test — a
+real 200-cycle mixed soak, every cycle producing a real, legible,
+never-malformed one-line reason) — all pass, first run, no bug found.
+
+Verified: the new script (13 checks); `verify_c1_impasse.py`/`verify_
+c3_dispatch.py`/`verify_d2_memory_kind.py` re-run clean (unaffected);
+`scripts/verify_runtime_invariant.py` re-run clean (the new module
+declares no `MEMORY_KIND` — a presentation layer over C1/C3, neither
+declarative nor procedural memory, correctly exempt from D2's check
+the same way an undeclared module is); `pyflakes` clean on both new
+files. No `simulation/engine.py` code path or persisted state touched
+— pure offline `cognition/` work, same scope class as C1/C2/C3/D1/D2's
+own filings — no replay-hash/native-soak re-run needed.
+
 ## [1.34.241] — Tier 7 HCA Stage D, D2: declarative/procedural separation made architectural (Stage D closed in full)
 
 Explicit user instruction: "Start D2."

@@ -2569,8 +2569,52 @@ cannot state one does not ship.
   `_observer_workspace` either, the same provable unreachability-
   from-any-player-facing-surface the item's own test asked for.
   **This closes Tier 7 HCA Stage H in full** (`H1`→`H2`/`H3`→`H4`).
-- [ ] **E1** — the "why reasoning was or was not invoked" panel.
-  *Test:* every cycle in a live run has a legible one-line reason.
+- [x] **E1 — SHIPPED, v1.34.242.** The "why reasoning was or was not
+  invoked" panel. New `hearthmind/cognition/explain.py`'s `explain_
+  cycle(impasse, outcome=None, deliberation_seconds=None, no_impasse_
+  detail="")`: the exact line shape CLAUDE.md's own Observatory UI
+  direction section names (`IMPASSE(no-change) · "family lines dying
+  out" · 590 occurrences, no rule · DELIBERATED (94s)` / `no impasse
+  · peak surprise 0.3 < threshold 1.5 · cheap path`), built entirely
+  on C1's real `Impasse` (kind/subject/detail, verbatim) and C3's real
+  `DispatchOutcome` (`resolved_via`) — pure presentation, no new
+  detection/dispatch mechanism. All three real resolution tiers get
+  their own honest label (`DELIBERATED (Ns)`/`DELIBERATED` when no
+  elapsed time is supplied/`CHUNK HIT (no deliberation)`/`MODEL
+  RESOLVED (no deliberation)`); an impasse with no outcome yet
+  (detected, not dispatched) correctly carries no fabricated
+  resolution clause; a no-impasse cycle accepts an optional caller-
+  supplied `no_impasse_detail` since `detect_novelty` (and its
+  siblings) return `None` with no detail on a sub-threshold reading.
+
+  Deliberately no dev-console UI wired this pass, stated up front in
+  the new module's own docstring: C1/C2/C3 are not wired into any
+  real production `_schedule_llm_job` call site yet (each item's own
+  stated scope) — there is no real per-cycle `Impasse`/`DispatchOutcome`
+  pair flowing through the live tick loop for a panel to render today.
+  Same "ship the interface, wire the first real consumer next"
+  discipline every prior Stage A/B/C/D item here has used.
+
+  New `scripts/verify_e1_explain_cycle.py` (13 checks — the no-impasse
+  cheap-path line both bare and with a real supplied detail; a real
+  no_change impasse with no dispatch outcome yet correctly omitting
+  the resolution clause; all three real resolution tiers through a
+  real `ChunkStore`/`dispatch_impasse` cycle incl. the SAME impasse
+  recurring hitting the real compiled chunk; E1's own stated headline
+  test — a real 200-cycle mixed soak, every cycle producing a real,
+  legible, never-malformed one-line reason) — all pass, first run, no
+  bug found.
+
+  Verified: the new script (13 checks); `verify_c1_impasse.py`/
+  `verify_c3_dispatch.py`/`verify_d2_memory_kind.py` re-run clean
+  (unaffected); `scripts/verify_runtime_invariant.py` re-run clean
+  (the new module declares no `MEMORY_KIND` — it's a presentation
+  layer over C1/C3, neither a declarative nor a procedural memory
+  store, correctly exempt from D2's check the same way an undeclared
+  module is); `pyflakes` clean on both new files. No `simulation/
+  engine.py` code path or persisted state touched — pure offline
+  `cognition/` work, same scope class as C1/C2/C3/D1/D2's own filings
+  — no replay-hash/native-soak re-run needed.
 - [ ] **E2** — workspace contents + **losing coalitions** panel.
 - [ ] **E3** — memory-activation and competing-goals panels.
 - [ ] **E4** — the learning chart: deliberative calls per 1,000 ticks
@@ -3356,8 +3400,13 @@ HCA.
 **Phase 7 — HCA Stage E: the Cognitive Observatory (`E1`-`E6`). Ship
 incrementally as each backing phase lands — do not batch this to the
 end.** Each item's real dependency:
-- `E1` (why-reasoning-fired panel) — meaningful as soon as Phase 5
-  (`C1`) exists; ship then, not later.
+- `E1` (why-reasoning-fired panel) — **SHIPPED, v1.34.242.** `hearthmind/
+  cognition/explain.py`'s `explain_cycle()` — pure presentation over
+  C1's `Impasse`/C3's `DispatchOutcome`, matching CLAUDE.md's own
+  Observatory UI direction line shape exactly. See the consolidated
+  Tier 7 checklist's own E1 entry above for full detail; dev-console
+  wiring deferred until a real production `Impasse`/`DispatchOutcome`
+  pair exists to render (same gate C3's own docstring already named).
 - `E2` (workspace + losing coalitions) — needs Phase 3 (`B1`); ship
   right after Phase 3 closes.
 - `E3` (memory-activation + competing-goals) — needs Phase 6 (`D1`)
