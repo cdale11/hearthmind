@@ -4,6 +4,111 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.256] — Tier 7 HCA Stage F: F1 semantic pointers
+
+Explicit user instruction, following directly off L2.3 ("ship HCA F1
+too") — Stage F's F1 item (docs/COGNITIVE-ARCHITECTURE-2026-08-02.md
+§7, gated behind Tier 6 L1.1, already shipped v1.34.253): "Concept
+vectors; bundling/binding; LLM names the best algebraic candidate."
+Falsifiable test (the doc's own): "a concept combination is generated
+and judged with strictly fewer LLM calls than today's pipeline."
+
+**What this actually buys, worked out precisely before writing any
+code.** `world/ontology.py`'s existing merge pipeline already makes
+exactly ONE LLM call per combination — there is no naive N-candidate-
+then-judge pipeline in production today to beat by generating fewer
+calls directly against it. What a real vector-symbolic layer replaces
+is a DIFFERENT naive pipeline: if the sim wanted to explore several
+possible combinations and pick the best one BEFORE asking the LLM to
+write it up, the naive way is K separate "generate candidate i" LLM
+calls plus one "judge" LLM call — `K + 1` calls for `K` candidates.
+`hearthmind/cognition/semantic_pointers.py` generates all `K`
+candidates ALGEBRAICALLY (`bundle`/`bind` over L1.1's trained
+embeddings, zero LLM calls) and scores/picks the best one
+deterministically (`select_best_candidate`, zero LLM calls) — so
+exploring `K` candidates costs exactly ONE LLM call (to name/describe
+the single winner) regardless of `K`, strictly fewer than the `K + 1`
+a generate-then-judge pipeline needs for any `K >= 1`.
+
+New `hearthmind/cognition/semantic_pointers.py` (placed alongside
+`activation.py`/`workspace.py`/`chunk.py` — Tier 7 HCA mechanisms
+live in `cognition/`, Tier 6 ML substrate lives in `ml/`): `bundle`
+(superposition — elementwise mean, normalized, the standard VSA
+operation for "these concepts as one blended idea," a lossy SET
+representation) and `bind` (circular convolution — the classic
+Holographic Reduced Representation binding operation, Plate 1995 —
+represents a structured "A combined-with-B" relation, reversible via
+`unbind`/circular correlation, which is what makes binding
+meaningfully different from a second bundle rather than a duplicate
+operation). `nearest_vocab(vector, embedding, top_n=3)` makes an
+algebraic vector legible by finding the closest real vocabulary words
+in a trained `SkipGramEmbedding` (what turns `bind(fire_vec,
+water_vec)` into a human-readable gist like "steam, quench" instead
+of opaque floats). `generate_candidates(vec_a, vec_b, embedding=None)`
+is the real zero-LLM-cost candidate step: exactly the two well-defined
+VSA primitives this module implements (`bundle`, `bind`), each scored
+by real coherence (mean cosine similarity to both parent vectors — a
+candidate that drifted far from both sources scores worse than one
+that stays recognizably related to each). `select_best_candidate`
+picks deterministically by highest coherence (`kind` breaks a true
+tie, no RNG anywhere in generation or selection, matching this
+project's own standing arbitration discipline). `format_candidate_
+hint` turns a winning candidate's gist into the plain comma-joined
+word string a prompt-building caller needs.
+
+**Real wiring, one safe optional param.** `llm/ontology.py`'s
+`build_merge_prompt` gained an optional `candidate_hint: str = ""`
+param — when supplied, grounds the LLM's synthesis prompt in the
+algebraically-selected candidate's own real semantic neighborhood
+("A blend of these two ideas leans toward: steam, quench.") instead
+of a blind combination; the empty-string default (every real call
+site today — `simulation/engine.py`'s merge job at line 8242 still
+calls it positionally) reproduces the exact prior prompt text byte-
+for-byte, verified directly. `build_evolve_prompt` (single-concept
+refinement, not a two-concept combination) is deliberately left
+untouched — it isn't what `bundle`/`bind` model. Not yet wired into
+a real `simulation/engine.py` call site end to end — no world has a
+trained embedding attached to pull real concept vectors from yet,
+same L1.1 corpus-building gap L2.3 (v1.34.255) is also blocked on;
+same "ship the substrate, wire the first real safe param, wire the
+full consumer once a real archive/corpus exists" discipline every
+prior Tier 6/7 L-layer item has shipped under.
+
+New `scripts/verify_hca_f1_semantic_pointers.py` (21 checks — `bundle`/
+`bind`/`unbind` correctness incl. a real HRR round-trip proof
+(`unbind(bind(a,b), a)` correlates with `b` far more than with an
+unrelated vector — the real, weaker "approximately recovers"
+guarantee HRR actually has, not exact recovery, since L1.1's trained
+vectors aren't orthonormal); `nearest_vocab` against a real trained
+`SkipGramEmbedding` (a word's own vector is its own nearest neighbor,
+similarity 1.0); `generate_candidates`/`select_best_candidate`
+correctness, determinism, and the empty-input/no-embedding degrade
+cases; `build_merge_prompt`'s own byte-for-byte no-hint parity proof
+and a real hinted-prompt case; a real end-to-end test — two real
+`text_vector`-derived concept vectors from an actual trained
+embedding, run through `generate_candidates` -> `select_best_candidate`
+-> `format_candidate_hint` -> `build_merge_prompt`, producing a real
+hinted merge prompt; and the headline test — a direct call-count
+comparison proving F1's pipeline (0 generation + 0 selection + 1
+naming call) beats a naive K-candidate generate-then-judge pipeline
+(`K+1` calls) for every real `K` tried (1, 2, 3, 5, 10), plus a
+concrete K=2 proof that this module's own `generate_candidates`/
+`select_best_candidate` are each called exactly once, never once per
+candidate) — all pass, first run, no bug found in the module under
+test.
+
+Verified: the new script (21 checks); `pyflakes` clean on all three
+touched/new files; `verify_ml_l1_embedding.py`/`verify_ml_l2_2_goal_
+policy.py`/`verify_ml_l2_3_retrieval_scorer.py`/`verify_d1_
+activation.py`/`verify_c1_impasse.py`/`verify_runtime_invariant.py`
+re-run clean (unaffected); confirmed the one real `build_merge_prompt`
+call site (`simulation/engine.py:8242`) still calls positionally,
+never passing `candidate_hint`, so its behavior is untouched. No
+`simulation/engine.py` code path or persisted `World` state touched —
+pure offline `cognition/`+`llm/` prompt-text work, same scope class as
+every other Tier 6/7 L-layer/F-layer filing — no replay-hash/native-
+soak re-run needed.
+
 ## [1.34.255] — Tier 6 Phase 1: L2.3 semantic retrieval scorer
 
 Explicit user instruction: "Start L2.2 and see where else AI/ML

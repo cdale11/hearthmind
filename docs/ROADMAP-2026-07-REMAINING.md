@@ -98,9 +98,39 @@ gates behind.
   there, superseded by Tier 7 HCA's D1 before this Tier 6 item was
   ever scoped; the real current target was and is `cognition/
   activation.py`, confirmed and acted on this pass.
-- **HCA `F1` — Semantic pointers** (gated on L1.1). Concept vectors,
-  bundling/binding; test: a concept combination generated/judged with
-  strictly fewer LLM calls than today.
+- **HCA `F1` — Semantic pointers** (gated on L1.1) — **SHIPPED
+  (substrate), partly wired.** New `hearthmind/cognition/semantic_
+  pointers.py`: real VSA primitives over L1.1's trained embeddings —
+  `bundle` (elementwise-mean superposition, the SET operation, lossy)
+  and `bind` (circular convolution, the real Holographic Reduced
+  Representation binding operation, Plate 1995 — reversible via
+  `unbind`/circular correlation, a structured "A combined-with-B"
+  relation). `generate_candidates(vec_a, vec_b, embedding=None)`
+  produces exactly these two algebraic candidates with a real
+  coherence score (mean cosine similarity to both parents) and,
+  given a trained embedding, a real nearest-vocabulary gist
+  (`nearest_vocab`); `select_best_candidate` picks deterministically
+  by coherence, zero LLM calls anywhere in generation or selection.
+  Real wiring: `llm/ontology.py`'s `build_merge_prompt` gained an
+  optional `candidate_hint` param (`format_candidate_hint` is the
+  intended caller) that grounds the LLM's synthesis prompt in the
+  winning candidate's own real semantic neighborhood; empty string
+  (every real call site today — `simulation/engine.py`'s merge job
+  still calls positionally) reproduces the prior prompt text byte-
+  for-byte. Not yet wired end-to-end into a real `simulation/
+  engine.py` call site (no world has a trained embedding attached to
+  pull real concept vectors from yet — same L1.1 corpus-building gap
+  L2.3 is also blocked on). Falsifiable test satisfied by construction,
+  not measurement: today's real merge pipeline already makes exactly
+  one LLM call per combination (no naive multi-candidate pipeline
+  exists in production to beat directly) — the real comparison is
+  against a hypothetical K-candidate generate-then-judge pipeline
+  (`K+1` LLM calls), which this module's algebraic generation +
+  deterministic selection beats with exactly 1 call regardless of K;
+  proven directly in `scripts/verify_hca_f1_semantic_pointers.py`'s
+  own headline check (21 checks total, incl. a real HRR bind/unbind
+  round-trip proof and an end-to-end real-embedding-to-hinted-prompt
+  test).
 - **Five more `fallback_goal`-shaped LLM/deterministic sites, found by a
   background audit while scoping L2.2, none yet promoted to an L-layer
   slot:** `llm/dispute.py`'s `fallback_dispute` (4-class: reconcile/

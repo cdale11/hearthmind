@@ -742,6 +742,64 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.256)
+
+Explicit user follow-up: "ship HCA F1 too" — Tier 7 HCA Stage F's
+F1 ("Semantic pointers," gated behind L1.1, shipped v1.34.253).
+
+**Precise scoping done before writing code.** `world/ontology.py`'s
+real merge pipeline already makes exactly one LLM call per
+combination — nothing in production makes several candidate calls
+then judges among them for F1 to literally beat. What a real vector-
+symbolic layer replaces is a hypothetical K-candidate generate-then-
+judge pipeline (`K+1` LLM calls); algebraic generation + deterministic
+selection costs exactly 1 call (name the winner) regardless of `K`.
+
+New `hearthmind/cognition/semantic_pointers.py` (Tier 7 mechanisms
+live in `cognition/`, not `ml/`): `bundle` (superposition — elementwise
+mean, normalized, the lossy SET operation) and `bind` (circular
+convolution — real Holographic Reduced Representation binding, Plate
+1995, reversible via `unbind`/circular correlation — a structured
+"A combined-with-B" relation, genuinely distinct from a second
+bundle). `nearest_vocab` makes an algebraic vector legible against a
+trained `SkipGramEmbedding`'s real vocabulary. `generate_candidates`
+produces exactly the two VSA candidates with a real coherence score
+(mean cosine similarity to both parents) and an optional gist;
+`select_best_candidate` picks deterministically, zero LLM calls
+anywhere, no RNG. `format_candidate_hint` turns a winner into a
+prompt-ready word string.
+
+**Real wiring, one safe optional param.** `llm/ontology.py`'s
+`build_merge_prompt` gained `candidate_hint: str = ""` — grounds the
+LLM's synthesis in the winning candidate's own semantic neighborhood
+when supplied; empty string (the only path any real call site uses
+today — `simulation/engine.py`'s merge job still calls positionally)
+reproduces the prior prompt byte-for-byte. `build_evolve_prompt`
+(single-concept refinement) deliberately left untouched — not what
+`bundle`/`bind` model. Not wired end to end into a real engine call
+site — no world has a trained embedding to pull real concept vectors
+from yet, same L1.1 corpus-building gap L2.3 is also blocked on.
+
+New `scripts/verify_hca_f1_semantic_pointers.py` (21 checks — `bundle`/
+`bind`/`unbind` incl. a real HRR round-trip proof; `nearest_vocab`
+against a real trained embedding; `generate_candidates`/`select_best_
+candidate` correctness/determinism; `build_merge_prompt`'s byte-for-
+byte no-hint parity plus a real hinted case; a real end-to-end
+embedding-to-hinted-prompt test; and the headline test — a direct
+call-count proof that F1's pipeline (1 call) beats a naive K-candidate
+pipeline (`K+1` calls) for K in {1,2,3,5,10}, plus a K=2 proof that
+`generate_candidates`/`select_best_candidate` are each called exactly
+once, never once per candidate) — all pass, first run, no bug found.
+
+Verified: the new script (21 checks); `pyflakes` clean on all three
+touched/new files; `verify_ml_l1_embedding.py`/`verify_ml_l2_2_goal_
+policy.py`/`verify_ml_l2_3_retrieval_scorer.py`/`verify_d1_
+activation.py`/`verify_c1_impasse.py`/`verify_runtime_invariant.py`
+re-run clean; confirmed the one real `build_merge_prompt` call site
+still calls positionally, untouched. No `simulation/engine.py` code
+path or persisted `World` state touched — pure offline `cognition/`+
+`llm/` prompt-text work — no replay-hash/native-soak re-run needed.
+
 ## Current state (v1.34.255)
 
 Explicit user follow-up: "Till I do that build L2.3" (continuing

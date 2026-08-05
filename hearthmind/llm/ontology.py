@@ -423,11 +423,28 @@ SYSTEM_PROMPT_MERGE = (
 )
 
 
-def build_merge_prompt(a_name: str, a_description: str, b_name: str, b_description: str, settlement_name: str) -> str:
+def build_merge_prompt(
+    a_name: str, a_description: str, b_name: str, b_description: str, settlement_name: str,
+    candidate_hint: str = "",
+) -> str:
+    """`candidate_hint` (Tier 7 HCA F1, `hearthmind/cognition/
+    semantic_pointers.py`) is an optional grounding line naming the
+    words nearest to the algebraically-selected combination vector
+    (`generate_candidates`/`select_best_candidate`'s real output,
+    formatted by a caller as a short comma-joined string) — steers the
+    LLM's synthesis toward the winning candidate's own real semantic
+    neighborhood instead of a blind combination. Empty string (the
+    default, and the only path any real call site uses today — no
+    engine call passes a real hint yet) reproduces the exact prior
+    prompt text byte-for-byte."""
+    hint_line = (
+        f"A blend of these two ideas leans toward: {candidate_hint}.\n" if candidate_hint else ""
+    )
     return (
         f"{settlement_name} has two separate ideas:\n"
         f"1. {a_name} — {a_description}\n"
         f"2. {b_name} — {b_description}\n"
+        f"{hint_line}"
         "Propose one new idea that genuinely combines them."
     )
 
