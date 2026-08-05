@@ -4,6 +4,109 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.254] — Tier 6 Phase 1: L2.2 goal-policy flagship
+
+Explicit user instruction: "Start L2.2 and see where else AI/ML
+neural nets can replace LLM calls and/or deterministic systems" (docs/
+ROADMAP-2026-07-REMAINING.md's Phase 1, docs/ML-ARCHITECTURE-2026-08-
+01.md's "the flagship, the biggest design change").
+
+New `hearthmind/ml/goal_policy.py`: a closed-7-class `softmax`
+classifier over `AgentGoal`, meant to replace `llm/cognition.py`'s
+`fallback_goal` if-ladder — the path that handles the majority of real
+goal decisions, since only the core cast ever reaches a live LLM
+cognition call. Real two-phase curriculum: `build_distillation_
+examples` (phase 1, teacher→student distillation from recorder-shaped
+`(structured_input, goal)` pairs, one-hot targets, unrecognized goal
+values skipped rather than fabricated) and `reweight_by_outcome`
+(phase 2, deterministic integer oversampling by a real externally-
+measured outcome weight — this project's standing guard against
+training on a model's own unweighted output holds: the weight always
+comes from outside, e.g. a future L2.1 consequence reading, never fed
+back from this policy itself). `GoalPolicy.sample_goal` applies a real
+entropy floor (`_apply_entropy_floor`, an exact per-class minimum via
+`(1-floor*k)*p + floor`, not an approximation) — never `argmax`, per
+the architecture doc's mandatory anti-homogenization guardrail.
+Personality/emotion state (traits, emotions, materials-critical,
+has-plan) is part of the input schema, so the one shared network
+genuinely differentiates by agent — verified directly. Survival
+overrides (critical hunger/energy) are explicitly OUT of this
+module's scope, left untouched in `fallback_goal`, matching the
+architecture doc's own precedence rule.
+
+Needed and got a real fix to shared L0 substrate first:
+`hearthmind/ml/training.py` had supported a `"softmax"` output head
+at inference time only (`MLP.forward`) since v1.34.170/171 — no
+matching trainer existed (`_sgd_step`'s backward pass never special-
+cased it; the module's own docstring flagged this as "out of scope for
+this first substrate slice"). Added real `loss="cross_entropy"`
+support: `cross_entropy_loss`, and `_sgd_step`'s combined softmax+
+cross-entropy gradient (`pred - target`, the clean analytic form —
+no separate softmax-Jacobian term needed), threaded through
+`train_mlp_sgd`/`continual_train_mlp`/`LearningSpecialist.learn`. All
+backward-compatible (`loss` defaults to `"mse"` everywhere, byte-
+identical for every existing sigmoid/linear caller); `train_mlp_sgd`
+raises `ValueError` if `loss="cross_entropy"` is requested against a
+non-`softmax` head, rather than silently training the wrong gradient.
+
+New `scripts/verify_ml_l2_2_goal_policy.py` (20 checks — the new
+cross-entropy loss/backprop correctness on a real separable toy
+classification problem, >90% training accuracy; the entropy floor's
+exact per-class minimum and non-collapse under repeated sampling
+against a deliberately saturated policy; personality conditioning
+(two trait vectors, same network, measurably different predicted
+distributions); unrecognized-goal skipping; the doc's own literal
+headline test — a policy trained on a genuinely noisy/sometimes-wrong
+teacher label, then outcome-reweighted, measurably shifts toward the
+answer that actually worked, diverging from blind imitation) — all
+pass, first run, no bug found.
+
+**Not wired into `cognition.py`/`Population` this pass** — needs a
+real recorder archive this offline environment has no live run to
+source, same discipline every prior Tier 6 substrate item shipped
+under. `Agent.plan`'s absorption as an L1.1-embedded feature (the
+doc's own stated design) is deliberately not done yet — `FeatureSchema`
+only encodes flat numeric/categorical slots today, not a concatenated
+embedding vector; a small schema extension is real, distinct follow-up
+work, flagged in the roadmap.
+
+**"Where else can ML replace LLM/deterministic decisions" — a
+background audit, findings folded into the roadmap, nothing built
+this pass beyond what's above.** Five more `fallback_goal`-shaped
+sites found, none yet promoted to an L-layer slot despite being named
+in ML-AUDIT-2026-08-01.md's own §2b SPLIT table: `llm/dispute.py`'s
+`fallback_dispute` (4-class), `llm/fission.py`/`llm/migration.py`
+(binary leave-or-stay), `llm/laws.py` (which hardship becomes a law),
+`llm/founding.py` (found/don't) — each structurally identical to what
+L2.2 already targets, real follow-up work using `goal_policy.py`'s own
+pattern. One Body/Mind-boundary judgment call flagged, not decided:
+`settlement/buildings.py`'s `carrying_capacity` is a 10-term hand-set
+formula with a real label already in the world's own history (did the
+settlement actually starve/overflow near the predicted capacity), the
+same shape L2.1 targets — but it's Body-layer state, and
+`CONSTITUTION.md` requires the Body stay strictly deterministic;
+needs an explicit product decision before either building or
+dismissing it. One doc-staleness correction: L2.3/ML-AUDIT §3a both
+cite `agents/agent.py:472-474`'s hand-set relevance weights as the
+thing L2.3 replaces — that formula no longer exists there, superseded
+by Tier 7 HCA's D1 (`cognition/activation.py`'s real ACT-R equation)
+before L2.3 was ever scoped; the underlying problem (bag-of-words
+`relevance` inside `activation.py`'s spreading-activation term) is
+still real, the roadmap now points at the correct current target.
+
+Verified: the new script (20 checks); `pyflakes` clean on all three
+touched/new files; `scripts/verify_ml_substrate.py`/`verify_ml_
+specialist.py`/`verify_ml_g2_workload_forecaster.py`/`verify_ml_g3_
+regime_change.py`/`verify_ml_evolution.py`/`verify_belief_
+calibration.py`/`verify_value_model.py`/`verify_llm_cost.py`/`verify_
+ml_l1_embedding.py` all re-run clean (confirming the `training.py`/
+`specialist.py` changes are genuinely additive — every prior consumer
+of `mean_loss`/`train_mlp_sgd`/`continual_train_mlp`/`LearningSpecialist.
+learn` still defaults to `loss="mse"` with unchanged behavior). No
+native module, persisted `World` state, or `simulation/engine.py` code
+path touched — pure offline ML substrate, no replay-hash/native-soak
+re-run needed.
+
 ## [1.34.253] — Tier 6 Phase 1: L1.1 semantic embedding substrate
 
 Explicit user instruction: "Start phase 1 L1.1" (docs/ROADMAP-2026-

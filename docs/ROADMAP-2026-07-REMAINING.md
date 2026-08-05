@@ -41,20 +41,69 @@ gates behind.
   Unblocks L2.3/HCA `F1` at the substrate level; both still need their
   own real wiring pass.
 - **L2.2 — Goal policy** (the flagship, the largest single remaining Tier
-  6 item). Not built. Closed 7-value `AgentGoal` output; two-phase
-  curriculum — phase 1 distills the recorder's existing `(structured_
-  input -> goal)` pairs (teacher→student), phase 2 reweights by realized
-  world outcome so the student can diverge from and exceed the teacher.
-  Absorbs planning (`Agent.plan` becomes an embedded input, not a
-  separate model). Anti-homogenization mandatory: personality-
-  conditioning, an entropy floor (never argmax), deterministic survival
-  overrides stay untouched.
+  6 item) — **SHIPPED (substrate), not yet wired.** `hearthmind/ml/
+  goal_policy.py`: a closed-7-class softmax `AgentGoal` classifier,
+  meant to replace `llm/cognition.py`'s `fallback_goal` if-ladder (the
+  path that handles the majority of real goal decisions, since only
+  the core cast reaches a live LLM call). Real two-phase curriculum —
+  `build_distillation_examples` (phase 1, teacher→student) and
+  `reweight_by_outcome` (phase 2, deterministic oversampling by a
+  real externally-measured outcome weight — never the policy's own
+  output fed back in) — verified end to end (`scripts/verify_ml_l2_2_
+  goal_policy.py`, 20 checks) including the doc's own literal headline
+  claim: a student trained on a genuinely noisy/sometimes-wrong
+  teacher label, then outcome-reweighted, measurably shifts toward the
+  answer that actually worked, away from blind imitation. Personality-
+  conditioning and the entropy floor (`_apply_entropy_floor`, an exact
+  per-class minimum, not an approximation) are both real and tested;
+  survival overrides are explicitly out of scope, left untouched in
+  `fallback_goal`. Needed and got a real fix to shared L0 substrate:
+  `hearthmind/ml/training.py` previously supported a `"softmax"`
+  output head at INFERENCE time only (`_sgd_step`'s backward pass
+  never special-cased it) — added real, verified `loss="cross_entropy"`
+  backprop (`train_mlp_sgd`/`continual_train_mlp`/`LearningSpecialist.
+  learn`, all backward-compatible, default stays `"mse"`). NOT wired
+  into `cognition.py`/`Population` — needs a real recorder archive
+  (`layer1_structured_input -> layer4_parsed_output`) this offline
+  environment has no live run to source, same discipline every other
+  Tier 6 substrate item shipped under. `Agent.plan` absorption (a real
+  L1.1 `text_vector` concatenated into the feature schema) is
+  deliberately NOT done yet — `FeatureSchema` only encodes flat
+  numeric/categorical slots today; a small schema extension is needed
+  first, flagged as real follow-up.
 - **L2.3 — Semantic retrieval scorer** (gated on L1.1). Merges the audit's
-  M3-consumer + M4 into one learned scorer, replacing `agents/agent.py`'s
-  hand-set relevance weights + bag-of-words term.
+  M3-consumer + M4 into one learned scorer. **Correction (found while
+  building L2.2):** both this item and ML-AUDIT's own §3a cite
+  `agents/agent.py:472-474`'s hand-set `RECENCY_WEIGHT`/`SALIENCE_
+  WEIGHT`/`RELEVANCE_WEIGHT` linear formula as the thing to replace —
+  that formula no longer exists there. It was superseded by Tier 7
+  HCA's D1 (a real ACT-R base-level + spreading-activation equation,
+  `hearthmind/cognition/activation.py`) before this Tier 6 item was
+  ever scoped. The underlying problem is still real and still unfixed
+  — `activation.py`'s own spreading-activation term still calls into
+  `relevance = min(1.0, overlap/2.0)` bag-of-words — but L2.3's real
+  target is `cognition/activation.py`'s `spreading_activation`/
+  `memory_activation`, not the linear formula the docs describe.
 - **HCA `F1` — Semantic pointers** (gated on L1.1). Concept vectors,
   bundling/binding; test: a concept combination generated/judged with
   strictly fewer LLM calls than today.
+- **Five more `fallback_goal`-shaped LLM/deterministic sites, found by a
+  background audit while scoping L2.2, none yet promoted to an L-layer
+  slot:** `llm/dispute.py`'s `fallback_dispute` (4-class: reconcile/
+  council_ruling/feud/ostracism), `llm/fission.py` and `llm/migration.
+  py` (binary leave-or-stay), `llm/laws.py` (which hardship becomes a
+  law, among real candidates), `llm/founding.py` (found/don't). Each is
+  structurally identical to what L2.2 already targets — a bounded-
+  choice decision made today by a hand-written if-ladder or an LLM
+  call whenever the LLM path doesn't fire, with a real recorded-
+  outcome history this world already accumulates. ML-AUDIT's own §2b
+  SPLIT table already names all five alongside `cognition`; none was
+  ever carried into ML-ARCHITECTURE-2026-08-01.md's 8-model plan.
+  Building an `L2.2`-shaped policy for each (reusing `goal_policy.py`'s
+  own pattern — closed-class schema, `build_distillation_examples`,
+  `reweight_by_outcome`, `LearningSpecialist`) is real, scoped,
+  unstarted follow-up work — resume only on future explicit direction
+  naming one.
 
 ## Phase 2 — Wire the already-built ML substrate to real consumers
 
@@ -162,6 +211,22 @@ measured need, never a default next step.
 Small, independent, no-dependency-order-required items, each real but
 minor relative to Phases 1-7.
 
+- **Flagged, not decided: `Population.carrying_capacity` as a possible
+  learned regression target.** Found by the same background audit that
+  scoped L2.2's siblings above. `settlement/buildings.py`'s carrying-
+  capacity formula is a 10-term hand-set weighted sum (economy/
+  security/labor/environment/coordination/knowledge/infrastructure/
+  hunger, plus saturation/comfort constants) gating reproduction/
+  migration — the same "hand-tuned constant standing in for a
+  judgment, with a real label already in the world's own history (did
+  the settlement actually starve/overflow/collapse near the predicted
+  capacity)" shape L2.1's value/consequence model already targets.
+  Genuinely ambiguous whether this crosses `CONSTITUTION.md`'s Body/
+  Mind line (carrying capacity is today part of the deterministic
+  Body, which the Constitution says must stay strictly deterministic)
+  or is Mind-adjacent enough to be a legitimate L2.1-style target —
+  flagged rather than decided; needs an explicit product call before
+  either building or dismissing it.
 - **A1** — 11 of `FieldGrid`'s 12 named fields still unbuilt (only
   `population_density` is real): moisture, fertility, nutrients,
   disease-pressure, pollution, scent, traffic, heat, cultural-influence,

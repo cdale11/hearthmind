@@ -14,6 +14,7 @@ equivalence" contract every `cpp/src/` module already carries.
 """
 from __future__ import annotations
 
+import math
 import random
 from dataclasses import dataclass
 
@@ -38,12 +39,28 @@ def mse_loss(pred: list, target: list) -> float:
     return sum((p - t) ** 2 for p, t in zip(pred, target)) / n
 
 
-def mean_loss(model: MLP, examples: list) -> float:
+def cross_entropy_loss(pred: list, target: list) -> float:
+    """Categorical cross-entropy against a one-hot (or soft) target
+    distribution -- the natural loss for a `softmax` output head
+    (L2.2's closed-class goal policy), where MSE-through-softmax both
+    trains slower and isn't the gradient a real classifier wants.
+    Clamped away from 0.0 so a confidently-wrong prediction never
+    raises/produces `-inf` (`math.log(0)`)."""
+    eps = 1e-12
+    return -sum(t * math.log(max(p, eps)) for p, t in zip(pred, target))
+
+
+def mean_loss(model: MLP, examples: list, loss: str = "mse") -> float:
+    """`loss="cross_entropy"` is the correct pairing for a `softmax`-
+    headed model (see `train_mlp_sgd`); default stays `"mse"` so every
+    existing caller (L2.1/L3.1/L4.1's sigmoid/linear heads) is
+    unaffected."""
     if not examples:
         return 0.0
+    fn = cross_entropy_loss if loss == "cross_entropy" else mse_loss
     total = 0.0
     for ex in examples:
-        total += mse_loss(model.forward(ex.x), ex.y)
+        total += fn(model.forward(ex.x), ex.y)
     return total / len(examples)
 
 
@@ -53,25 +70,32 @@ def train_mlp_sgd(
     epochs: int = 50,
     learning_rate: float = 0.05,
     seed: int = 0,
+    loss: str = "mse",
 ) -> MLP:
-    """Pure-Python full-backprop SGD (mean-squared-error loss), mutates
-    `model` in place and returns it. Always correct, always available
-    (no numpy needed) -- the reference implementation any accelerated
-    path must match. Supports a "linear" or "sigmoid" output head
-    (covers every L2/L4 use named in the architecture doc so far);
-    softmax/cross-entropy backprop is out of scope for this first
-    substrate slice."""
+    """Pure-Python full-backprop SGD, mutates `model` in place and
+    returns it. Always correct, always available (no numpy needed) --
+    the reference implementation any accelerated path must match.
+    `loss="mse"` (default, unchanged behaviour) supports a "linear" or
+    "sigmoid" output head. `loss="cross_entropy"` requires a
+    `"softmax"` output head (L2.2's closed-class goal policy is the
+    first real consumer) -- softmax + categorical cross-entropy has a
+    famously clean combined gradient (`pred - target`, no separate
+    softmax-Jacobian term needed), which is why this pairing is
+    supported as a matched pair rather than mixing cross-entropy with
+    an arbitrary head."""
+    if loss == "cross_entropy" and model.output_activation != "softmax":
+        raise ValueError("loss='cross_entropy' requires a 'softmax' output_activation")
     rng = random.Random(seed)
     order = list(range(len(examples)))
     for _epoch in range(epochs):
         rng.shuffle(order)
         for idx in order:
             ex = examples[idx]
-            _sgd_step(model, ex.x, ex.y, learning_rate)
+            _sgd_step(model, ex.x, ex.y, learning_rate, loss=loss)
     return model
 
 
-def _sgd_step(model: MLP, x: list, y: list, lr: float) -> None:
+def _sgd_step(model: MLP, x: list, y: list, lr: float, loss: str = "mse") -> None:
     activations = [list(x)]
     pre_activations = []
     h = list(x)
@@ -82,15 +106,27 @@ def _sgd_step(model: MLP, x: list, y: list, lr: float) -> None:
             h = [relu(v) for v in z]
         elif model.output_activation == "sigmoid":
             h = [sigmoid(v) for v in z]
+        elif model.output_activation == "softmax":
+            m = max(z) if z else 0.0
+            exps = [math.exp(v - m) for v in z]
+            s = sum(exps) or 1.0
+            h = [v / s for v in exps]
         else:
             h = list(z)
         activations.append(h)
 
     pred = activations[-1]
-    n = max(1, len(pred))
-    grad = [2.0 * (p - t) / n for p, t in zip(pred, y)]
-    if model.output_activation == "sigmoid":
-        grad = [g * p * (1.0 - p) for g, p in zip(grad, pred)]
+    if loss == "cross_entropy":
+        # Combined softmax+cross-entropy gradient w.r.t. the PRE-
+        # softmax logits is exactly (pred - target) -- no separate
+        # output-activation derivative to apply, unlike sigmoid/MSE
+        # below.
+        grad = [p - t for p, t in zip(pred, y)]
+    else:
+        n = max(1, len(pred))
+        grad = [2.0 * (p - t) / n for p, t in zip(pred, y)]
+        if model.output_activation == "sigmoid":
+            grad = [g * p * (1.0 - p) for g, p in zip(grad, pred)]
 
     for layer_idx in range(len(model.layers) - 1, -1, -1):
         layer = model.layers[layer_idx]
@@ -124,6 +160,7 @@ def continual_train_mlp(
     epochs: int = 20,
     learning_rate: float = 0.03,
     seed: int = 0,
+    loss: str = "mse",
 ) -> MLP:
     """L5's warm-start continual-training step: mutates `model`'s
     EXISTING weights in place (never reinitializes) on a mix of
@@ -144,7 +181,7 @@ def continual_train_mlp(
             replay_buffer.add(ex)
     if not combined:
         return model
-    return train_mlp_sgd(model, combined, epochs=epochs, learning_rate=learning_rate, seed=seed)
+    return train_mlp_sgd(model, combined, epochs=epochs, learning_rate=learning_rate, seed=seed, loss=loss)
 
 
 def numpy_batch_forward(model: MLP, xs: list) -> list:

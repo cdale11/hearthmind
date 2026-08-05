@@ -107,7 +107,7 @@ class LearningSpecialist:
     def learn(
         self, new_examples: list, holdout_examples: list, tick: int,
         replay_fraction: float = 0.5, epochs: int = 20, learning_rate: float = 0.03,
-        seed: int = 0, tolerance: float = 0.0,
+        seed: int = 0, tolerance: float = 0.0, loss: str = "mse",
     ) -> LearnResult:
         """One real observe-then-adapt cycle. `holdout_examples` is
         recent-but-not-trained-on data (the caller's own responsibility
@@ -116,15 +116,18 @@ class LearningSpecialist:
         candidate is accepted unconditionally (same "degrades to plain
         training" shape `continual_train_mlp`'s own `replay_buffer=
         None` case already uses, not a silent gate bypass dressed up
-        as real gating)."""
+        as real gating). `loss="cross_entropy"` (a `"softmax"`-headed
+        model only, L2.2's closed-class goal policy) shadow-gates on
+        cross-entropy instead of MSE -- the correct metric for a
+        classifier, not a proxy."""
         if not new_examples:
             return LearnResult(accepted=False, candidate_metric=0.0, baseline_metric=0.0, reason="no new examples")
 
-        baseline_metric = mean_loss(self.model, holdout_examples) if holdout_examples else 0.0
+        baseline_metric = mean_loss(self.model, holdout_examples, loss=loss) if holdout_examples else 0.0
         candidate = MLP.from_dict(self.model.to_dict())
         continual_train_mlp(
             candidate, new_examples, replay_buffer=self.replay_buffer,
-            replay_fraction=replay_fraction, epochs=epochs, learning_rate=learning_rate, seed=seed,
+            replay_fraction=replay_fraction, epochs=epochs, learning_rate=learning_rate, seed=seed, loss=loss,
         )
 
         if not holdout_examples:
@@ -133,7 +136,7 @@ class LearningSpecialist:
             self.error_history.append({"tick": tick, "baseline_metric": 0.0, "candidate_metric": 0.0, "accepted": True})
             return LearnResult(accepted=True, candidate_metric=0.0, baseline_metric=0.0, reason="no holdout supplied, ungated accept")
 
-        candidate_metric = mean_loss(candidate, holdout_examples)
+        candidate_metric = mean_loss(candidate, holdout_examples, loss=loss)
         accepted = passes_shadow_gate(candidate_metric, baseline_metric, tolerance)
         self.error_history.append({
             "tick": tick, "baseline_metric": baseline_metric, "candidate_metric": candidate_metric, "accepted": accepted,

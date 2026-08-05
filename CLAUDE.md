@@ -742,6 +742,55 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.254)
+
+Explicit user instruction: "Start L2.2 and see where else AI/ML
+neural nets can replace LLM calls and/or deterministic systems."
+
+New `hearthmind/ml/goal_policy.py` (Tier 6's L2.2, the flagship): a
+closed-7-class `softmax` `AgentGoal` classifier meant to replace
+`llm/cognition.py`'s `fallback_goal` if-ladder — real two-phase
+curriculum (`build_distillation_examples` = teacher→student,
+`reweight_by_outcome` = deterministic oversampling by a real
+externally-measured outcome weight, never the policy's own output fed
+back), a real entropy floor (exact per-class minimum, never `argmax`),
+personality-conditioning verified to genuinely differentiate per
+agent. Needed a real fix first: `hearthmind/ml/training.py` supported
+a `softmax` head at inference only — added real `loss="cross_entropy"`
+backprop (`cross_entropy_loss`, the combined softmax+cross-entropy
+`pred-target` gradient), threaded through `train_mlp_sgd`/`continual_
+train_mlp`/`LearningSpecialist.learn`, all backward-compatible
+(`loss` defaults `"mse"` everywhere, raises on a mismatched head
+rather than training the wrong gradient). New `scripts/verify_ml_l2_
+2_goal_policy.py` (20 checks, all pass — incl. the doc's own literal
+headline test: a policy trained on a noisy/sometimes-wrong teacher
+label, then outcome-reweighted, measurably shifts toward the answer
+that actually worked). Not wired into `cognition.py`/`Population` —
+needs a real recorder archive this offline environment has no live
+run to source, same discipline every prior Tier 6 item shipped under.
+`Agent.plan` absorption via L1.1 embedding is flagged, not done —
+`FeatureSchema` has no vector-valued slot yet.
+
+Background audit for "where else can ML replace LLM/deterministic
+decisions," findings folded into the roadmap (docs-only, nothing else
+built this pass): five more `fallback_goal`-shaped LLM call sites
+(dispute/fission/migration/laws/founding) named in ML-AUDIT's own
+SPLIT table but never promoted to an L-layer slot — real, scoped
+follow-up using `goal_policy.py`'s own pattern. One flagged-not-
+decided item: `carrying_capacity`'s hand-set formula is a plausible
+L2.1-style regression target but sits in the deterministic Body,
+which `CONSTITUTION.md` requires stay strictly deterministic — a real
+product-boundary call, not mine to make unilaterally. One doc-
+staleness fix: L2.3's own cited target (`agents/agent.py`'s hand-set
+relevance weights) no longer exists there, superseded by HCA's D1
+(`cognition/activation.py`) before L2.3 was scoped — the roadmap now
+points at the real current target.
+
+Verified: the new script (20 checks); `pyflakes` clean; the full ML
+verify suite (9 scripts) re-run clean, confirming the `training.py`/
+`specialist.py` changes are additive-only. No native module or
+`simulation/engine.py` code path touched.
+
 ## Current state (v1.34.253)
 
 Explicit user instruction: "Start phase 1 L1.1" — Tier 6's L1.1
