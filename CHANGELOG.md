@@ -4,6 +4,56 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.245] — Tier 7 HCA Stage E, E4: the learning chart (§8's live falsification test)
+
+Explicit user instruction: "Start E4."
+
+**E4.** The learning chart — HCA's own headline falsification test
+(§8): "deliberative cost per unit of emergence must FALL as a world
+matures... if LLM calls fall but emergence falls proportionally,
+impasse-gating is just starvation with extra steps." New
+`hearthmind.cognition.observatory.compute_deliberation_sample`: pure
+math over two already-real cumulative counters at two points in time
+— `CognitionRunner.calls_succeeded` (a call that genuinely happened
+and returned a real answer) and `World.next_emergence_id - 1` (A2's
+own surprise-gated total, so this is real emergence, never routine
+noise) — converted to a rate per 1,000 ticks plus the real §8 cost-
+per-emergence ratio. `None` for a degenerate (non-positive-elapsed)
+window rather than a divide-by-zero or a fabricated rate;
+`cost_per_emergence` is honestly `None` (not `0.0`) when a window's
+real emergence count is zero.
+
+New `SimulationEngine._maybe_sample_deliberation_emergence` (daily,
+registered in `_TICK_JOBS`): snapshots both counters once per real day
+and hands them to `compute_deliberation_sample` against the previous
+real snapshot, appending into a new bounded `_deliberation_emergence_
+history` deque (200 entries, ~200 real days — runtime-only, never
+persisted). Surfaced via `full_diagnostics()['deliberation_emergence_
+history']`. New dev-console "HCA E4: learning chart" panel
+(`renderLearningChart`, `app.js`).
+
+New `scripts/verify_e4_learning_chart.py` (21 checks — the real math
+by hand incl. the degenerate-window and zero-emergence honest-`None`
+cases and the never-negative-delta clamp; a real end-to-end proof
+through `SimulationEngine._maybe_sample_deliberation_emergence` — real
+`_TICK_JOBS` registration, a genuine no-op on a non-day_end call, the
+first real day_end call correctly producing no sample yet while still
+recording a real baseline, two further real day_end calls each
+producing exactly one real sample matching the real counter deltas
+just applied, `full_diagnostics()` surfacing the real history verbatim)
+— all pass, first run, no bug found.
+
+Verified: the new script (21 checks); `verify_ml_g2_workload_
+forecaster.py`/`verify_e3_memory_activation.py`/`verify_e2_workspace_
+activity.py`/`verify_phase35_w1_naming_workspace.py`/`verify_runtime_
+invariant.py` re-run clean; `node --check` clean on `app.js`;
+`pyflakes` clean on all touched/new files (only the six known
+pre-existing forward-ref findings in `engine.py`); `scripts/verify_
+replay_hash.py` (800 ticks, seed 777, `--in-process`) — MATCH,
+byte-identical; `scripts/verify_native_soak.py` (seeds 1/55, 800
+ticks) — MATCH (both required this pass — `simulation/engine.py`'s
+own `__init__` and `_TICK_JOBS` dispatch table changed).
+
 ## [1.34.244] — Tier 7 HCA Stage E, E3: memory-activation panel (goals half explicitly deferred)
 
 Explicit user instruction: "Start E3."

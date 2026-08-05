@@ -435,6 +435,7 @@ devFullReportBtn.addEventListener("click", async () => {
     renderLearningSpecialistCurve(report.engine);
     renderWorkspaceActivity(report.engine);
     renderMemoryActivation(report.engine);
+    renderLearningChart(report.engine);
     try {
       await navigator.clipboard.writeText(text);
       devReportStatus.textContent = "copied to clipboard";
@@ -646,6 +647,27 @@ function renderMemoryActivation(engineReport) {
   );
   el.textContent =
 `Real D1 ACT-R activation ranking for ${snapshot.agent_name} (id ${snapshot.agent_id}), highest first
+----------------------------------------------------------------------
+${lines.join("\n")}`;
+}
+
+function renderLearningChart(engineReport) {
+  const el = document.getElementById("learning-chart-content");
+  if (!el || !engineReport) return;
+  const history = engineReport.deliberation_emergence_history || [];
+  if (!history.length) {
+    el.textContent = "no real daily sample yet — the first lands at the world's first day_end";
+    return;
+  }
+  const recent = history.slice(-20).reverse();
+  const lines = recent.map((s) => {
+    const cost = s.cost_per_emergence === null || s.cost_per_emergence === undefined
+      ? "undefined (zero real emergence this window)"
+      : s.cost_per_emergence.toFixed(2);
+    return `tick ${s.tick}: ${s.deliberative_calls_per_1000_ticks.toFixed(2)} calls/1000t, ${s.emergence_per_1000_ticks.toFixed(2)} emergence/1000t, cost/emergence ${cost}`;
+  });
+  el.textContent =
+`Real daily samples (newest first, last ${recent.length} of ${history.length})
 ----------------------------------------------------------------------
 ${lines.join("\n")}`;
 }

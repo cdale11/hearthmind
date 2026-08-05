@@ -53,7 +53,23 @@ over. Building one would be a genuinely NEW mechanism (a per-agent
 presentation pass over already-real state like every other E-item
 shipped so far — flagged as real, distinct future work rather than
 forced through as a fabricated panel over numbers nothing computes
-today."""
+today.
+
+**E4** (explicit user instruction "Start E4"): the "learning chart" —
+HCA's own headline falsification test (§8 in the doc's own words):
+"deliberative cost per unit of emergence must FALL as a world
+matures... if LLM calls fall but emergence falls proportionally,
+impasse-gating is just starvation with extra steps." `compute_
+deliberation_sample` is the real math one live sample needs — it takes
+two already-real cumulative counters at two points in time (never a
+synthetic proxy): `CognitionRunner.calls_succeeded` (a call that
+genuinely happened and returned a real answer — the real deliberative
+cost paid) and `World.next_emergence_id` (A2's own surprise-gated
+counter — it only advances once a candidate clears the precision-
+weighted surprise threshold, so this is real emergence, never routine
+noise inflating the count). `SimulationEngine._maybe_sample_
+deliberation_emergence` is the real daily production sampler feeding a
+bounded live history — see that method's own docstring."""
 from __future__ import annotations
 
 from typing import Any
@@ -129,3 +145,42 @@ def describe_memory_activation(agent: "Any", current_tick: int, top_n: int = 10)
         })
     entries.sort(key=lambda e: -e["activation"])
     return entries[:top_n]
+
+
+def compute_deliberation_sample(
+    tick: int, prev_tick: int,
+    calls_succeeded: int, prev_calls_succeeded: int,
+    emergence_total: int, prev_emergence_total: int,
+) -> dict | None:
+    """One real E4 "learning chart" sample — deliberative calls and
+    real emergence, both converted to a rate per 1,000 ticks over the
+    real elapsed window since the previous sample, plus §8's own
+    headline falsification-test ratio (`cost_per_emergence`: how many
+    real deliberative calls it took per unit of real emergence this
+    window — the number that should trend DOWN as a world matures).
+
+    Every input is a real cumulative counter read at two points in
+    time; deltas are clamped at 0 (a counter can only ever grow, but a
+    caller passing stale/reordered snapshots shouldn't produce a
+    fabricated negative rate). Returns `None` for a degenerate window
+    (`elapsed <= 0` — a same-tick or out-of-order sample, nothing real
+    to measure) rather than a divide-by-zero or a meaningless zero
+    rate. `cost_per_emergence` is itself `None` when this window's real
+    emergence count is zero — an undefined ratio, not a free 0.0."""
+    elapsed = tick - prev_tick
+    if elapsed <= 0:
+        return None
+    calls_delta = max(0, calls_succeeded - prev_calls_succeeded)
+    emergence_delta = max(0, emergence_total - prev_emergence_total)
+    calls_per_1000 = calls_delta / elapsed * 1000.0
+    emergence_per_1000 = emergence_delta / elapsed * 1000.0
+    cost_per_emergence = (calls_delta / emergence_delta) if emergence_delta > 0 else None
+    return {
+        "tick": tick,
+        "elapsed_ticks": elapsed,
+        "deliberative_calls": calls_delta,
+        "deliberative_calls_per_1000_ticks": round(calls_per_1000, 3),
+        "emergence_count": emergence_delta,
+        "emergence_per_1000_ticks": round(emergence_per_1000, 3),
+        "cost_per_emergence": round(cost_per_emergence, 3) if cost_per_emergence is not None else None,
+    }

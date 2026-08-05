@@ -2730,8 +2730,63 @@ cannot state one does not ship.
   replay-hash/native-soak re-run needed. The competing-goals half
   remains open — resume only on future explicit direction naming a
   real goal-arbitration mechanism to build first.
-- [ ] **E4** — the learning chart: deliberative calls per 1,000 ticks
-  trended against emergence rate (§8's falsification test, live).
+- [x] **E4 — SHIPPED, v1.34.245.** The learning chart — HCA's own
+  headline falsification test (§8), live: "deliberative cost per unit
+  of emergence must FALL as a world matures... if LLM calls fall but
+  emergence falls proportionally, impasse-gating is just starvation
+  with extra steps." New `hearthmind.cognition.observatory.compute_
+  deliberation_sample`: pure math over two already-real cumulative
+  counters at two points in time — `CognitionRunner.calls_succeeded`
+  (a call that genuinely happened and returned a real answer) and
+  `World.next_emergence_id - 1` (A2's own surprise-gated total, so
+  this is real emergence, never routine noise) — converted to a rate
+  per 1,000 ticks plus the real §8 cost-per-emergence ratio. `None`
+  for a degenerate (non-positive-elapsed) window rather than a
+  divide-by-zero or a fabricated rate; `cost_per_emergence` is
+  honestly `None` (not `0.0`) when a window's real emergence count is
+  zero.
+
+  New `SimulationEngine._maybe_sample_deliberation_emergence` (daily,
+  registered in `_TICK_JOBS`): snapshots both counters once per real
+  day and hands them to `compute_deliberation_sample` against the
+  previous real snapshot, appending into a new bounded `_deliberation_
+  emergence_history` deque (`DELIBERATION_EMERGENCE_HISTORY_MAX=200`,
+  ~200 real days of trend — runtime-only, never persisted, same
+  "re-baselines on restart" class as `_adaptive_tuning_log`). Surfaced
+  via `full_diagnostics()['deliberation_emergence_history']`. New
+  dev-console "HCA E4: learning chart" panel (`renderLearningChart`,
+  `app.js`), same plain-formatted-text presentation discipline every
+  prior E-panel already established — the 20 most recent real daily
+  samples, newest first.
+
+  New `scripts/verify_e4_learning_chart.py` (21 checks — `compute_
+  deliberation_sample`'s own math by hand incl. the degenerate-window
+  `None` case, the zero-emergence honest-`None`-ratio case, and the
+  never-negative-delta clamp for a stale/reordered counter; a real
+  end-to-end proof through `SimulationEngine._maybe_sample_
+  deliberation_emergence` — real `_TICK_JOBS` registration, a genuine
+  no-op on a non-day_end call, the first real day_end call correctly
+  producing no sample yet (zero-elapsed baseline) while still
+  recording a real baseline, two further real day_end calls each
+  producing exactly one real sample matching the real counter deltas
+  just applied, a real zero-new-emergence window honestly reporting
+  `cost_per_emergence: None`, `full_diagnostics()` surfacing the real
+  history verbatim, and the deque's real configured bound) — all pass,
+  first run, no bug found.
+
+  Verified: the new script (21 checks); `verify_ml_g2_workload_
+  forecaster.py`/`verify_e3_memory_activation.py`/`verify_e2_
+  workspace_activity.py`/`verify_phase35_w1_naming_workspace.py`/
+  `verify_runtime_invariant.py` re-run clean (unaffected); `node
+  --check` clean on `app.js`; `pyflakes` clean on all touched/new
+  files (only the six known pre-existing forward-ref findings in
+  `engine.py`); `scripts/verify_replay_hash.py` (800 ticks, seed 777,
+  `--in-process`) — MATCH, byte-identical; `scripts/verify_native_
+  soak.py` (seeds 1/55, 800 ticks) — MATCH (both required this pass —
+  `simulation/engine.py`'s own `__init__` and `_TICK_JOBS` dispatch
+  table changed, even though the new job itself only reads counters
+  and appends to runtime-only state, no `World`/`Agent` write or RNG
+  consumption).
 - [x] **E5 — SHIPPED, v1.34.226.** *(depends on Stage G)* —
   per-specialist learning curves. `full_diagnostics()['workload_
   forecaster']` gained `error_history_recent` (G3's own `LearningSpecialist
@@ -3533,8 +3588,18 @@ end.** Each item's real dependency:
   if-chain, not a scored competition) — genuinely distinct future
   work, not a Phase 3 dependency gap. See the consolidated Tier 7
   checklist's own E3 entry above for full detail.
-- `E4` (learning chart: calls/1000 ticks vs. emergence rate) — needs
-  Phase 5 to have any deliberative-cost reduction to chart.
+- `E4` — SHIPPED, v1.34.245. `compute_deliberation_sample` (real
+  `calls_succeeded`/`next_emergence_id` deltas, per-1000-tick rate +
+  the real §8 cost-per-emergence ratio) + `SimulationEngine._maybe_
+  sample_deliberation_emergence` (daily `_TICK_JOBS` sampler) +
+  `full_diagnostics()['deliberation_emergence_history']` + a new
+  dev-console panel. Building the instrumentation itself didn't need
+  to wait on Phase 5 — it's a real live chart over already-real
+  counters starting today; WHETHER `cost_per_emergence` actually
+  trends down over a long real run is the live question Phase 5's
+  chunking would need to answer, not a blocker to shipping the chart.
+  See the consolidated Tier 7 checklist's own E4 entry above for full
+  detail.
 - `E5` *(HCA-stated: depends on Stage G)* — ship right after Phase 1
   closes, don't wait for anything later.
 - `E6` *(HCA-stated: depends on Stage H)* — ship right after Phase 4

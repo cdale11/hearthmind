@@ -742,6 +742,75 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.245)
+
+Explicit user instruction: "Start E4" — Stage E's fourth item,
+directly following E3 (v1.34.244).
+
+**E4.** The learning chart — HCA's own headline falsification test
+(§8): "deliberative cost per unit of emergence must FALL as a world
+matures... if LLM calls fall but emergence falls proportionally,
+impasse-gating is just starvation with extra steps." New
+`hearthmind.cognition.observatory.compute_deliberation_sample`: pure
+math over two already-real cumulative counters at two points in time
+— `CognitionRunner.calls_succeeded` (a call that genuinely happened
+and returned a real answer) and `World.next_emergence_id - 1` (A2's
+own surprise-gated total — it only advances once a candidate clears
+the precision-weighted surprise threshold, so this is real emergence,
+never routine noise) — converted to a rate per 1,000 ticks plus the
+real §8 cost-per-emergence ratio. `None` for a degenerate (non-
+positive-elapsed) window rather than a divide-by-zero or a fabricated
+rate; `cost_per_emergence` is honestly `None` (not `0.0`) when a
+window's real emergence count is zero — an undefined ratio, not a
+free one. Building the instrumentation itself didn't need to wait on
+Stage C — it's a real live chart over already-real counters starting
+today; whether the ratio actually trends down over a long real run is
+the live question chunking would need to answer, not a blocker to
+shipping the chart.
+
+New `SimulationEngine._maybe_sample_deliberation_emergence` (daily,
+registered in `_TICK_JOBS`, same "day_end" cadence as `_maybe_tick_
+workload_forecaster`'s own first step): snapshots both counters once
+per real day and hands them to `compute_deliberation_sample` against
+the previous real snapshot, appending into a new bounded `_
+deliberation_emergence_history` deque (`DELIBERATION_EMERGENCE_
+HISTORY_MAX=200`, ~200 real days of trend — runtime-only, never
+persisted, same "re-baselines on restart" class as `_adaptive_tuning_
+log`). Surfaced via `full_diagnostics()['deliberation_emergence_
+history']`. New dev-console "HCA E4: learning chart" panel
+(`renderLearningChart`, `app.js`), same plain-formatted-text
+presentation discipline every prior E-panel already established — the
+20 most recent real daily samples, newest first.
+
+New `scripts/verify_e4_learning_chart.py` (21 checks — `compute_
+deliberation_sample`'s own math by hand incl. the degenerate-window
+`None` case, the zero-emergence honest-`None`-ratio case, and the
+never-negative-delta clamp for a stale/reordered counter; a real
+end-to-end proof through `SimulationEngine._maybe_sample_deliberation_
+emergence` — real `_TICK_JOBS` registration, a genuine no-op on a
+non-day_end call, the first real day_end call correctly producing no
+sample yet (zero-elapsed baseline) while still recording a real
+baseline, two further real day_end calls each producing exactly one
+real sample matching the real counter deltas just applied, a real
+zero-new-emergence window honestly reporting `cost_per_emergence:
+None`, `full_diagnostics()` surfacing the real history verbatim, and
+the deque's real configured bound) — all pass, first run, no bug
+found.
+
+Verified: the new script (21 checks); `verify_ml_g2_workload_
+forecaster.py`/`verify_e3_memory_activation.py`/`verify_e2_workspace_
+activity.py`/`verify_phase35_w1_naming_workspace.py`/`verify_runtime_
+invariant.py` re-run clean (unaffected); `node --check` clean on
+`app.js`; `pyflakes` clean on all touched/new files (only the six
+known pre-existing forward-ref findings in `engine.py`); `scripts/
+verify_replay_hash.py` (800 ticks, seed 777, `--in-process`) — MATCH,
+byte-identical; `scripts/verify_native_soak.py` (seeds 1/55, 800
+ticks) — MATCH (both required this pass — `simulation/engine.py`'s
+own `__init__` and `_TICK_JOBS` dispatch table changed, even though
+the new job itself only reads counters and appends to runtime-only
+state, no `World`/`Agent` write or RNG consumption). `E6` remains the
+last open Stage E item — resume only on future explicit direction.
+
 ## Current state (v1.34.244)
 
 Explicit user instruction: "Start E3" — Stage E's third item,

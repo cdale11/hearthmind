@@ -98,7 +98,9 @@ from hearthmind.world import legends
 from hearthmind.world import spatial_memory
 from hearthmind.world import culture_aggregate
 from hearthmind.cognition import attention
-from hearthmind.cognition.observatory import describe_memory_activation, workspace_snapshot
+from hearthmind.cognition.observatory import (
+    compute_deliberation_sample, describe_memory_activation, workspace_snapshot,
+)
 from hearthmind.cognition.pillar import make_message
 from hearthmind.cognition import runtime_specialist
 from hearthmind.cognition.player_model import PlayerAttentionModel, predict_next_focus, propose_player_model_bid
@@ -1193,6 +1195,12 @@ WORKLOAD_LEARN_LOG_MAX = 24
 retrain attempt (`SimulationEngine._workload_learn_log`) — dev-console/
 diagnostics visibility, same shape as `_adaptive_tuning_log`."""
 
+DELIBERATION_EMERGENCE_HISTORY_MAX = 200
+"""Tier 7 HCA E4's learning-chart history length — a daily-cadence
+sample, so 200 entries is a genuinely long trend window (~200 real
+days) without growing unbounded. Same bounded-deque discipline as
+`WORKLOAD_LEARN_LOG_MAX`/`_adaptive_tuning_log`."""
+
 MACHINE_PROFILE_FILENAME = "machine_profile.json"
 """Tier 5 B7.2's real control point (explicit user directive: "B8 and
 MachineProfile persistence... flagged for later" — closing that flag).
@@ -2186,6 +2194,22 @@ class SimulationEngine:
         """Bounded, append-only record of every real monthly retrain
         attempt (accepted or rejected) — dev-console-visible via `full_
         diagnostics()`."""
+        self._deliberation_emergence_history: deque[dict] = deque(maxlen=DELIBERATION_EMERGENCE_HISTORY_MAX)
+        """Tier 7 HCA E4 (roadmap Phase 7): the real, live "learning
+        chart" history — one real sample per real day, each the genuine
+        per-1000-tick rate of `CognitionRunner.calls_succeeded` (real
+        deliberative cost paid) against `World.next_emergence_id` (A2's
+        own surprise-gated emergence counter), plus §8's own headline
+        falsification-test ratio (cost per unit of emergence). Runtime-
+        only, never persisted — same "re-baselines on restart" class as
+        `_adaptive_tuning_log`/`_workload_learn_log`, a diagnostic trend
+        rather than gameplay-affecting state. See `_maybe_sample_
+        deliberation_emergence`'s own docstring."""
+        self._deliberation_sample_prev: tuple[int, int, int] = (0, 0, 0)
+        """`(tick, calls_succeeded, emergence_total)` as of the last real
+        E4 sample — the real baseline the next sample's delta is
+        measured against. Starts at the origin so the very first real
+        sample (day 1) measures from world genesis."""
 
         # Tier 5 B7.2 + B8's real control points (explicit user
         # directive: "B8 and MachineProfile persistence and select_
@@ -4331,6 +4355,40 @@ class SimulationEngine:
         })
         self._workload_training_examples = []
 
+    def _maybe_sample_deliberation_emergence(self, events: list[str]) -> None:
+        """Tier 7 HCA E4 (roadmap Phase 7, explicit user instruction
+        "Start E4"): the real production sampler feeding the "learning
+        chart" — HCA's own headline falsification test (§8): "if LLM
+        calls fall but emergence falls proportionally, impasse-gating
+        is just starvation with extra steps." A real, growing history
+        of this ratio is what lets that test actually be checked
+        against a real long-running world, rather than only asserted.
+
+        Daily cadence, same as `_maybe_tick_workload_forecaster`'s own
+        first step. Reads two already-real cumulative counters — never
+        adds new tracked state to measure them, only samples them:
+        `CognitionRunner.calls_succeeded` (a call that genuinely
+        happened and returned a real answer) and `World.next_
+        emergence_id - 1` (A2's own surprise-gated total — it only
+        advances once a candidate clears the precision-weighted
+        surprise threshold, so this is real emergence, never routine
+        noise). `compute_deliberation_sample` does the actual math
+        (delta-over-elapsed-ticks, the §8 cost-per-emergence ratio);
+        this method's only job is to snapshot the counters and hand
+        them the real previous snapshot to diff against."""
+        if "day_end" not in events:
+            return
+        tick = self.world.clock.tick_count
+        calls_succeeded = self._cognition_runner.calls_succeeded
+        emergence_total = self.world.next_emergence_id - 1
+        prev_tick, prev_calls, prev_emergence = self._deliberation_sample_prev
+        sample = compute_deliberation_sample(
+            tick, prev_tick, calls_succeeded, prev_calls, emergence_total, prev_emergence,
+        )
+        self._deliberation_sample_prev = (tick, calls_succeeded, emergence_total)
+        if sample is not None:
+            self._deliberation_emergence_history.append(sample)
+
     def _maybe_advance_escalation_ladder(self, events: list[str]) -> None:
         """Tier 5 B15.3/B15.4's real control point (explicit user
         instruction: "continue B and try closing it this turn").
@@ -5166,6 +5224,7 @@ class SimulationEngine:
         ("_maybe_advance_escalation_ladder", _JOB_EVENTS),
         ("_maybe_auto_llm_concurrency_hypothesis", _JOB_EVENTS),
         ("_maybe_tick_workload_forecaster", _JOB_EVENTS),
+        ("_maybe_sample_deliberation_emergence", _JOB_EVENTS),
     )
 
     # B0.3's real migrations: `_TICK_JOBS` entries named here are NOT
@@ -16267,6 +16326,11 @@ class SimulationEngine:
             # use) -- honest `None` when the observer hasn't inspected
             # anyone yet, matching that function's own contract.
             "memory_activation_snapshot": self._memory_activation_snapshot(),
+            # Tier 7 HCA E4, v1.34.245: the real "learning chart" --
+            # deliberative calls and real emergence, both per 1000
+            # ticks, plus the §8 falsification-test cost ratio. See
+            # `_maybe_sample_deliberation_emergence`'s own docstring.
+            "deliberation_emergence_history": list(self._deliberation_emergence_history),
             # Tier 5 B2's real control point (see `BROADCAST_SUBSYSTEM_
             # BUDGET_SECONDS`'s docstring): real, never-silently-reset
             # overrun debt for the one job B2 actually schedules today —
