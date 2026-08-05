@@ -3419,6 +3419,47 @@ end.** Each item's real dependency:
 - `E6` *(HCA-stated: depends on Stage H)* — ship right after Phase 4
   closes.
 
+**Phase 8 — wire Stage C's chunk/dispatch ladder into a real production
+`_schedule_llm_job` call site.** Placed right after Phase 7 (Stage E)
+closes: E1's own panel (`explain_cycle`) has real, tested formatting
+logic but nothing real to feed it today — C1/C2/C3 have never been
+consulted by a live job, so there is no genuine per-cycle `Impasse`/
+`DispatchOutcome` pair in production yet. This phase is what makes
+every "not wired into production" note across Stage C (and, by
+extension, E1's own "no dev-console UI wired yet" note) actually
+resolve, not just a documentation gap this doc keeps repeating.
+1. **Pilot.** Pick ONE low-risk, high-volume ambient `_schedule_llm_
+   job` call site (same "first pilot, then a sweep" shape B0.3/W1-W4
+   already used elsewhere in this codebase — never big-bang). Wrap its
+   existing scheduling decision in a real `Impasse` classification (one
+   of C1's four `detect_*` functions, backed by whatever real signal
+   that job already has in scope) and route it through C3's `dispatch_
+   impasse` instead of unconditionally calling the LLM — a chunk hit or
+   model resolution short-circuits the call entirely; only a genuine
+   novel impasse reaches the LLM, whose result then compiles a new
+   chunk via C2's `ChunkStore`. *Test:* C3's own stated bar (">30% of
+   real cycles resolve without an LLM call"), measured live over a real
+   multi-thousand-tick soak on the pilot job specifically — not
+   re-asserted from the synthetic soak `verify_c3_dispatch.py` already
+   proved, a genuinely new, live measurement.
+2. **E1 goes live.** Once the pilot job produces real `Impasse`/
+   `DispatchOutcome` pairs, wire `explain_cycle()`'s output into a real
+   dev-console panel (or `/diagnostics` field) for that job specifically
+   — the rendering-layer piece E1's own filing deferred, now unblocked.
+3. **Sweep.** Once the pilot's own real measured behavior confirms the
+   ladder helps (call volume genuinely drops, emergence quality holds —
+   the project's own headline falsification test, finally measurable
+   live), extend the same wrap-in-`Impasse`-classify-dispatch pattern to
+   further `_schedule_llm_job` call sites in one batch (never one at a
+   time, per this project's own standing "sweep once a pattern is
+   proven" instruction) rather than doling them out call-site by
+   call-site.
+
+No step here is started — this phase exists to give the "wire C1-C3 to
+production" work a real place in the sequence instead of sitting as an
+undated flagged note, per explicit user request. Resume only on future
+explicit direction naming step 1.
+
 **Parallel, optional track — semantic embedding (does not block or get
 blocked by anything above).**
 - Tier 6 `L1.1` — semantic embedding of the sim's own vocabulary (6+
