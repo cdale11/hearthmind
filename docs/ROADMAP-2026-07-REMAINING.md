@@ -2263,10 +2263,40 @@ cannot state one does not ship.
   a real 8000-tick production soak — all pass, first run, no bug found.
   `scripts/verify_replay_hash.py`/`scripts/verify_native_soak.py` —
   both MATCH.
-- [ ] **C1** — the four typed impasses as the deliberation trigger.
-  *Test:* every LLM call in a soak carries a named impasse.
-- [ ] **C2** — chunking. *Test:* the 591st family extinction consumes
-  no LLM call.
+- [x] **C1 — SHIPPED, v1.34.237.** The four typed impasses as the
+  deliberation trigger. New `hearthmind.cognition.impasse` — four
+  classifiers, each naming an EXISTING real signal (a real B1
+  `CompetitionRecord` for tie, a real caller-supplied streak for
+  no_change, `Pillar.disagrees_with` for conflict, A1's
+  `SurpriseSpecialist.error()` for novelty), not a new detection
+  mechanism. *Test:* "every LLM call in a soak carries a named
+  impasse" is C1+C2+C3's own combined END STATE, not C1's alone —
+  C1 ships the real, tested classifiers (`scripts/verify_c1_
+  impasse.py`, 16 checks, all against real production data
+  structures); the full production dispatch migration is C3's job.
+- [x] **C2 — SHIPPED, v1.34.238.** Chunking: a resolved impasse
+  compiles into a cheap reusable artifact. New `hearthmind.cognition.
+  chunk`'s `ChunkStore`: `compile()` (keyed by `chunk_signature`
+  — an impasse's `kind`+`subject`, deliberately not its variable
+  `detail` text, so a recurring problem always collapses to the same
+  chunk) creates a real `Chunk` holding one of HCA's own closed
+  four-item `ARTIFACT_KINDS` (`cached_decision`/`model_update`/
+  `trigger_rule`/`revised_belief`); `lookup()` is the cheap read a
+  future dispatcher tries first; `record_hit()` is the real reuse
+  signal a future E4 learning-chart panel would plot. Bounded
+  (`CHUNK_STORE_MAX=500`, evicts the least-recently-reused chunk,
+  never the one just compiled). *Test:* "the 591st family extinction
+  consumes no LLM call" is C2+C3's own combined outcome, not C2's
+  alone — `scripts/verify_c2_chunking.py` (18 checks) proves the real
+  mechanism against a real no-change impasse built from a real
+  `Institution.objective_ticks_unmet` streak (HCA's own "590 family
+  extinctions" worked example) and a real tie impasse from a real
+  arbitrated `CompetitionRecord`: the SAME recurring impasse signature
+  hits the SAME chunk regardless of its own varying detail text, a
+  different subject never cross-hits, and bounded eviction protects
+  both a just-compiled chunk and any chunk genuinely still being
+  reused. Dispatch (actually consulting `ChunkStore.lookup()` before
+  ever considering an LLM call) is C3's job, not attempted here.
 - [ ] **C3** — cheap-resolver dispatch (chunk → model → LLM). *Test:*
   > 30% of workspace winners resolve without an LLM call.
 - [ ] **D1** — ACT-R activation replacing four hand-tuned mechanisms
@@ -2455,7 +2485,8 @@ with extra steps and this direction should be abandoned.**
 Same standing convention as every vision document here: work from a
 `[ ]` item only on explicit future direction naming it. (This was
 originally filed docs-only, "nothing is implemented" — stale now that
-Stages A, B, G, and H are all fully shipped, corrected here rather
+Stages A, B, G, and H are all fully shipped and Stage C is partially
+shipped (`C1`/`C2`, dispatch `C3` still open), corrected here rather
 than left to mislead a future read of this checklist.)
 
 ---
@@ -3120,8 +3151,29 @@ name without one.
    used. No `simulation/engine.py` code path touched this pass (a pure
    offline `cognition/` primitive, same scope class as A1's own
    `surprise.py`) — no replay-hash/native-soak re-run needed.
-2. `C2` — chunking: compile a resolved impasse into a cheap reusable
-   artifact.
+2. [x] `C2` — SHIPPED, v1.34.238 (explicit user instruction: "C2 and
+   stale docs"). Chunking: compile a resolved impasse into a cheap
+   reusable artifact. New `hearthmind/cognition/chunk.py`'s
+   `ChunkStore` — `compile()`/`lookup()`/`record_hit()`, keyed by
+   `chunk_signature` (an impasse's `kind`+`subject`, never its
+   variable `detail` text, so a recurring problem always collapses to
+   the same chunk), holding one of HCA's own closed `ARTIFACT_KINDS`
+   (`cached_decision`/`model_update`/`trigger_rule`/`revised_belief`).
+   Bounded (`CHUNK_STORE_MAX=500`, evicts the least-recently-reused
+   chunk, never one just compiled). *Test (passed):* `scripts/
+   verify_c2_chunking.py` (18 checks) — a real no-change impasse built
+   from a real `Institution.objective_ticks_unmet` streak (HCA's own
+   "590 family extinctions" worked example) and a real tie impasse
+   from a real arbitrated `CompetitionRecord` both compile and are
+   found again on a real recurrence, a different subject never
+   cross-hits, and bounded eviction protects a just-compiled chunk and
+   any chunk genuinely still being reused — all pass, first run, no
+   bug found. Deliberately does NOT wire dispatch (actually
+   consulting `ChunkStore.lookup()` before an LLM call) — that's
+   `C3`'s own job; C2's stated test ("the 591st family extinction
+   consumes no LLM call") is C2+C3's combined outcome. No `simulation/
+   engine.py` code path touched — no replay-hash/native-soak re-run
+   needed.
 3. `C3` — cheap-resolver dispatch (chunk → learned model → LLM),
    preferring the cheapest resolver that suffices.
    *Stage C fully closes here. Ships the project's own headline

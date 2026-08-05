@@ -4,6 +4,58 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.238] — Tier 7 HCA Stage C, C2: chunking; further roadmap stale-docs pass
+
+Explicit user instruction: "C2 and stale docs."
+
+**C2.** New `hearthmind/cognition/chunk.py`: `ChunkStore` compiles a
+RESOLVED impasse into a cheap reusable artifact so the next occurrence
+of the same problem is handled without deliberation, per HCA §3/Layer
+4's own text ("a cached decision keyed by the impasse signature, a
+Tier 6 model update, a new `TriggerRule`, a revised belief"). `chunk_
+signature(impasse)` reduces C1's `Impasse` to `kind`+`subject` —
+deliberately NOT `impasse.detail` (which varies run to run even for
+the recognizably same problem, e.g. the exact streak count in a
+`no_change` impasse) — so two impasses that read as "the same
+problem" to a person always collapse to the same chunk. `compile()`
+creates a real `Chunk` holding one of HCA's own closed `ARTIFACT_
+KINDS` (`cached_decision`/`model_update`/`trigger_rule`/`revised_
+belief`, rejecting anything outside that vocabulary); `lookup()` is
+the cheap read a future dispatcher (`C3`) would try first; `record_
+hit()` is the real reuse signal a future `E4` learning-chart panel
+would plot. Bounded (`CHUNK_STORE_MAX=500`), evicting the least-
+recently-reused chunk (by `last_hit_tick`, falling back to `created_
+tick` for a never-hit chunk) — never the chunk just compiled.
+
+New `scripts/verify_c2_chunking.py` (18 checks, real production data
+throughout — a real no-change impasse built from a real `Institution.
+objective_ticks_unmet` streak crossing `INSTITUTION_OBJECTIVE_
+PERSISTENCE_THRESHOLD` (HCA's own "590 family extinctions, no rule"
+worked example) and a real tie impasse from a real arbitrated
+`CompetitionRecord`): the same recurring impasse hits the same chunk
+regardless of its own varying detail text; a different subject never
+cross-hits; an unrecognized `artifact_kind` is rejected; bounded
+eviction removes the genuinely least-recently-reused chunk while
+protecting both a chunk that was reused and the chunk just compiled —
+all pass, first run, no bug found. Deliberately does NOT wire dispatch
+(actually consulting `ChunkStore.lookup()` before an LLM call) — C2's
+own stated test ("the 591st family extinction consumes no LLM call")
+is C2+C3's combined outcome; C3's own "cheap-resolver dispatch" is the
+real code path that would call this. No `simulation/engine.py` code
+path touched — no replay-hash/native-soak re-run needed.
+
+**Further stale-docs pass.** The same consolidated Tier 7 checklist
+still showed `C1` unchecked despite shipping in the prior commit
+(v1.34.237) — corrected alongside adding `C2`'s own entry. Phase 5's
+own numbered-list entry updated to match. The dependency-ordered
+build sequence's closing note (previously corrected to say "Stages A,
+B, G, and H are all fully shipped") extended to note Stage C is now
+partially shipped (`C1`/`C2`, dispatch `C3` still open) rather than
+implying it's entirely untouched.
+
+Verified: the new script (18 checks); `pyflakes` clean on both new
+files. No native module or `simulation/engine.py` code path touched.
+
 ## [1.34.237] — Tier 7 HCA Stage C, C1: the four typed impasses as the deliberation trigger; roadmap stale-docs pass
 
 Explicit user instruction: "Start C1. And fix stale docs parallely."

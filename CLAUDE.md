@@ -742,6 +742,53 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.238)
+
+Explicit user instruction: "C2 and stale docs" — two independent
+pieces, one batch, directly following C1 (v1.34.237).
+
+**C2.** New `hearthmind/cognition/chunk.py`: `ChunkStore` compiles a
+RESOLVED impasse into a cheap reusable artifact so the next
+occurrence of the same problem is handled without deliberation, per
+HCA §3/Layer 4 ("a cached decision keyed by the impasse signature, a
+Tier 6 model update, a new `TriggerRule`, a revised belief").
+`chunk_signature(impasse)` reduces C1's `Impasse` to `kind`+`subject`
+— deliberately NOT `impasse.detail` (which varies run to run even for
+the recognizably same problem) — so two impasses that read as "the
+same problem" always collapse to the same chunk. `compile()` creates
+a real `Chunk` holding one of HCA's own closed `ARTIFACT_KINDS`
+(`cached_decision`/`model_update`/`trigger_rule`/`revised_belief`);
+`lookup()` is the cheap read a future dispatcher (`C3`) would try
+first; `record_hit()` is the real reuse signal a future `E4`
+learning-chart panel would plot. Bounded (`CHUNK_STORE_MAX=500`),
+evicting the least-recently-reused chunk — never the one just
+compiled.
+
+New `scripts/verify_c2_chunking.py` (18 checks, real production data
+throughout — a real no-change impasse from a real `Institution.
+objective_ticks_unmet` streak, HCA's own "590 family extinctions"
+worked example, and a real tie impasse from a real arbitrated
+`CompetitionRecord`): the same recurring impasse hits the same chunk
+regardless of its own varying detail text; a different subject never
+cross-hits; an unrecognized `artifact_kind` is rejected; bounded
+eviction removes the genuinely least-recently-reused chunk while
+protecting both a reused chunk and the one just compiled — all pass,
+first run, no bug found. Deliberately does NOT wire dispatch — C2's
+own stated test ("the 591st family extinction consumes no LLM call")
+is C2+C3's combined outcome, `C3` not attempted here. No `simulation/
+engine.py` code path touched — no replay-hash/native-soak re-run
+needed.
+
+**Stale-docs pass.** The consolidated Tier 7 checklist still showed
+`C1` unchecked despite shipping last commit — corrected alongside
+adding `C2`'s own entry. Phase 5's numbered-list entry updated to
+match. The dependency-ordered build sequence's closing note extended
+to note Stage C is now partially shipped (`C1`/`C2`, dispatch `C3`
+still open).
+
+Verified: the new script (18 checks); `pyflakes` clean on both new
+files. No native module or `simulation/engine.py` code path touched.
+
 ## Current state (v1.34.237)
 
 Explicit user instruction: "So now phase 5 if phase 4 is done. Start
