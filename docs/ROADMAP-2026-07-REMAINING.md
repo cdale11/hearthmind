@@ -22,10 +22,24 @@ on an explicit "next step"/item-naming instruction, never auto-chained.
 The two Tier 6 items everything else in this roadmap either builds on or
 gates behind.
 
-- **L1.1 — Semantic embedding** of the sim's own vocabulary. Not built at
-  all. Blocks L2.3 and HCA `F1` below. 6+ real waiting consumers: memory
+- **L1.1 — Semantic embedding** of the sim's own vocabulary — **SHIPPED
+  (substrate), not yet wired.** `hearthmind/ml/embedding.py`: a
+  pure-Python skip-gram-with-negative-sampling word embedding, trained
+  on a caller-supplied text corpus (corpus-agnostic by design, same
+  "decouple from World internals" discipline `cross_run.py` already
+  established). `SkipGramEmbedding.text_similarity(a, b)` is the real
+  "do these two pieces of text mean the same thing" function —
+  verified against the architecture doc's own worked example ("the
+  wolves took Bram" scores measurably closer to "a predator killed my
+  brother" than to an unrelated harvest sentence, `scripts/verify_ml_
+  l1_embedding.py`, 19 checks). Real waiting consumers (memory
   retrieval's hand-tuned weights, four text-dedup sites, `Pillar.
-  word_overlap`, topic-novelty checks.
+  word_overlap`, topic-novelty checks) are NOT wired yet — needs a real
+  corpus-building pass from `World`/`Agent` text plus a live-consumer
+  migration, same "ship the substrate, wire it once a real consumer
+  exists" discipline every other L-layer piece has shipped under.
+  Unblocks L2.3/HCA `F1` at the substrate level; both still need their
+  own real wiring pass.
 - **L2.2 — Goal policy** (the flagship, the largest single remaining Tier
   6 item). Not built. Closed 7-value `AgentGoal` output; two-phase
   curriculum — phase 1 distills the recorder's existing `(structured_

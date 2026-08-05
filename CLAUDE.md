@@ -742,6 +742,58 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.253)
+
+Explicit user instruction: "Start phase 1 L1.1" — Tier 6's L1.1
+(docs/ML-ARCHITECTURE-2026-08-01.md's "strongest reuse case"), the
+roadmap's own Phase 1 flagship pairing.
+
+New `hearthmind/ml/embedding.py`: a pure-Python skip-gram word
+embedding (negative-sampling SGD, two matrices — target/context, a
+`count**0.75`-weighted negative-sampling table) trained on a caller-
+supplied corpus — deliberately corpus-agnostic, never reaches into
+`World`/`Agent` state itself, same discipline `cross_run.py`'s
+`example_loader` callback already established. `tokenize`/`build_
+vocab` (deterministic frequency order)/`generate_skipgram_pairs`
+(sentence-bounded). `SkipGramEmbedding.text_similarity(a, b)` (cosine
+similarity of bag-of-embedded-words text vectors) is the real "do
+these two pieces of text mean the same thing" function every named
+L1.1 consumer (memory retrieval, belief/folklore/dialogue dedup,
+`Pillar.word_overlap`, topic novelty, plan encoding, belief-subject
+matching) is really asking for — today each answers it with raw token
+overlap. Weights ship as a versioned JSON blob (`to_dict`/`from_dict`,
+schema-versioned, rejects an unsupported version), same "weights are
+world state" discipline as every prior L-layer model.
+
+New `scripts/verify_ml_l1_embedding.py` (19 checks — tokenize/vocab/
+pair-generation correctness; an empty corpus degrading to a genuine
+zero-vector embedding, never raising; the architecture doc's own
+worked headline test reproduced directly — "the wolves took Bram" vs.
+"a predator killed my brother" (same theme) scores measurably higher
+than either against an unrelated harvest sentence, across two
+independent theme clusters; training determinism given a fixed seed,
+genuine divergence given a different one; round-trip + schema
+rejection; unknown-word queries degrading to `None` rather than a
+fabricated score) — all pass, first run, no bug found.
+
+**Not wired into any real consumer this pass** — same "ship the
+substrate, wire it once a real consumer/corpus exists" discipline
+L0/L2.1/L3.1/L3.2 all shipped under. A real corpus-building pass
+(pulling text from `World.emergence_log`/`Agent.memories`/
+`Settlement.beliefs`/dialogue) and migrating the six-plus named
+consumer sites off token overlap are real, distinct follow-up work.
+Unblocks L2.3 (semantic retrieval scorer)/HCA `F1` (semantic
+pointers) at the substrate level only — both still need their own
+real wiring pass, same convention as every other Tier 6/HCA item.
+
+Verified: the new script (19 checks); `pyflakes` clean on both files;
+`scripts/verify_ml_substrate.py` re-run clean (unaffected, independent
+module). No native module, persisted `World` state, or `simulation/
+engine.py` code path touched — pure offline ML substrate, no replay-
+hash/native-soak re-run needed. `L2.2` (the goal-policy flagship) is
+the other open Phase 1 item — resume only on future explicit
+direction.
+
 ## Current state (v1.34.252)
 
 Explicit user follow-up, continuing v1.34.251's step 1: acted on the

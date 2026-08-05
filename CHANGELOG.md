@@ -4,6 +4,62 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.253] — Tier 6 Phase 1: L1.1 semantic embedding substrate
+
+Explicit user instruction: "Start phase 1 L1.1" (docs/ROADMAP-2026-
+07-REMAINING.md's Phase 1, docs/ML-ARCHITECTURE-2026-08-01.md's L1.1,
+"the strongest reuse case").
+
+New `hearthmind/ml/embedding.py`: a pure-Python skip-gram-with-
+negative-sampling word embedding, trained on a caller-supplied text
+corpus — deliberately corpus-agnostic (never reaches into `World`/
+`Agent` state itself), same "decouple from the caller's real data"
+discipline `cross_run.py`'s `example_loader` callback already
+established. `tokenize`/`build_vocab` (deterministic frequency
+ordering)/`generate_skipgram_pairs` (sentence-bounded, never crosses a
+sentence) are the real preprocessing pipeline; `train_skipgram` is
+standard word2vec-shape SGD (two matrices — target and context
+vectors, a `count**0.75`-weighted negative-sampling table) in pure
+Python, matching this project's every-model precedent of pure-Python
+inference with weights shipped as a versioned JSON blob (`SkipGram
+Embedding.to_dict`/`from_dict`, schema-versioned, rejects an
+unsupported version rather than silently misreading it).
+`SkipGramEmbedding.text_similarity(a, b)` — cosine similarity of two
+texts' bag-of-embedded-words average — is the real function every
+named L1.1 consumer (memory retrieval, belief/folklore/dialogue
+dedup, `Pillar.word_overlap`, topic novelty, plan encoding for L2.2,
+belief-subject matching) is ultimately asking for: "do these two
+pieces of text mean the same thing in this world?"
+
+New `scripts/verify_ml_l1_embedding.py` (19 checks — tokenize/vocab/
+pair-generation correctness; an empty corpus degrading to a genuine
+zero-vector embedding rather than raising; the architecture doc's own
+worked headline test, reproduced directly: "the wolves took Bram"
+scores measurably higher similarity against "a predator killed my
+brother" than either does against an unrelated harvest-themed
+sentence, for two independent theme clusters; training determinism
+given a fixed seed and genuine divergence given a different one;
+round-trip + schema-version rejection; unknown-word queries degrading
+to `None` rather than a fabricated score) — all pass, first run, no
+bug found.
+
+**Not wired into any real consumer this pass** — same "ship the
+substrate, wire it once a real consumer/corpus exists" discipline
+L0/L2.1/L3.1/L3.2 all shipped under. A real corpus-building pass
+(pulling text from `World.emergence_log`/`Agent.memories`/
+`Settlement.beliefs`/dialogue) and migrating the six-plus named
+consumer sites off token overlap are real, distinct follow-up work.
+Unblocks L2.3 (semantic retrieval scorer) and HCA `F1` (semantic
+pointers) at the substrate level — both still need their own wiring.
+
+Verified: the new script (19 checks); `pyflakes` clean on both files;
+`scripts/verify_ml_substrate.py` re-run clean (unaffected — a new,
+independent `hearthmind/ml/` module, no shared state touched). No
+native module, persisted `World` state, or `simulation/engine.py`
+code path touched — pure offline ML substrate, same scope class as
+every prior Tier 6 L-layer shipment, no replay-hash/native-soak
+re-run needed.
+
 ## [1.34.252] — Doc consolidation pass, step 2: compress the bloated docs
 
 Explicit user follow-up ("do the same thing you did with roadmap to
