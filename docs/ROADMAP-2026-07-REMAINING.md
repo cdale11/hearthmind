@@ -2979,26 +2979,58 @@ domains (`H1`→`H2`→`H3`→`H4`).** This is the literal answer to "the
 Adaptive Runtime is supposed to be conscious." Explicitly gated by the
 HCA doc itself on Stage B (a workspace to bid into) and Stage G
 (`learn()`) — both done as of Phase 3/Phase 1:
-1. `H1` — the `WORLD`/`MACHINE`/`OBSERVER` domain type, mechanically
-   enforced via an AST check extending `scripts/verify_runtime_
-   invariant.py`.
-2. `H2` — the Adaptive Runtime reinterpreted as a real specialist
-   family: `B8`=`predict()`/`error()`, `B5`=`observe()`, `B15`'s
-   escalation ladder converted from a unilateral actor into a real
-   `bid()`, `B13`'s hypothesis loop as its `learn()`. Depends on `H1`
-   existing to tag its domain.
-3. `H3` — cross-domain isolation (a MACHINE broadcast reaches the
-   WORLD mind's L5 and the Observatory only, never a settlement's own
-   belief formation). Depends on `H1`/`H2`.
+1. [x] `H1` — SHIPPED, v1.34.230. The `WORLD`/`MACHINE`/`OBSERVER`
+   domain type, mechanically enforced via `check_domain_write_scope()`
+   extending `scripts/verify_runtime_invariant.py`.
+2. [x] `H2` — SHIPPED, v1.34.235 (explicit user instruction: "Start
+   H2"). The Adaptive Runtime reinterpreted as a real specialist
+   family, all five real production modules carrying `SPECIALIST_
+   DOMAIN = Domain.MACHINE`: `B8` (`hearthmind.simulation.forecasting`)
+   = `predict()`/`error()`, `B5` (`hearthmind.simulation.profiling`) =
+   `observe()`, `B13` (`hearthmind.simulation.optimization_hypothesis`)
+   = `learn()`, and new `hearthmind.cognition.runtime_specialist.
+   propose_escalation_bid` = the one real gap this item existed to
+   close, `bid()` — `B15`'s `EscalationLadder` (`hearthmind.
+   simulation.escalation`) previously mutated `SimulationEngine.
+   _escalation_ladder`/`_cognition_budget` unilaterally with no
+   arbitration; `SimulationEngine._maybe_advance_escalation_ladder`
+   now builds a real `Bid` and submits it to a dedicated `self.
+   _machine_workspace` (a `GlobalWorkspace` never shared with any
+   WORLD-domain workspace, per "domains never compete for each other's
+   budget"), only invoking the winner's resolver once `arbitrate()`
+   names it — a real coalition-of-one today (nothing else bids into
+   this workspace yet), provably behavior-preserving by construction,
+   same reasoning every W1-W4/H1 site already used. Surfaced via
+   `full_diagnostics()['machine_domain']` (dev-console/Observatory-
+   only, per H3). **Flagged deviation from H1's own stated rule**
+   ("MACHINE may write ONLY tunables"): the resolver still mutates
+   `SimulationEngine._escalation_ladder`/`_cognition_budget` directly,
+   not a real `TunableRegistry` entry — this subsystem predates H1's
+   domain framework, and migrating its storage onto a real tunable is
+   real, distinct, larger future work, not attempted this pass. What
+   IS verified now: the resolver never touches `hearthmind.world`/
+   `Settlement`/`Agent` state at all (H3's own proof, below).
+3. [x] `H3` — SHIPPED, v1.34.235, same batch as `H2`. Cross-domain
+   isolation, verified three ways in `scripts/verify_h2_h3_runtime_
+   domain.py`: a real before/after `World.to_dict()` diff around a
+   forced-pressured `_maybe_advance_escalation_ladder()` call proves
+   ZERO world-state change; `self._machine_workspace` is structurally
+   distinct (never the same object) from every WORLD-domain workspace
+   (`_w2_workspaces`/`_w3_workspaces`/`_naming_workspace`/`_pillar_
+   buses`); and an AST scan of `_send_pillar_message` (the real
+   WORLD-domain messaging arrow) confirms it never references `_machine_
+   workspace` — a MACHINE bid genuinely cannot flow into a settlement's
+   own belief formation.
 4. `H4` — the Player Model as an OBSERVER-domain specialist,
    read-only, explicitly distinct from the Town Consciousness's own
    interventions (which stay exactly as they are). Only needs `H1`'s
-   domain type to exist — independent of `H2`/`H3` otherwise, could run
-   in parallel with them.
-   *Stage H fully closes here. Ships: the Runtime's own scheduling
-   decisions visible in the workspace log as real bids that won against
-   named losers — legible for the first time, mechanically incapable of
-   quietly overruling the world it serves.*
+   domain type to exist — independent of `H2`/`H3`, now shipped —
+   could have run in parallel, didn't need to. The one remaining item
+   before Stage H closes in full.
+   *Stage H fully closes once `H4` ships. Ships: the Runtime's own
+   scheduling decisions visible in the workspace log as real bids that
+   won against named losers — legible for the first time, mechanically
+   incapable of quietly overruling the world it serves.*
 
 **Phase 5 — HCA Stage C: impasse-gated deliberation + chunking
 (`C1`→`C2`→`C3`).** Needs Phase 3's real arbitrated workspace to detect

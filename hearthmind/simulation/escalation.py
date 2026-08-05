@@ -44,6 +44,21 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
+from hearthmind.cognition.workspace import Domain
+
+SPECIALIST_DOMAIN = Domain.MACHINE
+"""Tier 7 HCA Stage H, H2 (explicit user instruction: "Start H2"):
+this module is one real specialist in the Adaptive Runtime's MACHINE-
+domain family -- `EscalationLadder` is B15's `bid()` (see `hearthmind.
+cognition.runtime_specialist.propose_escalation_bid`, the module that
+actually wraps a real decision into a `Bid`). The marker alone is what
+makes `scripts/verify_runtime_invariant.py`'s `check_domain_write_
+scope()` real for the first time in production: this file already
+imports nothing from `hearthmind.world`/`.agents`/`.settlement`/
+`.economy` (true since it first shipped, B15), so it passes clean --
+H1's "no real MACHINE module exists in production yet" gap closes
+here, not by relaxing the check."""
+
 SUSTAINED_PRESSURE_THRESHOLD = 5
 
 

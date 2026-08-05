@@ -51,7 +51,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
+from hearthmind.cognition.workspace import Domain
 from hearthmind.simulation.tuning import SafetyClass, TunableRegistry
+
+SPECIALIST_DOMAIN = Domain.MACHINE
+"""Tier 7 HCA Stage H, H2: `HypothesisLoop` is the Adaptive Runtime
+specialist family's real `learn()` (see `hearthmind.cognition.
+runtime_specialist`'s own module docstring for the full family
+mapping) -- this file already imports nothing from `hearthmind.world`/
+`.agents`/`.settlement`/`.economy`, so the marker alone makes `scripts/
+verify_runtime_invariant.py`'s write-scope check real against this
+real production module."""
 
 
 class CrossAuthorityError(Exception):

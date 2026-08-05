@@ -4,6 +4,100 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.235] — Tier 7 HCA Stage H, H2+H3: the Adaptive Runtime as a real MACHINE-domain specialist family, cross-domain isolation verified
+
+Explicit user instructions, in one batch: "Start H3" / "Start H2" (H2
+first, since H3 explicitly depends on it).
+
+**H2.** Four pre-existing Adaptive Runtime modules (`hearthmind.
+simulation.escalation`/`.forecasting`/`.profiling`/`.optimization_
+hypothesis`) each gained `SPECIALIST_DOMAIN = Domain.MACHINE` — a
+real, mechanically-checked claim (`scripts/verify_runtime_
+invariant.py`'s `check_domain_write_scope()`, shipped at H1), not a
+decorative label; all four already imported nothing from
+`hearthmind.world`/`.agents`/`.settlement`/`.economy`, so the tree
+stays clean under the new markers. Together they close the honest gap
+CLAUDE.md's own HCA section already named: the Adaptive Runtime
+already implemented four of L1's five specialist methods under other
+names (B8=`predict()`/`error()`, B5=`observe()`, B13=`learn()`) but
+had no real `bid()` — B15's `EscalationLadder` unilaterally mutated
+engine state with no arbitration, no competition, and no legible
+record anywhere a person could watch.
+
+New `hearthmind/cognition/runtime_specialist.py`
+(`SPECIALIST_DOMAIN = Domain.MACHINE`, zero world/agent/settlement/
+economy imports): `propose_escalation_bid(tick, resolver)` is the
+real fix — the ladder's decision becomes a real `Bid` (`specialist_
+id="adaptive_runtime"`, `subject="escalation_ladder"`, flat
+`score=1.0` since nothing else bids into this workspace yet).
+`SimulationEngine` gained a dedicated `self._machine_workspace`
+(a `GlobalWorkspace`), deliberately separate from every WORLD-domain
+workspace (`_w2_workspaces`/`_w3_workspaces`/`_naming_workspace`/
+`_pillar_buses`) per H1's own "domains never compete for each other's
+budget" rule. `_maybe_advance_escalation_ladder` no longer mutates
+`self._escalation_ladder`/`_cognition_budget` directly — it builds a
+resolver closure, submits a bid via `runtime_specialist.propose_
+escalation_bid`, arbitrates, and only invokes the winner's resolver.
+Provably behavior-preserving by construction: a coalition-of-one
+workspace's `arbitrate()` always returns the sole bid, the identical
+"ships the interface, wire the first real consumer, prove it's a
+no-op today" discipline every W1-W4/H1 site in this codebase already
+used. Surfaced via `full_diagnostics()['machine_domain']` (dev-
+console/Observatory-only, per H3) — the real cycle count and the
+newest winner/losers per cycle.
+
+**Flagged, explicit deviation from H1's own stated rule** ("MACHINE
+may write ONLY tunables — see `simulation/tuning.py`'s
+`TunableRegistry`"): the winning bid's resolver still mutates
+`SimulationEngine._escalation_ladder`/`_cognition_budget` directly,
+not a real `TunableRegistry` entry — this subsystem predates H1's
+domain framework, and migrating its storage onto a real tunable (so
+the rule holds literally, not just in spirit) is real, distinct,
+larger future work, not attempted this pass. What IS real and
+verified now: the resolver never touches `hearthmind.world`/
+`Settlement`/`Agent` state at all — H3's own proof, below.
+
+**H3.** Cross-domain isolation, verified three ways in new `scripts/
+verify_h2_h3_runtime_domain.py`: (1) a real before/after
+`World.to_dict()` diff around a forced-pressured `_maybe_advance_
+escalation_ladder()` call (backpressure limit/backlog monkeypatched
+to force `pressured=True`) proves ZERO world-state change — only
+engine-level `_escalation_ladder`/`_cognition_budget` moves; (2)
+`self._machine_workspace` is confirmed structurally distinct (never
+the same object, never a value inside) from every WORLD-domain
+workspace container; (3) an AST scan of `_send_pillar_message` (the
+real WORLD-domain messaging arrow) confirms it never references
+`_machine_workspace` — a MACHINE bid genuinely cannot flow into a
+settlement's own belief formation, "cross-domain content flows only
+through L5" holding as more than a stated rule.
+
+New `scripts/verify_h2_h3_runtime_domain.py` (22 checks — all five
+modules' real `SPECIALIST_DOMAIN` markers; the real tree stays clean
+under `check_domain_write_scope()`; `propose_escalation_bid`'s own
+contract; a solo-bidder `GlobalWorkspace` resolving every real cycle,
+same provably-behavior-preserving proof every W1-W4 site already
+used; `SimulationEngine._machine_workspace`'s real construction and
+distinctness from every WORLD-domain workspace; a real `day_end` call
+genuinely advancing the machine workspace's cycle counter and
+recording a real winner; a non-`day_end` call as a genuine no-op; the
+H3 world-state-isolation proof under real forced pressure; the
+cross-domain-content AST proof; `full_diagnostics()` surfacing real
+`machine_domain` state) — all pass, first run, no bug found in the
+module under test.
+
+Verified: the new script (22 checks); `verify_b1_global_workspace.py`
+through `verify_b7_learned_bidding.py`, `verify_phase35_w1_naming_
+workspace.py`, `verify_h1_cognitive_domains.py`, `verify_w2_batch1_
+narrative_jobs.py`, `verify_w2_batch2_full_sweep.py`, `verify_w3_
+settlement_scoped_workspaces.py`, `verify_w4_pillar_bus_migration.py`
+re-run clean; `pyflakes` clean on all touched/new files (only the six
+known pre-existing forward-ref findings in `engine.py`); `scripts/
+verify_replay_hash.py` (800 ticks, seed 777, `--in-process`) — MATCH,
+byte-identical; `scripts/verify_native_soak.py` (seeds 1/55, 800
+ticks) — MATCH. `H4` (the Player Model as an OBSERVER-domain
+specialist, independent of H2/H3) is the last open Stage H item —
+resume only on future explicit direction.
+
 ## [1.34.234] — Phase 3.5 W4: `_send_pillar_message` migrated onto real `PillarBus` subscriptions (Phase 3.5 closed in full)
 
 Explicit user instruction: "Complete W4."

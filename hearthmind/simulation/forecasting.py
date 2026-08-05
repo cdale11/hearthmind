@@ -30,8 +30,18 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 
+from hearthmind.cognition.workspace import Domain
 from hearthmind.ml.encoder import FeatureEncoder, FeatureSchema
 from hearthmind.ml.primitives import MLP
+
+SPECIALIST_DOMAIN = Domain.MACHINE
+"""Tier 7 HCA Stage H, H2: `WorkloadForecaster`/`ForecastAccuracyTracker`
+are the Adaptive Runtime specialist family's real `predict()`/`error()`
+(see `hearthmind.cognition.runtime_specialist`'s own module docstring
+for the full family mapping) -- this file already imports nothing from
+`hearthmind.world`/`.agents`/`.settlement`/`.economy`, so the marker
+alone makes `scripts/verify_runtime_invariant.py`'s write-scope check
+real against this real production module."""
 from hearthmind.ml.training import TrainingExample, mean_loss, train_mlp_sgd
 
 # B8.1's feature schema: the item's own three named trigger examples

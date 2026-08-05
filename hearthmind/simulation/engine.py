@@ -99,6 +99,7 @@ from hearthmind.world import spatial_memory
 from hearthmind.world import culture_aggregate
 from hearthmind.cognition import attention
 from hearthmind.cognition.pillar import make_message
+from hearthmind.cognition import runtime_specialist
 from hearthmind.cognition.surprise import SurpriseSpecialist
 from hearthmind.cognition.workspace import Bid, GlobalWorkspace, PillarBus
 from hearthmind.world.disasters import FLOOD_PRESSURE_THRESHOLD, GOVERNOR_TUNING_BAND, HEATWAVE_PRESSURE_THRESHOLD, WILDFIRE_CHANCE_PER_WEEK
@@ -2218,6 +2219,23 @@ class SimulationEngine:
         self._escalation_ladder = EscalationLadder()
         self._cognition_budget = CognitionBudget(count=ESCALATION_COGNITION_BASE_BUDGET)
 
+        self._machine_workspace = GlobalWorkspace()
+        """Tier 7 HCA Stage H, H2 (docs/ROADMAP-2026-07-REMAINING.md,
+        Phase 4, explicit user instruction "Start H2"): a dedicated
+        MACHINE-domain `GlobalWorkspace`, deliberately SEPARATE from
+        every WORLD-domain workspace (`_w2_workspaces`/`_w3_workspaces`/
+        `_naming_workspace`/`_pillar_buses`) -- per H1's own "domains
+        never compete for each other's budget" rule, a MACHINE bid must
+        never land in the same arbitration pool as a WORLD bid. `_maybe_
+        advance_escalation_ladder` is the one real bidder today (see
+        `hearthmind.cognition.runtime_specialist.propose_escalation_
+        bid`); a future second MACHINE specialist naming the same
+        subject would genuinely compete here. Surfaced via `full_
+        diagnostics()['machine_domain']` -- dev-console/Observatory-only,
+        per H3's own cross-domain isolation rule (a MACHINE broadcast
+        reaches the Observatory, never a settlement's own belief
+        formation -- see `scripts/verify_h2_h3_runtime_domain.py`)."""
+
         self._reserved_this_tick = 0
         """Jobs actually scheduled (a task created) so far THIS tick,
         reset to 0 at the top of every `_tick_once`. `CognitionRunner.
@@ -4294,16 +4312,41 @@ class SimulationEngine:
         _cognition_budget` for `_schedule_due_cognition`'s per-tick
         consumption — a real change is only ever visible once rung 5
         (`REDUCE_COGNITION_BREADTH`) is actually reached, per B15.4's
-        own "only rung 5 does real, visible work" framing."""
+        own "only rung 5 does real, visible work" framing.
+
+        Tier 7 HCA Stage H, H2 (explicit user instruction "Start H2"):
+        the actual mutation below no longer happens unconditionally —
+        it's now the `resolver` behind a real `Bid`
+        (`hearthmind.cognition.runtime_specialist.propose_escalation_
+        bid`), submitted to `self._machine_workspace` (a dedicated
+        MACHINE-domain workspace, never shared with a WORLD-domain
+        one) and only invoked once `arbitrate()` names it the winner.
+        Since nothing else bids into this workspace today, this is a
+        real coalition-of-one — `arbitrate()`'s own `max()` always
+        returns this sole bid, so the resolver fires on every call
+        exactly as before; a future second MACHINE specialist naming
+        this same subject would now genuinely compete for it instead
+        of racing an inline write. Provably behavior-preserving by
+        construction, same reasoning every W1-W4/H1 site in this
+        codebase already established."""
         if "day_end" not in events:
             return
         pressured = self.llm_pressure_ratio() >= self._pacing_tunable(
             "llm_pressure_slowdown_start_ratio", LLM_PRESSURE_SLOWDOWN_START_RATIO,
         )
-        self._escalation_ladder.observe(self.world.clock.tick_count, pressured)
-        self._cognition_budget = self._escalation_ladder.cognition_budget_for_rung(
-            ESCALATION_COGNITION_BASE_BUDGET, ESCALATION_COGNITION_REDUCED_BUDGET,
-        )
+        tick = self.world.clock.tick_count
+
+        def resolver(pressured: bool = pressured, tick: int = tick) -> None:
+            self._escalation_ladder.observe(tick, pressured)
+            self._cognition_budget = self._escalation_ladder.cognition_budget_for_rung(
+                ESCALATION_COGNITION_BASE_BUDGET, ESCALATION_COGNITION_REDUCED_BUDGET,
+            )
+
+        bid = runtime_specialist.propose_escalation_bid(tick, resolver)
+        self._machine_workspace.submit(bid)
+        winner = self._machine_workspace.arbitrate()
+        if winner is not None:
+            winner.resolver()
 
     def llm_pressure_ratio(self) -> float:
         """`_effective_backlog() / _current_backpressure_limit()` — 1.0
@@ -16416,6 +16459,34 @@ class SimulationEngine:
                         "reason": event.reason,
                     }
                     for event in self._escalation_ladder.history[-10:]
+                ],
+            },
+            # Tier 7 HCA Stage H, H2: `self._machine_workspace`'s own
+            # real arbitration history — dev-console/Observatory-only,
+            # per H3's cross-domain isolation rule (a MACHINE broadcast
+            # reaches here, never a settlement's own belief formation).
+            # `cycles` is the workspace's own cycle counter (advances
+            # once per real `arbitrate()` call, i.e. once per real
+            # `day_end`); `history_recent` names the real winner and
+            # every real loser per cycle — today always a coalition of
+            # one (`adaptive_runtime`/`escalation_ladder`), since no
+            # second MACHINE specialist bids yet, but the shape is
+            # already real arbitration, not a placeholder.
+            "machine_domain": {
+                "cycles": self._machine_workspace._cycle,
+                "history_recent": [
+                    {
+                        "cycle": record.cycle,
+                        "winner": (
+                            {"specialist_id": record.winner.specialist_id, "subject": record.winner.subject}
+                            if record.winner is not None else None
+                        ),
+                        "losers": [
+                            {"specialist_id": loser.specialist_id, "subject": loser.subject}
+                            for loser in record.losers
+                        ],
+                    }
+                    for record in self._machine_workspace.history[-10:]
                 ],
             },
             # Tier 5 B12's real first consumer — the emergence-log

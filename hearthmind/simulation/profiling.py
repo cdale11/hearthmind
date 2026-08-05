@@ -24,6 +24,17 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 
+from hearthmind.cognition.workspace import Domain
+
+SPECIALIST_DOMAIN = Domain.MACHINE
+"""Tier 7 HCA Stage H, H2: `TaskMetrics` is the Adaptive Runtime
+specialist family's real `observe()` (see `hearthmind.cognition.
+runtime_specialist`'s own module docstring for the full family
+mapping) -- this file already imports nothing from `hearthmind.world`/
+`.agents`/`.settlement`/`.economy`, so the marker alone makes `scripts/
+verify_runtime_invariant.py`'s write-scope check real against this
+real production module."""
+
 # B5.1: "ring-buffer aggregates, not raw logs" — bounds memory
 # regardless of run length. 200 samples is enough for p50/p95-style
 # eyeballing without ever growing unbounded.

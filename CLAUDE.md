@@ -742,6 +742,78 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.235)
+
+Explicit user instructions: "Start H3" / "Start H2" — H2 first, since
+H3 explicitly depends on it, per Phase 4's own dependency order.
+
+**H2.** The Adaptive Runtime, reinterpreted as a real MACHINE-domain
+specialist family. Four pre-existing modules (`hearthmind.simulation.
+escalation`/`.forecasting`/`.profiling`/`.optimization_hypothesis`)
+each gained `SPECIALIST_DOMAIN = Domain.MACHINE` (H1's own real,
+mechanically-checked marker — `scripts/verify_runtime_invariant.py`'s
+`check_domain_write_scope()`, not decorative) — closing the honest
+gap already recorded in the HCA section above: the Runtime already
+implemented `predict()`/`error()` (B8), `observe()` (B5), `learn()`
+(B13) under other names, but had no real `bid()` — `EscalationLadder`
+unilaterally mutated engine state with no arbitration, no
+competition, and no legible record anywhere a person could watch.
+
+New `hearthmind/cognition/runtime_specialist.py`'s `propose_
+escalation_bid(tick, resolver)` is the real fix: the ladder's
+decision becomes a real `Bid` (`specialist_id="adaptive_runtime"`,
+`subject="escalation_ladder"`). New `SimulationEngine._machine_
+workspace` (a dedicated `GlobalWorkspace`, deliberately separate from
+every WORLD-domain workspace per "domains never compete for each
+other's budget"). `_maybe_advance_escalation_ladder` no longer
+mutates `_escalation_ladder`/`_cognition_budget` directly — it
+submits a bid, arbitrates, and only invokes the winner's resolver.
+Provably behavior-preserving by construction (a coalition-of-one
+workspace always returns its sole bid), the identical discipline
+every W1-W4/H1 site already used. Surfaced via `full_diagnostics()
+['machine_domain']` (dev-console/Observatory-only, per H3).
+
+**Flagged, explicit deviation from H1's own rule** ("MACHINE may
+write ONLY tunables"): the resolver still mutates `_escalation_
+ladder`/`_cognition_budget` directly, not a real `TunableRegistry`
+entry — this subsystem predates H1's domain framework; migrating its
+storage onto a real tunable is real, distinct future work, not
+attempted this pass. What's real and verified now: the resolver never
+touches `hearthmind.world`/`Settlement`/`Agent` state at all.
+
+**H3.** Cross-domain isolation, verified three ways: a real before/
+after `World.to_dict()` diff around a forced-pressured escalation-
+ladder call proves ZERO world-state change; `self._machine_
+workspace` is confirmed structurally distinct from every WORLD-domain
+workspace container; an AST scan of `_send_pillar_message` (the real
+WORLD-domain messaging arrow) confirms it never references `_machine_
+workspace` — a MACHINE bid genuinely cannot flow into a settlement's
+own belief formation.
+
+New `scripts/verify_h2_h3_runtime_domain.py` (22 checks — every
+module's real domain marker; the real tree stays clean under `check_
+domain_write_scope()`; `propose_escalation_bid`'s own contract; a
+solo-bidder workspace resolving every real cycle; `_machine_
+workspace`'s real construction/distinctness; a real `day_end` call
+genuinely advancing the workspace and recording a real winner; a
+non-`day_end` call as a genuine no-op; the H3 world-state-isolation
+proof under real forced pressure; the cross-domain-content AST proof;
+real `full_diagnostics()` surfacing) — all pass, first run, no bug
+found.
+
+Verified: the new script (22 checks); `verify_b1_global_workspace.py`
+through `verify_b7_learned_bidding.py`, `verify_phase35_w1_naming_
+workspace.py`, `verify_h1_cognitive_domains.py`, `verify_w2_batch1_
+narrative_jobs.py`, `verify_w2_batch2_full_sweep.py`, `verify_w3_
+settlement_scoped_workspaces.py`, `verify_w4_pillar_bus_migration.py`
+re-run clean; `pyflakes` clean on all touched/new files (only the six
+known pre-existing forward-ref findings in `engine.py`); `scripts/
+verify_replay_hash.py` (800 ticks, seed 777, `--in-process`) — MATCH,
+byte-identical; `scripts/verify_native_soak.py` (seeds 1/55, 800
+ticks) — MATCH. `H4` (the Player Model as an OBSERVER-domain
+specialist, independent of H2/H3) is the last open Stage H item —
+resume only on future explicit direction.
+
 ## Current state (v1.34.234)
 
 Explicit user instruction: "Complete W4." B3's ~29 (real count 26)
