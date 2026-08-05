@@ -433,6 +433,7 @@ devFullReportBtn.addEventListener("click", async () => {
     renderConcurrencyHypothesisResult(report.engine && report.engine.llm_concurrency_hypothesis);
     renderAdaptiveRuntimeStatus(report.engine);
     renderLearningSpecialistCurve(report.engine);
+    renderWorkspaceActivity(report.engine);
     try {
       await navigator.clipboard.writeText(text);
       devReportStatus.textContent = "copied to clipboard";
@@ -594,6 +595,36 @@ ${spikeIdx >= 0 ? `Regime-change spike detected at tick ${history[spikeIdx].tick
 Most recent cycles (newest first)
 ------------------------------------
 ${recentLines.join("\n")}`;
+}
+
+// Tier 7 HCA E2 ("workspace contents and the losing coalitions"),
+// v1.34.243. Same plain-formatted-text presentation discipline as the
+// two panels above — no new backend mechanism, naming_workspace_
+// activity is a pure read of engine.py's own already-real GlobalWorkspace
+// history (`hearthmind.cognition.observatory.workspace_snapshot`).
+function renderWorkspaceActivity(engineReport) {
+  const el = document.getElementById("workspace-activity-content");
+  if (!el || !engineReport) return;
+  const cycles = engineReport.naming_workspace_activity || [];
+  if (!cycles.length) {
+    el.textContent = "no real arbitration cycle has run yet";
+    return;
+  }
+
+  const lines = cycles.slice().reverse().map((c) => {
+    const winner = c.winner
+      ? `${c.winner.specialist_id} → "${c.winner.subject}" (score ${c.winner.score})`
+      : "(no winner — empty cycle)";
+    const losers = c.losers.length
+      ? c.losers.map((l) => `    lost: ${l.specialist_id} → "${l.subject}" (score ${l.score})`).join("\n")
+      : "    (no losing bids this cycle — coalition of one)";
+    return `cycle ${c.cycle}: ${winner}\n${losers}`;
+  });
+
+  el.textContent =
+`Real arbitration cycles from self._naming_workspace (newest first)
+----------------------------------------------------------------------
+${lines.join("\n")}`;
 }
 
 concurrencyHypothesisRunBtn?.addEventListener("click", async () => {

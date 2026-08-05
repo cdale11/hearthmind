@@ -98,6 +98,7 @@ from hearthmind.world import legends
 from hearthmind.world import spatial_memory
 from hearthmind.world import culture_aggregate
 from hearthmind.cognition import attention
+from hearthmind.cognition.observatory import workspace_snapshot
 from hearthmind.cognition.pillar import make_message
 from hearthmind.cognition import runtime_specialist
 from hearthmind.cognition.player_model import PlayerAttentionModel, predict_next_focus, propose_player_model_bid
@@ -16232,6 +16233,17 @@ class SimulationEngine:
                 # full 200-entry deque stays in-memory, never persisted.
                 "error_history_recent": list(self._workload_specialist.error_history)[-40:],
             },
+            # Tier 7 HCA E2 ("workspace contents and the losing
+            # coalitions"), v1.34.243. `self._naming_workspace` is W1's
+            # own real production pilot (v1.34.230) -- the longest-
+            # running real `GlobalWorkspace` in this codebase, real
+            # `CompetitionRecord`s every real firing. See `hearthmind.
+            # cognition.observatory`'s own docstring for the honest
+            # caveat: every real production workspace today is a
+            # coalition-of-one (submit-then-immediately-arbitrate), so
+            # `losers` reads empty until Phase 8's real multi-bid wiring
+            # lands -- this panel is real and live regardless.
+            "naming_workspace_activity": workspace_snapshot(self._naming_workspace, recent=20),
             # Tier 5 B2's real control point (see `BROADCAST_SUBSYSTEM_
             # BUDGET_SECONDS`'s docstring): real, never-silently-reset
             # overrun debt for the one job B2 actually schedules today —

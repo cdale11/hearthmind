@@ -742,6 +742,69 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.243)
+
+Explicit user instruction: "Start E2" — Stage E's second item,
+directly following E1 (v1.34.242).
+
+**E2.** Workspace contents + the losing coalitions panel — the
+deliberate GWT correction over a plain priority queue (§2.10/§3.3):
+"workspace contents AND the losing coalitions." Unlike Stage C, this
+one had real production data to show from day one: B1's
+`GlobalWorkspace` has been wired into ~54 real `_schedule_llm_job`
+call sites since Phase 3.5 (`W1`-`W4`); every real firing already
+appends a real `CompetitionRecord` to a real, bounded `GlobalWorkspace.
+history`. New `hearthmind/cognition/observatory.py`'s `describe_bid`/
+`describe_competition`/`workspace_snapshot` — pure presentation over
+that already-real state, same "rendering pass over already-real
+backend state, not a new mechanism" shape E5 used for `WorkloadForecaster.
+error_history`.
+
+Honest limitation, stated up front in the new module's own docstring:
+every one of those ~54 production sites is, by W1/W2/W3's own
+docstrings, a real "coalition of one" (submit-then-immediately-
+arbitrate at each call site), so `CompetitionRecord.losers` is always
+empty in production TODAY — the panel is real and genuinely wired, it
+just has nothing to lose against yet. Closing this gap for real is the
+newly-added roadmap Phase 8's own job; `describe_competition`/
+`workspace_snapshot` make no assumption about coalition size, so they
+need no change once a real multi-bid cycle exists.
+
+`full_diagnostics()` gained `naming_workspace_activity` — `workspace_
+snapshot(self._naming_workspace, recent=20)`, the real history of
+W1's own production pilot workspace (the longest-running real
+`GlobalWorkspace` in this codebase). New dev-console "HCA E2:
+workspace activity" panel (`renderWorkspaceActivity`, `app.js`), same
+plain-formatted-text presentation discipline `renderAdaptiveRuntime
+Status`/`renderLearningSpecialistCurve` already established — winner
+and every losing bid per cycle, newest first, an honest "(no losing
+bids this cycle — coalition of one)" line when `losers` is empty
+rather than hiding the field.
+
+New `scripts/verify_e2_workspace_activity.py` (9 checks — `describe_
+bid`'s verbatim field mapping; `describe_competition`'s real empty-
+cycle case and a genuine hand-built multi-bid cycle proving losers ARE
+captured correctly when they exist; `workspace_snapshot`'s bounded/
+ordered real-history read incl. the empty-workspace case; an end-to-
+end proof through a real `SimulationEngine` — the exact `_make_engine`/
+`FakeAdapter` technique `verify_phase35_w1_naming_workspace.py`
+already established — confirming `full_diagnostics()['naming_
+workspace_activity']` genuinely reflects a real production naming
+cycle, including the honest zero-losers shape) — all pass, first run,
+no bug found.
+
+Verified: the new script (9 checks); `verify_phase35_w1_naming_
+workspace.py`/`verify_e1_explain_cycle.py`/`verify_runtime_invariant.py`
+re-run clean (unaffected); `node --check` clean on `app.js`; `pyflakes`
+clean on all touched/new files (only the six known pre-existing
+forward-ref findings in `engine.py`); a real engine-level check
+confirming `full_diagnostics()['naming_workspace_activity']` is
+present and correctly empty before any real cycle. No persisted
+`World`/`Agent` schema or tick-loop logic changed (`full_diagnostics()`
+is a pure read-only diagnostics report) — no replay-hash/native-soak
+re-run needed. `E3`-`E6` remain the open Stage E items — resume only
+on future explicit direction naming a specific item.
+
 ## Current state (v1.34.242)
 
 Explicit user instruction: "Start phase 7 E1" — HCA Stage E's first
