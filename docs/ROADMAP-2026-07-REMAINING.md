@@ -3650,37 +3650,101 @@ consulted by a live job, so there is no genuine per-cycle `Impasse`/
 every "not wired into production" note across Stage C (and, by
 extension, E1's own "no dev-console UI wired yet" note) actually
 resolve, not just a documentation gap this doc keeps repeating.
-1. **Pilot.** Pick ONE low-risk, high-volume ambient `_schedule_llm_
-   job` call site (same "first pilot, then a sweep" shape B0.3/W1-W4
-   already used elsewhere in this codebase — never big-bang). Wrap its
-   existing scheduling decision in a real `Impasse` classification (one
-   of C1's four `detect_*` functions, backed by whatever real signal
-   that job already has in scope) and route it through C3's `dispatch_
-   impasse` instead of unconditionally calling the LLM — a chunk hit or
-   model resolution short-circuits the call entirely; only a genuine
-   novel impasse reaches the LLM, whose result then compiles a new
-   chunk via C2's `ChunkStore`. *Test:* C3's own stated bar (">30% of
-   real cycles resolve without an LLM call"), measured live over a real
-   multi-thousand-tick soak on the pilot job specifically — not
-   re-asserted from the synthetic soak `verify_c3_dispatch.py` already
-   proved, a genuinely new, live measurement.
-2. **E1 goes live.** Once the pilot job produces real `Impasse`/
+1. [x] **Pilot — SHIPPED, v1.34.247.** Picked `SimulationEngine._maybe_
+   schedule_musing` (Reflection's daily ambient-narration job, Vision
+   doc item 3.4) as the pilot — chosen over `_maybe_schedule_laws`
+   (real Body-mechanical consequences, high stakes, complex 14-way
+   candidate selection) and `_maybe_schedule_rule_proposal` (season_end
+   cadence, low real volume, touches the sandboxed trigger-rule
+   registration path) for being genuinely low-risk (pure ambient
+   texture, zero mechanical consequence, a real deterministic-fallback-
+   free "just don't muse this cycle" degrade already existed), high-
+   volume (daily cadence), and because `_musing_subject()`'s own kind+
+   text (the newest OPEN `reflection_notebook` hypothesis, or the
+   newest `knowledge_tree()` entry) is a genuine, already-in-scope
+   "same subject recurring" signal matching C1's `detect_no_change`
+   shape exactly — directly the HCA doc's own worked example ("family
+   lines dying out, 590 occurrences, no rule").
+
+   New `SimulationEngine._musing_chunk_store` (a real `ChunkStore`,
+   runtime-only, never persisted — same "re-baselines on restart"
+   discipline every other runtime-only Stage/Tier state in this
+   codebase already uses), `_musing_last_subject_key`/`_musing_no_
+   change_streak` (a single scalar streak, not a per-subject dict —
+   only one subject is ever "current" for this job). New constant
+   `MUSING_NO_CHANGE_STREAK_THRESHOLD = 2` (a reasoned starting point,
+   no live archive yet to tune against). Each real `day_end` firing:
+   computes the real subject's key, updates the streak (resets to 0 on
+   any real subject change), classifies `detect_no_change(subject_key,
+   streak, MUSING_NO_CHANGE_STREAK_THRESHOLD)` — below threshold
+   dispatches directly (byte-identical to the pre-Phase-8 code path);
+   at/above threshold routes through C3's `dispatch_impasse`, whose
+   sole tier is a synchronous closure (`schedule_musing`) that kicks
+   off the real async `_submit_and_resolve`/`_schedule_llm_job` call
+   exactly as before and returns an honest, never-fabricated `{
+   "scheduled": bool, "tick": int}` receipt as the "resolution" —
+   never fake musing content, since C3's own contract needs a
+   synchronous return value but this codebase's real LLM calls are
+   fire-and-forget async by hard rule (Tick loop workflow rule above).
+   A chunk hit on a genuinely stagnant subject skips the real call
+   entirely — no musing produced that day, honestly, not silently.
+
+   New `scripts/verify_phase8_musing_pilot.py` (13 checks — C1's
+   `detect_no_change` at this pilot's own real threshold boundary; a
+   real `SimulationEngine` driven day-by-day through real `day_end`
+   boundaries with a genuine static open hypothesis seeded via
+   `reflection_notebook` — days 1-2 (streak below threshold) dispatch
+   directly and produce a real musing every time; day 3 (streak first
+   crosses threshold, no chunk yet) still produces a real musing AND
+   is the real first LLM-tier dispatch that compiles a real chunk; day
+   4 (identical stagnant subject) hits the real chunk, produces NO new
+   musing, and records a real hit; a genuine subject change resets the
+   streak and resumes direct scheduling immediately even with a
+   populated chunk store; C3's own stated live-soak bar — a real
+   40-day soak on a genuinely static subject — measured 92.5% of real
+   opportunities resolved without reaching the LLM, well past the
+   stated >30% bar) — all pass. One real test-harness bug caught and
+   fixed before shipping, not a bug in the production code: the first
+   draft drove `_maybe_schedule_musing` directly, bypassing the real
+   `_tick_once()` tick loop entirely, so `_reserved_this_tick` (a real,
+   already-shipped v0.81.0 same-tick reservation counter, reset only
+   at the top of a real `_tick_once()` call — see `_effective_
+   backlog()`'s own docstring) accumulated across every simulated
+   "day" instead of resetting, eventually tripping a false-positive
+   backpressure block from day 3 onward; fixed by resetting it in the
+   test harness's own `call_musing()` helper before each call, the
+   same reset a real tick would have performed.
+
+   Verified: the new script (13 checks); `pyflakes` clean on both
+   files (only the six known pre-existing forward-ref findings in
+   `engine.py`); `verify_c1_impasse.py`/`verify_c2_chunking.py`/
+   `verify_c3_dispatch.py`/`verify_runtime_invariant.py`/`verify_d2_
+   memory_kind.py` re-run clean (unaffected); `scripts/verify_replay_
+   hash.py` (800 ticks, seed 777, `--in-process`) — MATCH, byte-
+   identical; `scripts/verify_native_soak.py` (seeds 1/55, 800 ticks)
+   — MATCH (both required this pass — `simulation/engine.py`'s own
+   `__init__` and a real `_TICK_JOBS`-registered method's scheduling
+   logic both changed).
+2. [ ] **E1 goes live.** Once the pilot job produces real `Impasse`/
    `DispatchOutcome` pairs, wire `explain_cycle()`'s output into a real
    dev-console panel (or `/diagnostics` field) for that job specifically
    — the rendering-layer piece E1's own filing deferred, now unblocked.
-3. **Sweep.** Once the pilot's own real measured behavior confirms the
-   ladder helps (call volume genuinely drops, emergence quality holds —
-   the project's own headline falsification test, finally measurable
-   live), extend the same wrap-in-`Impasse`-classify-dispatch pattern to
-   further `_schedule_llm_job` call sites in one batch (never one at a
-   time, per this project's own standing "sweep once a pattern is
-   proven" instruction) rather than doling them out call-site by
-   call-site.
+   Not attempted this pass — resume only on future explicit direction.
+3. [ ] **Sweep.** Once the pilot's own real measured behavior confirms
+   the ladder helps (call volume genuinely drops, emergence quality
+   holds — the project's own headline falsification test, finally
+   measurable live), extend the same wrap-in-`Impasse`-classify-
+   dispatch pattern to further `_schedule_llm_job` call sites in one
+   batch (never one at a time, per this project's own standing "sweep
+   once a pattern is proven" instruction) rather than doling them out
+   call-site by call-site. Not attempted this pass — resume only on
+   future explicit direction.
 
-No step here is started — this phase exists to give the "wire C1-C3 to
-production" work a real place in the sequence instead of sitting as an
-undated flagged note, per explicit user request. Resume only on future
-explicit direction naming step 1.
+Step 1 (the Pilot) is shipped, v1.34.247 — C1-C3 now have a real
+production consumer for the first time, closing the "not wired into
+production" gap this phase exists to fix. Steps 2-3 remain open,
+same standing convention as every other phased item in this doc —
+resume only on future explicit direction naming a step.
 
 **Parallel, optional track — semantic embedding (does not block or get
 blocked by anything above).**

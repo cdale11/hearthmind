@@ -4,6 +4,67 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.247] — Tier 7 HCA Phase 8, step 1: the Pilot (Stage C goes live)
+
+Explicit user instruction: "Start phase 8" — Phase 8's first named
+step, wiring Stage C's chunk/dispatch ladder (C1's `Impasse`
+classifiers, C2's `ChunkStore`, C3's `dispatch_impasse`) into a real
+production `_schedule_llm_job` call site for the first time. Every
+prior Stage C/E filing had honestly flagged this as unattempted — C1
+through C3 shipped as real, tested, standalone primitives with no
+live production consumer.
+
+**Pilot.** `SimulationEngine._maybe_schedule_musing` (Reflection's
+daily ambient-narration job) is now the first real job to consult a
+genuine `Impasse`/`DispatchOutcome` pair every cycle. Chosen over
+`_maybe_schedule_laws` (real Body-mechanical consequences, high
+stakes) and `_maybe_schedule_rule_proposal` (season_end cadence, low
+volume, touches the sandboxed trigger-rule path) for being low-risk
+(pure ambient texture, zero mechanical consequence), high-volume
+(daily), and because `_musing_subject()`'s own kind+text already
+carries a genuine "same subject recurring" signal matching C1's
+`detect_no_change` shape exactly — the HCA doc's own worked example.
+
+New `SimulationEngine._musing_chunk_store` (a real `ChunkStore`,
+runtime-only), `_musing_last_subject_key`/`_musing_no_change_streak`,
+new constant `MUSING_NO_CHANGE_STREAK_THRESHOLD = 2`. Each real
+`day_end` firing now classifies `detect_no_change` against the
+subject's own real recurrence streak — below threshold dispatches
+directly (byte-identical to the pre-Phase-8 path); at/above threshold
+routes through `dispatch_impasse`, whose sole tier is a synchronous
+closure that kicks off the real async `_schedule_llm_job` call exactly
+as before and returns an honest `{"scheduled": bool, "tick": int}`
+receipt as the "resolution" (never fabricated musing content — C3's
+synchronous-return contract meets this codebase's real fire-and-forget
+async LLM calls via an honest scheduling receipt, not a lie). A chunk
+hit on a genuinely stagnant subject now skips the real call entirely.
+
+New `scripts/verify_phase8_musing_pilot.py` (13 checks — C1's
+threshold boundary; a real `SimulationEngine` driven day-by-day
+through real `day_end` boundaries with a genuine static open
+hypothesis, proving direct dispatch below threshold, the real first
+LLM-tier dispatch/chunk-compile at threshold, a real chunk hit with no
+new musing on a stagnant subject, and a real subject change resetting
+the streak; C3's own stated live-soak bar — a real 40-day soak on a
+static subject resolved 92.5% of real opportunities without reaching
+the LLM, well past the stated >30% bar) — all pass. One real test-
+harness bug caught and fixed before shipping, not a bug in production:
+the first draft drove `_maybe_schedule_musing` directly, bypassing the
+real `_tick_once()` tick loop, so `_reserved_this_tick` (reset only at
+the top of a real tick) accumulated across simulated days instead of
+resetting, tripping a false-positive backpressure block from day 3
+onward — fixed in the test harness, not the production code.
+
+Verified: the new script (13 checks); `pyflakes` clean (only the six
+known pre-existing forward-ref findings in `engine.py`); `verify_c1_
+impasse.py`/`verify_c2_chunking.py`/`verify_c3_dispatch.py`/`verify_
+runtime_invariant.py`/`verify_d2_memory_kind.py` re-run clean
+(unaffected); `scripts/verify_replay_hash.py` (800 ticks, seed 777,
+`--in-process`) — MATCH, byte-identical; `scripts/verify_native_
+soak.py` (seeds 1/55, 800 ticks) — MATCH. `E1 goes live` and `Sweep`
+(Phase 8's remaining two steps) stay open — resume only on future
+explicit direction.
+
 ## [1.34.246] — Tier 7 HCA Stage E, E6: the Machine surface (closes Stage E)
 
 Explicit user instruction: "Start E5" — E5 was already shipped

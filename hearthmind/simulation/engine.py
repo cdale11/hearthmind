@@ -98,6 +98,9 @@ from hearthmind.world import legends
 from hearthmind.world import spatial_memory
 from hearthmind.world import culture_aggregate
 from hearthmind.cognition import attention
+from hearthmind.cognition.chunk import ChunkStore
+from hearthmind.cognition.dispatch import dispatch_impasse
+from hearthmind.cognition.impasse import detect_no_change
 from hearthmind.cognition.observatory import (
     compute_deliberation_sample, describe_memory_activation, workspace_snapshot,
 )
@@ -653,6 +656,20 @@ MUSING_HISTORY_MAX = 60
 two months of daily lines, plenty for a UI scrollback, capped so a
 years-long world doesn't accumulate thousands of short strings for no
 consumer that reads more than the last handful."""
+
+MUSING_NO_CHANGE_STREAK_THRESHOLD = 2
+"""Tier 7 HCA Phase 8's pilot (docs/ROADMAP-2026-07-REMAINING.md,
+explicit user instruction "Start phase 8"): how many CONSECUTIVE real
+day_end musing opportunities must name the exact same real subject
+(`_musing_subject()`'s own kind+text) before `_maybe_schedule_musing`
+classifies a real C1 `no_change` impasse and routes through C3's
+`dispatch_impasse`. A reasoned starting point, same "no live archive
+to tune it against yet" honesty every fresh constant in this codebase
+carries: 2 means the subject has already been mused about (or was
+about to be) for 2 prior days with zero real change — a genuinely
+stagnant subject, not a transient one-day coincidence, mirroring
+`SUSTAINED_PRESSURE_THRESHOLD`'s own "not a transient spike" framing
+in `simulation/escalation.py`."""
 
 REFLECTION_ONTOLOGY_IMBALANCE_MIN_TOTAL = 6
 REFLECTION_ONTOLOGY_IMBALANCE_RATIO = 3.0
@@ -2210,6 +2227,23 @@ class SimulationEngine:
         E4 sample — the real baseline the next sample's delta is
         measured against. Starts at the origin so the very first real
         sample (day 1) measures from world genesis."""
+
+        self._musing_chunk_store: ChunkStore = ChunkStore()
+        """Tier 7 HCA Phase 8's pilot: `_maybe_schedule_musing`'s own
+        real `ChunkStore` (C2). Runtime-only, never persisted — same
+        "re-baselines on restart" class as every other bounded runtime
+        registry in this codebase."""
+        self._musing_last_subject_key: str | None = None
+        """The real `_musing_subject()` signature (`f"{kind}:{text}"`)
+        as of the last real musing opportunity — a single scalar, not a
+        per-subject dict, since only ONE subject is ever "current" at a
+        time (the newest open hypothesis or newest knowledge-tree
+        entry)."""
+        self._musing_no_change_streak: int = 0
+        """How many CONSECUTIVE real day_end musing opportunities have
+        named the exact same real subject as `_musing_last_subject_
+        key` — resets to 0 the instant the real subject changes. See
+        `MUSING_NO_CHANGE_STREAK_THRESHOLD`'s own docstring."""
 
         # Tier 5 B7.2 + B8's real control points (explicit user
         # directive: "B8 and MachineProfile persistence and select_
@@ -11431,43 +11465,101 @@ class SimulationEngine:
         fallback (a plain restatement of the subject); a day with
         nothing to muse about (`_musing_subject` returns `None`) skips
         the call entirely rather than fabricating one, same discipline
-        as every other "no material, no call" ambient job here."""
+        as every other "no material, no call" ambient job here.
+
+        Tier 7 HCA Phase 8's pilot (docs/ROADMAP-2026-07-REMAINING.md,
+        explicit user instruction "Start phase 8"): the first real
+        production wiring of Stage C's chunk/dispatch ladder. Chosen
+        as the pilot for the reasons the phase's own text names —
+        low-risk (pure ambient texture, zero Body consequence, a real
+        deterministic fallback already exists), high-volume relative
+        to the season/year-cadence jobs (checked every real day). The
+        real signal already in scope: `_musing_subject()`'s own
+        kind+text, tracked across consecutive real day_end calls into
+        `self._musing_no_change_streak` — the exact "streak crosses a
+        threshold with no progress" shape C1's own `detect_no_change`
+        classifies (HCA's own worked example, "family lines dying out,
+        590 occurrences, no rule," is this same pattern applied to a
+        DIFFERENT stagnant subject). Below the streak threshold,
+        behavior is byte-for-byte unchanged from before this pass — the
+        LLM is scheduled directly, every time, exactly as always.
+
+        Once the SAME subject has genuinely persisted past the
+        threshold, `dispatch_impasse` (C3) takes over: `schedule_
+        musing()` (the same real backpressure check + `_submit_and_
+        resolve` + `_schedule_llm_job` call this job has always made)
+        becomes the ladder's `llm_resolver` — its real, honest return
+        value (`{"scheduled": bool, "tick": int}`, never fabricated
+        content) is what C2 compiles into a chunk. The NEXT real day
+        the identical stagnant subject recurs, `dispatch_impasse`'s own
+        cheap-chunk-first check hits that chunk and `schedule_musing`
+        is never called again — the world stops repeating a comment on
+        a subject that hasn't changed, at zero further LLM cost, until
+        the real subject finally moves on (which resets the streak to
+        0 and returns to the unwrapped direct-schedule path
+        immediately). See `scripts/verify_phase8_musing_pilot.py`'s own
+        live-soak measurement against C3's stated >30% bar.
+
+        Known, accepted limitation, not engineered around this pass: a
+        chunk is keyed on subject text alone (no expiry), so if the
+        identical subject text were to recur after a long gap (musing
+        moved on, then somehow came back), the stale chunk would
+        suppress that first re-occurrence too. Low real risk — a
+        suppressed musing is cosmetic texture, never lost Body state —
+        and not attempted here, matching this project's own "ship the
+        real v1, flag the residual edge case" discipline rather than
+        over-engineering a first pilot."""
         if "day_end" not in events:
             return
         subject = self._musing_subject()
         if subject is None:
             return
-        if self._pillar_interpret_backpressured("reflection"):
-            return
-        prompt = musing.build_prompt(subject)
-        fallback = musing.fallback_musing(subject)
+        subject_key = f"{subject['kind']}:{subject['text']}"
+        if subject_key == self._musing_last_subject_key:
+            self._musing_no_change_streak += 1
+        else:
+            self._musing_last_subject_key = subject_key
+            self._musing_no_change_streak = 0
         tick = self.world.clock.tick_count
+        impasse = detect_no_change(subject_key, self._musing_no_change_streak, MUSING_NO_CHANGE_STREAK_THRESHOLD)
 
-        def apply(result: dict, used_fallback: bool) -> None:
-            text = musing.parse_musing(result, fallback)
-            if not text:
-                return
-            self.world.musings.append({"tick": tick, "text": text})
-            if len(self.world.musings) > MUSING_HISTORY_MAX:
-                self.world.musings = self.world.musings[-MUSING_HISTORY_MAX:]
-            self._log("musing", text)
-            # Tier 0 tenth slice (docs/ROADMAP-2026-07-REMAINING.md):
-            # musing becomes Reflection pillar's FOURTH real wired job
-            # — memory-only, same reasoning as dream/skill_mastery:
-            # a musing is Reflection's own passing voice, not a
-            # collective theory (the theory itself, if any, already
-            # lives in reflection_notebook via _maybe_schedule_
-            # reflection/_reflection_question).
-            self.world.reflection_pillar.remember(f"Mused: {text}")
-            self._append_emergence(
-                "opportunity", "reflection", f"Mused: {text}",
-                ('reflection',),
+        def schedule_musing() -> dict:
+            if self._pillar_interpret_backpressured("reflection"):
+                return {"scheduled": False, "tick": tick}
+            prompt = musing.build_prompt(subject)
+            fallback = musing.fallback_musing(subject)
+
+            def apply(result: dict, used_fallback: bool) -> None:
+                text = musing.parse_musing(result, fallback)
+                if not text:
+                    return
+                self.world.musings.append({"tick": tick, "text": text})
+                if len(self.world.musings) > MUSING_HISTORY_MAX:
+                    self.world.musings = self.world.musings[-MUSING_HISTORY_MAX:]
+                self._log("musing", text)
+                # Tier 0 tenth slice (docs/ROADMAP-2026-07-REMAINING.md):
+                # musing becomes Reflection pillar's FOURTH real wired job
+                # — memory-only, same reasoning as dream/skill_mastery:
+                # a musing is Reflection's own passing voice, not a
+                # collective theory (the theory itself, if any, already
+                # lives in reflection_notebook via _maybe_schedule_
+                # reflection/_reflection_question).
+                self.world.reflection_pillar.remember(f"Mused: {text}")
+                self._append_emergence(
+                    "opportunity", "reflection", f"Mused: {text}",
+                    ('reflection',),
+                )
+
+            self._submit_and_resolve(
+                "musing", "musing",
+                lambda: self._schedule_llm_job("musing", prompt, musing.SYSTEM_PROMPT, fallback, apply),
             )
+            return {"scheduled": True, "tick": tick}
 
-        self._submit_and_resolve(
-            "musing", "musing",
-            lambda: self._schedule_llm_job("musing", prompt, musing.SYSTEM_PROMPT, fallback, apply),
-        )
+        if impasse is None:
+            schedule_musing()
+            return
+        dispatch_impasse(impasse, self._musing_chunk_store, tick, schedule_musing)
 
     # --- caravans: a first, scoped step toward "external settlements and trade" ---
 
