@@ -4,6 +4,41 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.246] — Tier 7 HCA Stage E, E6: the Machine surface (closes Stage E)
+
+Explicit user instruction: "Start E5" — E5 was already shipped
+(v1.34.226, out of numeric order since it only depended on Stage G);
+E6 was the only remaining Stage E item, so that's what shipped.
+
+**E6.** **This closes Tier 7 HCA Stage E in full** (E1-E6 all
+shipped). The Machine surface: a MACHINE-domain lane in the workspace
+panel — the Runtime's own bids, wins and escalations shown beside the
+world's. Purely a rendering pass: `full_diagnostics()['machine_
+domain']`/`['player_model_domain']`/`['escalation_ladder']` (H2/H4/
+B15) already carried every field the panel needed; no `simulation/
+engine.py` code changed this pass.
+
+New dev-console "HCA E6: the Machine surface" panel
+(`renderMachineSurface`, `app.js`): the escalation ladder's current
+rung/streak/cognition-budget plus its own logged rung-transition
+history; the MACHINE-domain workspace's own arbitration cycles
+(winner + losers per cycle); the OBSERVER-domain player model's
+measured hit rate and per-observation predicted-vs-actual history.
+
+New `scripts/verify_e6_machine_surface.py` (18 checks — a fresh
+engine's honest before-state; a real forced-pressure escalation
+producing a real logged rung transition AND a real MACHINE-domain
+workspace cycle naming `adaptive_runtime` as winner; two real
+`_record_observer_attention` calls populating a real measured
+`hit_rate`; every field the new JS panel reads confirmed present on a
+real record) — all pass, first run, no bug found.
+
+Verified: the new script (18 checks); `verify_h2_h3_runtime_
+domain.py`/`verify_h4_player_model.py` re-run clean; `node --check`
+clean on `app.js`; `pyflakes` clean on the new script. No
+`simulation/engine.py`/`observatory.py` code touched — no replay-hash/
+native-soak re-run needed.
+
 ## [1.34.245] — Tier 7 HCA Stage E, E4: the learning chart (§8's live falsification test)
 
 Explicit user instruction: "Start E4."

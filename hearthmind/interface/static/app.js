@@ -436,6 +436,7 @@ devFullReportBtn.addEventListener("click", async () => {
     renderWorkspaceActivity(report.engine);
     renderMemoryActivation(report.engine);
     renderLearningChart(report.engine);
+    renderMachineSurface(report.engine);
     try {
       await navigator.clipboard.writeText(text);
       devReportStatus.textContent = "copied to clipboard";
@@ -670,6 +671,64 @@ function renderLearningChart(engineReport) {
 `Real daily samples (newest first, last ${recent.length} of ${history.length})
 ----------------------------------------------------------------------
 ${lines.join("\n")}`;
+}
+
+function renderMachineSurface(engineReport) {
+  const el = document.getElementById("machine-surface-content");
+  if (!el || !engineReport) return;
+  const ladder = engineReport.escalation_ladder;
+  const machine = engineReport.machine_domain;
+  const player = engineReport.player_model_domain;
+
+  const ladderLines = ladder
+    ? [
+        `Current rung: ${ladder.current_rung} (streak: ${ladder.streak_at_current_rung})`,
+        `Cognition budget: ${ladder.cognition_budget}${ladder.is_reduced ? " (REDUCED)" : ""}`,
+        "",
+        "Recent escalations (newest first):",
+        ...((ladder.history_recent || []).length
+          ? ladder.history_recent.slice().reverse().map((e) =>
+              `  tick ${e.tick}: ${e.from_rung} -> ${e.to_rung} (${e.reason})`)
+          : ["  (no rung transition has happened yet -- the ladder hasn't left its starting rung)"]),
+      ]
+    : ["no escalation ladder reading yet"];
+
+  const machineLines = machine
+    ? [
+        `Machine-domain workspace cycles: ${machine.cycles}`,
+        "",
+        "Recent bids (newest first):",
+        ...((machine.history_recent || []).length
+          ? machine.history_recent.slice().reverse().map((c) => {
+              const winner = c.winner ? `${c.winner.specialist_id} won "${c.winner.subject}"` : "(no winner -- empty cycle)";
+              const losers = c.losers.length ? c.losers.map((l) => l.specialist_id).join(", ") : "none";
+              return `  cycle ${c.cycle}: ${winner} (lost to: ${losers})`;
+            })
+          : ["  (no real cycle yet)"]),
+      ]
+    : ["no machine-domain workspace reading yet"];
+
+  const playerLines = player
+    ? [
+        `Player-model hit rate: ${player.hit_rate != null ? (player.hit_rate * 100).toFixed(1) + "%" : "no observations yet"}`,
+        "",
+        "Recent predictions (newest first):",
+        ...((player.history_recent || []).length
+          ? player.history_recent.slice().reverse().map((h) =>
+              `  tick ${h.tick}: predicted agent ${h.predicted_agent_id ?? "?"}, actual ${h.actual_agent_id} -- ${h.hit ? "HIT" : "miss"}`)
+          : ["  (no real observation yet)"]),
+      ]
+    : ["no player-model reading yet"];
+
+  el.textContent =
+`Escalation ladder (the Runtime's own bids and wins)
+${ladderLines.join("\n")}
+
+Machine-domain workspace
+${machineLines.join("\n")}
+
+Player model (OBSERVER domain)
+${playerLines.join("\n")}`;
 }
 
 concurrencyHypothesisRunBtn?.addEventListener("click", async () => {

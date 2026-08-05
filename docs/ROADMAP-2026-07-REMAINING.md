@@ -2802,14 +2802,46 @@ cannot state one does not ship.
   Same plain-formatted-text presentation discipline `renderAdaptive
   RuntimeStatus` already established (dev-console depth, not a canvas
   chart).
-- [ ] **E6** *(depended on Stage H, now closed as of v1.34.236 —
-  genuinely unblocked)* — a MACHINE-domain lane in the workspace
-  panel: the Runtime's own bids, wins and escalations shown beside
-  the world's, on the Machine surface. `full_diagnostics()
-  ['machine_domain']`/`['player_model_domain']` (H2/H4) already
-  surface the raw real data this panel would render — a rendering
-  pass over already-real backend state, not a new mechanism. *Test:*
-  an escalation is watchable as it happens, without reading logs.
+- [x] **E6 — SHIPPED, v1.34.246.** **This closes Tier 7 HCA Stage E in
+  full** (E1 v1.34.242, E2 v1.34.243, E3 v1.34.244, E4 v1.34.245, E5
+  v1.34.226, E6 here). The Machine surface: a MACHINE-domain lane in
+  the workspace panel, exactly as scoped — the Runtime's own bids,
+  wins and escalations shown beside the world's. Purely a rendering
+  pass, confirmed rather than assumed: `full_diagnostics()
+  ['machine_domain']`/`['player_model_domain']`/`['escalation_
+  ladder']` (H2/H4/B15) already carried every field the panel needed;
+  no `simulation/engine.py` code changed this pass.
+
+  New dev-console "HCA E6: the Machine surface" panel
+  (`renderMachineSurface`, `app.js`): the escalation ladder's current
+  rung/streak/cognition-budget plus its own logged rung-transition
+  history (the real, literal "escalation," B15.3's own vocabulary);
+  the MACHINE-domain workspace's own arbitration cycles (winner +
+  losers per cycle, H2's real `Bid`/`CompetitionRecord` shape); the
+  OBSERVER-domain player model's measured hit rate and per-observation
+  predicted-vs-actual history (H4). Same plain-formatted-text
+  presentation discipline every prior E-panel already established.
+
+  New `scripts/verify_e6_machine_surface.py` (18 checks — a fresh
+  engine's honest before-state (rung REORDER_BATCH, no transitions,
+  player model `hit_rate: None`); a real forced-pressure `_maybe_
+  advance_escalation_ladder` call producing a real logged rung
+  transition AND a real MACHINE-domain workspace cycle naming
+  `adaptive_runtime` as winner, in the same call (H2's own real bid/
+  arbitrate coupling); two real `_record_observer_attention` calls
+  populating the player model's real history and a real measured
+  `hit_rate`; every field the new JS panel actually reads confirmed
+  present on a real record from each of the three sources) — all
+  pass, first run, no bug found.
+
+  Verified: the new script (18 checks); `verify_h2_h3_runtime_
+  domain.py`/`verify_h4_player_model.py` re-run clean (unaffected);
+  `node --check` clean on `app.js`; `pyflakes` clean on the new
+  script. No `simulation/engine.py`/`observatory.py` code touched —
+  pure frontend + a new verify script confirming the already-real
+  backend data the panel renders — no replay-hash/native-soak re-run
+  needed. `F1` remains the last open item in this section (gated
+  behind Tier 6 L1.1) — resume only on future explicit direction.
 - [ ] **F1** *(gated behind Tier 6 L1.1)* — semantic pointers:
   concept vectors, bundling/binding, LLM names the best algebraic
   candidate. *Test:* a concept combination is generated and judged
@@ -3602,8 +3634,12 @@ end.** Each item's real dependency:
   detail.
 - `E5` *(HCA-stated: depends on Stage G)* — ship right after Phase 1
   closes, don't wait for anything later.
-- `E6` *(HCA-stated: depends on Stage H)* — ship right after Phase 4
-  closes.
+- `E6` — SHIPPED, v1.34.246. The Machine surface panel
+  (`renderMachineSurface`) — the escalation ladder, MACHINE-domain
+  workspace, and OBSERVER-domain player model, all beside the world's
+  own workspace panel. Pure rendering pass over already-real H2/H4/
+  B15 data; no engine.py change. **Closes Stage E in full.** See the
+  consolidated Tier 7 checklist's own E6 entry above for full detail.
 
 **Phase 8 — wire Stage C's chunk/dispatch ladder into a real production
 `_schedule_llm_job` call site.** Placed right after Phase 7 (Stage E)

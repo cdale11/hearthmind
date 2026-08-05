@@ -742,6 +742,54 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.246)
+
+Explicit user instruction: "Start E5" — investigated first: E5 was
+already shipped at v1.34.226, out of numeric order (the roadmap's own
+Stage E note names it "ship right after Phase 1 closes, don't wait
+for anything later," since it only depends on Stage G, not on E1-E4).
+E6 was the only remaining Stage E item, so that's what shipped.
+
+**E6.** **This closes Tier 7 HCA Stage E in full** (E1 v1.34.242, E2
+v1.34.243, E3 v1.34.244, E4 v1.34.245, E5 v1.34.226, E6 here). The
+Machine surface: a MACHINE-domain lane in the workspace panel — the
+Runtime's own bids, wins and escalations shown beside the world's.
+Purely a rendering pass, confirmed rather than assumed:
+`full_diagnostics()['machine_domain']`/`['player_model_domain']`/
+`['escalation_ladder']` (H2/H4/B15) already carried every field the
+panel needed — no `simulation/engine.py` code changed this pass.
+
+New dev-console "HCA E6: the Machine surface" panel
+(`renderMachineSurface`, `app.js`): the escalation ladder's current
+rung/streak/cognition-budget plus its own logged rung-transition
+history (the real, literal "escalation," B15.3's own vocabulary); the
+MACHINE-domain workspace's own arbitration cycles (winner + losers per
+cycle, H2's real `Bid`/`CompetitionRecord` shape); the OBSERVER-domain
+player model's measured hit rate and per-observation predicted-vs-
+actual history (H4). Same plain-formatted-text presentation
+discipline every prior E-panel already established.
+
+New `scripts/verify_e6_machine_surface.py` (18 checks — a fresh
+engine's honest before-state (rung REORDER_BATCH, no transitions,
+player model `hit_rate: None`); a real forced-pressure `_maybe_
+advance_escalation_ladder` call producing a real logged rung
+transition AND a real MACHINE-domain workspace cycle naming
+`adaptive_runtime` as winner, in the same call (H2's own real bid/
+arbitrate coupling); two real `_record_observer_attention` calls
+populating the player model's real history and a real measured
+`hit_rate`; every field the new JS panel actually reads confirmed
+present on a real record from each of the three sources) — all pass,
+first run, no bug found.
+
+Verified: the new script (18 checks); `verify_h2_h3_runtime_
+domain.py`/`verify_h4_player_model.py` re-run clean (unaffected);
+`node --check` clean on `app.js`; `pyflakes` clean on the new script.
+No `simulation/engine.py`/`observatory.py` code touched — pure
+frontend + a new verify script confirming the already-real backend
+data the panel renders — no replay-hash/native-soak re-run needed.
+`F1` is the last open item in Stage E/F's section (gated behind Tier 6
+L1.1) — resume only on future explicit direction.
+
 ## Current state (v1.34.245)
 
 Explicit user instruction: "Start E4" — Stage E's fourth item,
