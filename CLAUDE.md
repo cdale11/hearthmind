@@ -742,6 +742,51 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.255)
+
+Explicit user follow-up: "Till I do that build L2.3" (continuing
+Phase 1 while the real recorder archive L2.2's full wiring needs is
+being collected). Two real pieces, per the correction recorded at
+v1.34.254 (L2.3's real target is `cognition/activation.py`, not the
+long-deleted `agent.py` weights).
+
+**(1) `agents/agent.py`'s `retrieve_relevant_memories` gained L1.1's
+first real, live consumer path** — an optional duck-typed `embedding`
+param (`text_similarity(a, b)`, no import of `hearthmind.ml/` into
+`agents/`) swaps in real semantic relevance for the bag-of-words term
+when supplied; `None` (every real call site today) is byte-identical
+to before. Verified through the real production call path: a memory
+sharing zero tokens with the query ("the wolves took Bram" / "a
+predator killed someone") is correctly not surfaced by the bag-of-
+words baseline, then IS surfaced once a real trained embedding is
+attached — the architecture doc's own worked example, proven through
+the actual consumer this time, not just `embedding.py`'s own test.
+
+**(2) New `hearthmind/ml/retrieval_scorer.py`**: a learned sigmoid
+scorer over the same four real inputs `cognition/activation.py`
+already combines (base-level activation, salience, relevance, causal
+presence) — merges the audit's M3-consumer+M4 into one model, meant to
+eventually replace `activation.py`'s hand-tuned gain constants the way
+L2.2 replaces `fallback_goal`. Built on the same `LearningSpecialist`
+substrate, no new mechanism.
+
+New `scripts/verify_ml_l2_3_retrieval_scorer.py` (14 checks, all pass
+first run) — the `embedding=None` parity proof, the real zero-overlap
+headline test through the actual call path, `encode_candidate`
+matching a direct `activation.base_level_activation` call, and a
+trained scorer correctly separating a good candidate from a bad one.
+
+**Not wired into `activation.py`'s own sort key or any live embedding**
+— both need L1.1's still-open corpus-building pass and, for the
+scorer, a real influenced-output label from a live recorder archive,
+same discipline as L2.2.
+
+Verified: the new script; `pyflakes` clean; the full ML verify suite
+(11 scripts, incl. `verify_d1_activation.py`) re-run clean, confirming
+the `agent.py` change is additive-only. No native module or
+`simulation/engine.py` code path touched — the changed function is
+never on the deterministic Body's tick path.
+
 ## Current state (v1.34.254)
 
 Explicit user instruction: "Start L2.2 and see where else AI/ML

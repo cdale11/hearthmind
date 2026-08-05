@@ -71,19 +71,33 @@ gates behind.
   deliberately NOT done yet — `FeatureSchema` only encodes flat
   numeric/categorical slots today; a small schema extension is needed
   first, flagged as real follow-up.
-- **L2.3 — Semantic retrieval scorer** (gated on L1.1). Merges the audit's
-  M3-consumer + M4 into one learned scorer. **Correction (found while
-  building L2.2):** both this item and ML-AUDIT's own §3a cite
-  `agents/agent.py:472-474`'s hand-set `RECENCY_WEIGHT`/`SALIENCE_
-  WEIGHT`/`RELEVANCE_WEIGHT` linear formula as the thing to replace —
-  that formula no longer exists there. It was superseded by Tier 7
-  HCA's D1 (a real ACT-R base-level + spreading-activation equation,
-  `hearthmind/cognition/activation.py`) before this Tier 6 item was
-  ever scoped. The underlying problem is still real and still unfixed
-  — `activation.py`'s own spreading-activation term still calls into
-  `relevance = min(1.0, overlap/2.0)` bag-of-words — but L2.3's real
-  target is `cognition/activation.py`'s `spreading_activation`/
-  `memory_activation`, not the linear formula the docs describe.
+- **L2.3 — Semantic retrieval scorer** — **SHIPPED (substrate), partly
+  wired.** Two real pieces. (1) A genuine, live L1.1 consumer:
+  `agents/agent.py`'s `retrieve_relevant_memories` gained an optional
+  `embedding` param (duck-typed, `agents/` still never imports
+  `hearthmind.ml/`) — when a real trained `SkipGramEmbedding` is
+  supplied, relevance is real semantic similarity instead of bag-of-
+  words; `None` (every real call site today) reproduces the exact
+  prior behavior byte-for-byte. Verified through the real production
+  call path: a memory sharing ZERO tokens with the query context is
+  still surfaced when a real embedding is attached (`scripts/verify_
+  ml_l2_3_retrieval_scorer.py`, 14 checks). No world attaches a
+  trained embedding yet — needs L1.1's own still-open corpus-building
+  pass. (2) `hearthmind/ml/retrieval_scorer.py`: a learned sigmoid
+  scorer over the SAME four real inputs `cognition/activation.py`
+  already combines (base-level activation, salience, relevance,
+  causal-tag presence) — merges the audit's M3-consumer + M4 into one
+  model, replacing `activation.py`'s hand-tuned `ACTIVATION_SALIENCE_
+  GAIN`/`ACTIVATION_RELEVANCE_GAIN`/`ACTIVATION_CAUSAL_GAIN` gains.
+  NOT wired into `retrieve_relevant_memories`'s own sort — needs a
+  real "did this memory demonstrably influence the output" label from
+  a live recorder archive, same discipline as L2.2. **Correction
+  (found while building L2.2):** both this item's own text and
+  ML-AUDIT's §3a cite `agents/agent.py:472-474`'s old hand-set linear
+  weights as the thing to replace — that formula no longer exists
+  there, superseded by Tier 7 HCA's D1 before this Tier 6 item was
+  ever scoped; the real current target was and is `cognition/
+  activation.py`, confirmed and acted on this pass.
 - **HCA `F1` — Semantic pointers** (gated on L1.1). Concept vectors,
   bundling/binding; test: a concept combination generated/judged with
   strictly fewer LLM calls than today.

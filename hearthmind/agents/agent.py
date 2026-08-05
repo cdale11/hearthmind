@@ -497,25 +497,38 @@ here), and a modest bonus for a memory carrying a known causal tag
 
 def retrieve_relevant_memories(
     agent: "Agent", k: int, context: str = "", current_tick: int | None = None,
+    embedding=None,
 ) -> list[tuple[str, float, str]]:
     """Adaptive retrieval (v0.87.14, docs/IDEAS-2026-07-EMERGENCE.md §7
     "Adaptive retrieval layer"; ACT-R-based since Tier 7 HCA Stage D's
     D1, docs/COGNITIVE-ARCHITECTURE-2026-08-02.md §2.5) scores every
     stored memory by real ACT-R base-level + spreading activation
     (`hearthmind.cognition.activation.memory_activation` — real elapsed
-    time since formation, salience, keyword-overlap relevance to
-    `context`, and a small bonus for a known causal link), returning
-    the top `k` — same prompt-slot BUDGET as the old fixed `memories[
-    -k:]` slice (bounded prompt size is preserved), but the content now
-    earns its place instead of just being newest. Falls back to
-    returning everything (still capped at k by the `n <= k` early
-    return) when there are k or fewer memories. `current_tick=None`
-    (a caller with no real tick in scope) degrades to `agent.memory_
-    ticks[-1]` — the newest memory's own formation tick — as a "now"
-    proxy, still real elapsed-time data, never the old purely-ordinal
-    index. Result order is restored to chronological (oldest-of-the-
-    selected first) for readability, matching what the old slice
-    already read like."""
+    time since formation, salience, a relevance term to `context`, and
+    a small bonus for a known causal link), returning the top `k` —
+    same prompt-slot BUDGET as the old fixed `memories[-k:]` slice
+    (bounded prompt size is preserved), but the content now earns its
+    place instead of just being newest. Falls back to returning
+    everything (still capped at k by the `n <= k` early return) when
+    there are k or fewer memories. `current_tick=None` (a caller with
+    no real tick in scope) degrades to `agent.memory_ticks[-1]` — the
+    newest memory's own formation tick — as a "now" proxy, still real
+    elapsed-time data, never the old purely-ordinal index. Result
+    order is restored to chronological (oldest-of-the-selected first)
+    for readability, matching what the old slice already read like.
+
+    `embedding` (Tier 6 L2.3, docs/ML-ARCHITECTURE-2026-08-01.md) is
+    an optional duck-typed object exposing `text_similarity(a, b) ->
+    float` (`hearthmind.ml.embedding.SkipGramEmbedding` is the real
+    implementation) — deliberately NOT imported here, so `agents/`
+    stays decoupled from `hearthmind.ml/` the same way every other
+    core-gameplay module does, per this project's own "extract
+    primitives, let the caller supply the model" discipline. When
+    supplied, relevance is real semantic similarity ("the wolves took
+    Bram" now scores close to "a predator killed my brother"); `None`
+    (the default, and the only path any real call site uses today —
+    no world builds/attaches a trained embedding yet) reproduces the
+    exact prior bag-of-words `_overlap_tokens` behavior byte-for-byte."""
     n = len(agent.memories)
     causes = agent.memory_causes
     ticks = agent.memory_ticks
@@ -526,7 +539,7 @@ def retrieve_relevant_memories(
             for i in range(n)
         ]
     now = current_tick if current_tick is not None else (ticks[-1] if ticks else 0)
-    context_tokens = _overlap_tokens(context) if context else set()
+    context_tokens = None if embedding is not None else (_overlap_tokens(context) if context else set())
     scored: list[tuple[float, int]] = []
     for i in range(n):
         text = agent.memories[i]
@@ -534,7 +547,10 @@ def retrieve_relevant_memories(
         because = causes[i] if i < len(causes) else ""
         formed_at = ticks[i] if i < len(ticks) else now
         relevance = 0.0
-        if context_tokens:
+        if embedding is not None:
+            if context:
+                relevance = max(0.0, embedding.text_similarity(context, text))
+        elif context_tokens:
             overlap = len(context_tokens & _overlap_tokens(text))
             relevance = min(1.0, overlap / 2.0)
         score = memory_activation(

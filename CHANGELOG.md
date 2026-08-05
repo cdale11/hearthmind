@@ -4,6 +4,82 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.255] — Tier 6 Phase 1: L2.3 semantic retrieval scorer
+
+Explicit user instruction: "Start L2.2 and see where else AI/ML
+neural nets can replace LLM calls" left L2.3 gated on L1.1; a direct
+follow-up ("Till I do that build L2.3") starts it now, ahead of the
+real recorder archive L2.2's own full wiring needs.
+
+Two real pieces, following the correction recorded in v1.34.254: L2.3's
+own text (and ML-AUDIT's §3a) cite `agents/agent.py`'s old hand-set
+`RECENCY_WEIGHT`/`SALIENCE_WEIGHT`/`RELEVANCE_WEIGHT` linear formula
+as what it replaces — that formula no longer exists there, superseded
+by Tier 7 HCA's D1 (`cognition/activation.py`'s real ACT-R equation)
+before L2.3 was ever scoped. Both pieces below target the real,
+current site.
+
+**(1) L1.1's first real, live consumer.** `agents/agent.py`'s
+`retrieve_relevant_memories` gained an optional `embedding` param —
+duck-typed (`text_similarity(a, b) -> float`, not an import of
+`hearthmind.ml.embedding.SkipGramEmbedding`, so `agents/` stays
+decoupled from `hearthmind.ml/` the same way every other core-gameplay
+module does), computing real semantic relevance instead of the
+existing bag-of-words `_overlap_tokens` term when supplied. `embedding
+=None` (the default, and the only path any real call site uses today
+— no world attaches a trained embedding yet) reproduces the exact
+prior behavior byte-for-byte, verified directly. Verified through the
+REAL production call path (not just `embedding.py`'s own standalone
+test): a memory sharing ZERO tokens with the query context ("the
+wolves took Bram" vs. "a predator killed someone") is correctly NOT
+surfaced by the bag-of-words baseline, then IS surfaced once a real
+trained `SkipGramEmbedding` is attached — the doc's own worked example,
+now proven through the actual consumer, not just the substrate.
+
+**(2) `hearthmind/ml/retrieval_scorer.py`**: a learned sigmoid scorer
+over the SAME four real inputs `cognition/activation.py`'s
+`memory_activation` already combines (base-level activation via a
+direct call to `activation.base_level_activation`, salience, relevance,
+causal-tag presence) — merges the architecture doc's "M3-consumer +
+M4" into one model, meant to eventually replace `activation.py`'s
+hand-tuned `ACTIVATION_SALIENCE_GAIN`/`ACTIVATION_RELEVANCE_GAIN`/
+`ACTIVATION_CAUSAL_GAIN` combination the same way L2.2 replaces
+`fallback_goal`. `RetrievalScorer.rank` is the real k-slot-preserving
+selection function a future wired call site would use in place of
+`activation.py`'s current sort key. Built on the same `LearningSpecialist`
+substrate as L2.2 — no new training-loop mechanism, real orchestration
+only.
+
+New `scripts/verify_ml_l2_3_retrieval_scorer.py` (14 checks — the
+`embedding=None` parity proof; the headline zero-word-overlap-still-
+surfaced test through the real `retrieve_relevant_memories` call path,
+both with and without a real embedding attached; `encode_candidate`
+matching a direct `base_level_activation` call by hand; `RetrievalScorer.
+rank`'s real k-bounded selection; a trained scorer correctly separating
+a "good" candidate — recent, salient, relevant, causally linked — from
+a "bad" one by a wide margin) — all pass, first run, no bug found.
+
+**Not wired into `activation.py`'s own sort key** — needs a real "did
+this memory demonstrably influence the output" label from a live
+recorder archive, same discipline L2.2's own full wiring needs; the
+`embedding` wiring point in piece (1) is real and live-ready but has
+no real trained embedding anywhere in `World` state yet to pass it —
+both need L1.1's own still-open corpus-building pass.
+
+Verified: the new script (14 checks); `pyflakes` clean on both
+touched/new files; `verify_ml_substrate.py`/`verify_ml_specialist.py`/
+`verify_ml_g2_workload_forecaster.py`/`verify_ml_g3_regime_change.py`/
+`verify_ml_evolution.py`/`verify_belief_calibration.py`/`verify_value_
+model.py`/`verify_llm_cost.py`/`verify_ml_l1_embedding.py`/`verify_ml_
+l2_2_goal_policy.py`/`verify_d1_activation.py` all re-run clean —
+`agent.py`'s change is additive-only (a new optional parameter,
+default reproduces prior behavior exactly), confirmed both by direct
+parity check and by the untouched `activation.py`'s own verify script
+staying green. No native module or `simulation/engine.py` code path
+touched; no replay-hash/native-soak re-run needed — the changed
+function is never on the deterministic Body's tick path, only the
+LLM-prompt-building path.
+
 ## [1.34.254] — Tier 6 Phase 1: L2.2 goal-policy flagship
 
 Explicit user instruction: "Start L2.2 and see where else AI/ML
