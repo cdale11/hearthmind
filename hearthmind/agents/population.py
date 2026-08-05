@@ -1352,6 +1352,34 @@ synchronous, so nothing can append to this buffer concurrently with the
 engine draining and clearing it. Entries: `{"agent_id": int, "text": str}`."""
 
 
+_CURRENT_TICK: int = 0
+"""The real simulation tick `_remember` stamps onto a freshly-written
+memory (`Agent.memory_ticks`, Tier 7 HCA Stage D's D1, docs/COGNITIVE-
+ARCHITECTURE-2026-08-02.md §2.5 "ACT-R: declarative memory activation")
+— real elapsed-tick decay needs a genuine presentation timestamp, not
+`_remember`'s own list-index position (the previous, purely-ordinal
+"recency" proxy `retrieve_relevant_memories` used). Module-level for
+the same structural reason `_pending_memory_evictions` above is:
+`_remember` receives only `agent`, with no reference back to the
+owning `Population`/`World.clock`. Set once per real tick by `Population.
+tick()`'s own top (the large majority of real `_remember` call sites
+run synchronously inside it) and by `set_current_tick()` below, called
+from `SimulationEngine._tick_once()`'s own top — covers the handful of
+`_remember` call sites living in engine.py's LLM-job `apply()`
+closures, which run synchronously within `_tick_once()` but outside
+`Population.tick()`'s own call stack (CLAUDE.md's "Preserve absolutely":
+`_tick_once()` is fully synchronous, so there is always exactly one
+real "current tick" in scope, never a race). See `hearthmind/cognition/
+activation.py` for the real consumer."""
+
+
+def set_current_tick(tick: int) -> None:
+    """`SimulationEngine._tick_once()`'s own call site for `_CURRENT_
+    TICK` above — see that constant's docstring."""
+    global _CURRENT_TICK
+    _CURRENT_TICK = tick
+
+
 def _memory_salience(agent: Agent) -> float:
     """How memorable *right now* is, from the agent's own current
     `emotions` — see MEMORY_SALIENCE_BASELINE's docstring (Phase I,
@@ -1391,7 +1419,13 @@ def _remember(agent: Agent, text: str, routine: bool = False, because: str = "")
     known cause. Only ever passed at call sites where the engine
     OBJECTIVELY knows the cause (a death, a dispute outcome, an
     inheritance) — never fabricated for an ordinary memory. See
-    `Agent.memory_causes`'s docstring."""
+    `Agent.memory_causes`'s docstring.
+
+    Also stamps `agent.memory_ticks` (index-aligned, same discipline)
+    with `_CURRENT_TICK` — the real elapsed-tick signal Tier 7 HCA
+    Stage D's D1 activation formula needs; see `_CURRENT_TICK`'s own
+    docstring above for how it stays current without `_remember`
+    itself taking a `tick` parameter."""
     salience = _memory_salience(agent)
     # v0.87.16 "improve memory weighting" (explicit user direction):
     # repetition dampening — checked against the memories ALREADY
@@ -1408,6 +1442,7 @@ def _remember(agent: Agent, text: str, routine: bool = False, because: str = "")
         salience *= ROUTINE_MEMORY_SALIENCE_MULT
     agent.memory_salience.append(salience)
     agent.memory_causes.append(because)
+    agent.memory_ticks.append(_CURRENT_TICK)
     if len(agent.memories) > MAX_AGENT_MEMORIES:
         evict_at = min(range(len(agent.memories)), key=lambda i: (agent.memory_salience[i], i))
         evicted_text = agent.memories[evict_at]
@@ -1416,6 +1451,7 @@ def _remember(agent: Agent, text: str, routine: bool = False, because: str = "")
         del agent.memories[evict_at]
         del agent.memory_salience[evict_at]
         del agent.memory_causes[evict_at]
+        del agent.memory_ticks[evict_at]
         # v0.87.16 "deepen long-term historical identity": a genuinely
         # major evicted memory (already causally tagged, or vivid
         # enough to clear MEMORY_MAJOR_EVENT_SALIENCE_THRESHOLD)
@@ -2104,6 +2140,7 @@ class Population:
         relationships, construction/repair, farming, birth, and death.
         Returns life events as (category, description) pairs for the
         caller to log."""
+        set_current_tick(tick)
         rng = _namespaced_rng(seed, tick=tick, namespace="population_tick")
         # Snapshot positions before anyone moves this tick, so goal-directed
         # search (SOCIALIZE) sees a consistent picture rather than a mix of

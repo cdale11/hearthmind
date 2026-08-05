@@ -158,6 +158,7 @@ from hearthmind.agents.population import (
     _pending_memory_evictions,
     _remember,
     _walkable_tiles,
+    set_current_tick,
 )
 from hearthmind.agents.occupations import (
     ALL_OCCUPATIONS,
@@ -5241,6 +5242,12 @@ class SimulationEngine:
     def _tick_once(self) -> None:
         tick_start = time.perf_counter()
         self._reserved_this_tick = 0  # see its docstring: fresh reservation count each tick
+        # Tier 7 HCA D1: keep `population._CURRENT_TICK` current for the
+        # handful of `_remember` call sites living in THIS method's own
+        # apply() closures below (population.Population.tick(), called
+        # later via self.world.tick(), sets it again for its own much
+        # larger set of call sites) — see `set_current_tick`'s docstring.
+        set_current_tick(self.world.clock.tick_count)
         self._apply_pending_cognition_results()
         self._apply_pending_dialogue_results()
         self._apply_pending_interventions()
@@ -11963,7 +11970,10 @@ class SimulationEngine:
         # same faded-salience display, for the same "content earns its
         # place instead of just being newest" reason.
         retrieval_context = agent.working_memory[-1] if agent.working_memory else ""
-        retrieved = retrieve_relevant_memories(agent, RECENT_MEMORIES_IN_PROMPT, context=retrieval_context)
+        retrieved = retrieve_relevant_memories(
+            agent, RECENT_MEMORIES_IN_PROMPT, context=retrieval_context,
+            current_tick=self.world.clock.tick_count,
+        )
         recent = [faded_memory_text(t, s) for t, s, _c in retrieved]
         existing = list(agent.beliefs)
         emotion_text = describe_emotion(agent.emotions)

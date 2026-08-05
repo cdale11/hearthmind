@@ -13,6 +13,7 @@ import re
 from enum import Enum
 
 from hearthmind.agents.ledger import Ledger
+from hearthmind.cognition.activation import memory_activation
 from hearthmind.util import clamp
 
 try:
@@ -469,68 +470,75 @@ def _overlap_tokens(text: str) -> set[str]:
     return {w for w in re.findall(r"[a-z']+", text.lower()) if len(w) > 2 and w not in _OVERLAP_STOPWORDS}
 
 
-MEMORY_RETRIEVAL_RECENCY_WEIGHT = 0.5
-MEMORY_RETRIEVAL_SALIENCE_WEIGHT = 0.3
-MEMORY_RETRIEVAL_RELEVANCE_WEIGHT = 0.5
-MEMORY_RETRIEVAL_CAUSAL_BONUS = 0.15
+LEGACY_MEMORY_TICK_GAP = 200
+"""Tier 7 HCA Stage D's D1 (docs/COGNITIVE-ARCHITECTURE-2026-08-02.md
+§2.5): the assumed tick-spacing `Agent.from_dict` backfills a pre-D1
+snapshot's missing `memory_ticks` with, anchored at that agent's own
+`age_ticks` as a "now" proxy — an honest one-time approximation
+preserving relative recency order, never trusted as measured fact.
+See `memory_ticks`' backfill comment in `from_dict` below."""
+
+
 """v0.87.14 "adaptive retrieval layer" (docs/IDEAS-2026-07-EMERGENCE.md
-§7): weights for `retrieve_relevant_memories`'s scoring — recency and
-relevance are roughly equal top priorities (a fixed recency-only slice
-was the whole problem this item names: "the three most recent
+§7): the ORIGINAL weights for `retrieve_relevant_memories`'s scoring
+— superseded by Tier 7 HCA Stage D's D1 real ACT-R base-level
+activation equation (`hearthmind.cognition.activation`, see below);
+kept only as this project's own decision-log record of what the
+formula it replaced actually was, per D1's own stated test ("retrieval
+quality holds... while four constants are deleted"). Recency and
+relevance were roughly equal top priorities (a fixed recency-only
+slice was the whole problem this item names: "the three most recent
 memories reach cognition even when a ten-year-old high-salience
 memory is the relevant one"), salience a real but smaller signal
 (already used for eviction, not meant to double-count too heavily
 here), and a modest bonus for a memory carrying a known causal tag
-(v0.87.14 "causal memory links," see `Agent.memory_causes`) — a memory
-that's part of a known cause-and-effect chain is a little more worth
-surfacing than an equally-scored isolated one. Deliberately no
-embeddings/new dependency — relevance is cheap keyword overlap via
-`_overlap_tokens`, same posture as `_matching_lesson`'s existing
-fallback."""
+(v0.87.14 "causal memory links," see `Agent.memory_causes`)."""
 
 
 def retrieve_relevant_memories(
-    agent: "Agent", k: int, context: str = "",
+    agent: "Agent", k: int, context: str = "", current_tick: int | None = None,
 ) -> list[tuple[str, float, str]]:
     """Adaptive retrieval (v0.87.14, docs/IDEAS-2026-07-EMERGENCE.md §7
-    "Adaptive retrieval layer"): scores every stored memory by recency,
-    salience, keyword-overlap relevance to `context` (typically the
-    agent's own freshest `working_memory` entry — "what just
-    happened"), and a small bonus for a known causal link, returning
+    "Adaptive retrieval layer"; ACT-R-based since Tier 7 HCA Stage D's
+    D1, docs/COGNITIVE-ARCHITECTURE-2026-08-02.md §2.5) scores every
+    stored memory by real ACT-R base-level + spreading activation
+    (`hearthmind.cognition.activation.memory_activation` — real elapsed
+    time since formation, salience, keyword-overlap relevance to
+    `context`, and a small bonus for a known causal link), returning
     the top `k` — same prompt-slot BUDGET as the old fixed `memories[
     -k:]` slice (bounded prompt size is preserved), but the content now
     earns its place instead of just being newest. Falls back to
     returning everything (still capped at k by the `n <= k` early
-    return) when there are k or fewer memories, or scores purely on
-    recency+salience+causal-bonus when `context` is blank (no text to
-    compare relevance against) — never worse than the old behavior in
-    the degenerate case. Result order is restored to chronological
-    (oldest-of-the-selected first) for readability, matching what the
-    old slice already read like."""
+    return) when there are k or fewer memories. `current_tick=None`
+    (a caller with no real tick in scope) degrades to `agent.memory_
+    ticks[-1]` — the newest memory's own formation tick — as a "now"
+    proxy, still real elapsed-time data, never the old purely-ordinal
+    index. Result order is restored to chronological (oldest-of-the-
+    selected first) for readability, matching what the old slice
+    already read like."""
     n = len(agent.memories)
     causes = agent.memory_causes
+    ticks = agent.memory_ticks
     if n <= k:
         return [
             (agent.memories[i], agent.memory_salience[i] if i < len(agent.memory_salience) else 0.0,
              causes[i] if i < len(causes) else "")
             for i in range(n)
         ]
+    now = current_tick if current_tick is not None else (ticks[-1] if ticks else 0)
     context_tokens = _overlap_tokens(context) if context else set()
     scored: list[tuple[float, int]] = []
     for i in range(n):
         text = agent.memories[i]
         salience = agent.memory_salience[i] if i < len(agent.memory_salience) else 0.0
         because = causes[i] if i < len(causes) else ""
-        recency = i / (n - 1)
+        formed_at = ticks[i] if i < len(ticks) else now
         relevance = 0.0
         if context_tokens:
             overlap = len(context_tokens & _overlap_tokens(text))
             relevance = min(1.0, overlap / 2.0)
-        score = (
-            MEMORY_RETRIEVAL_RECENCY_WEIGHT * recency
-            + MEMORY_RETRIEVAL_SALIENCE_WEIGHT * salience
-            + MEMORY_RETRIEVAL_RELEVANCE_WEIGHT * relevance
-            + (MEMORY_RETRIEVAL_CAUSAL_BONUS if because else 0.0)
+        score = memory_activation(
+            [formed_at], now, salience, relevance, bool(because),
         )
         scored.append((score, i))
     scored.sort(key=lambda t: (-t[0], -t[1]))
@@ -2053,6 +2061,7 @@ class Agent:
         emotions: dict[str, float] | None = None,
         memory_salience: list[float] | None = None,
         memory_causes: list[str] | None = None,
+        memory_ticks: list[int] | None = None,
         working_memory: list[str] | None = None,
         semantic_memories: list[str] | None = None,
         secrets: list[str] | None = None,
@@ -2159,6 +2168,17 @@ class Agent:
         # and surfaced in cognition prompts as "(because: ...)" — see
         # llm/cognition.py's build_prompt.
         self.memory_causes: list[str] = [] if memory_causes is None else memory_causes
+        # memory_ticks: Tier 7 HCA Stage D's D1 (docs/COGNITIVE-
+        # ARCHITECTURE-2026-08-02.md §2.5, "ACT-R: declarative memory
+        # activation") — index-aligned with `memories` exactly like
+        # `memory_salience`/`memory_causes`. The real simulation tick
+        # this memory was FORMED at (`_remember`'s own `_CURRENT_TICK`,
+        # see its docstring in agents/population.py), consumed by
+        # `hearthmind.cognition.activation.base_level_activation` as the
+        # real elapsed-time input the ACT-R equation's recency+frequency
+        # term needs — replacing `retrieve_relevant_memories`'s prior
+        # purely-ordinal `i / (n - 1)` list-index proxy.
+        self.memory_ticks: list[int] = [] if memory_ticks is None else memory_ticks
         # working_memory: small, strictly-FIFO "what just happened"
         # buffer — see WORKING_MEMORY_MAX above.
         self.working_memory: list[str] = [] if working_memory is None else working_memory
@@ -2662,6 +2682,7 @@ class Agent:
             "memories": list(self.memories),
             "memory_salience": [round(v, 4) for v in self.memory_salience],
             "memory_causes": list(self.memory_causes),
+            "memory_ticks": list(self.memory_ticks),
             "working_memory": list(self.working_memory),
             "semantic_memories": list(self.semantic_memories),
             "secrets": list(self.secrets),
@@ -2742,6 +2763,26 @@ class Agent:
             memory_causes += [""] * (len(memories) - len(memory_causes))
         elif len(memory_causes) > len(memories):
             memory_causes = memory_causes[:len(memories)]
+        # memory_ticks: same index-alignment discipline. A legacy
+        # snapshot (predating D1) carries none at all — backfilled from
+        # `age_ticks` (an honest APPROXIMATE proxy for "now," not this
+        # agent's real per-memory formation tick, which no pre-D1
+        # snapshot recorded) spaced `LEGACY_MEMORY_TICK_GAP` ticks apart
+        # so relative recency order among backfilled entries is at least
+        # preserved for ACT-R's real elapsed-time decay, even though the
+        # absolute values are a one-time approximation, not measured
+        # fact — same "degrades gracefully, never trusted as ground
+        # truth" discipline as every other legacy-backfilled field here.
+        memory_ticks = list(data.get("memory_ticks", []))
+        if len(memory_ticks) < len(memories):
+            missing = len(memories) - len(memory_ticks)
+            now_proxy = data.get("age_ticks", 0)
+            backfilled = [
+                max(0, now_proxy - (missing - 1 - j) * LEGACY_MEMORY_TICK_GAP) for j in range(missing)
+            ]
+            memory_ticks = backfilled + memory_ticks
+        elif len(memory_ticks) > len(memories):
+            memory_ticks = memory_ticks[:len(memories)]
         _agent = cls(
             id=data["id"],
             name=data["name"],
@@ -2767,6 +2808,7 @@ class Agent:
             memories=memories,
             memory_salience=memory_salience,
             memory_causes=memory_causes,
+            memory_ticks=memory_ticks,
             working_memory=list(data.get("working_memory", [])),
             semantic_memories=list(data.get("semantic_memories", [])),
             secrets=list(data.get("secrets", [])),

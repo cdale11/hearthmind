@@ -295,6 +295,10 @@ def build_prompt(
     # see RECENT_MEMORIES_IN_PROMPT's docstring. `context` is what just
     # happened (working_memory's freshest entry), the same signal
     # `_just_now_text` below reads for its own duplicate check.
+    # D1 (ACT-R activation): `build_prompt` is a pure function with no
+    # engine/tick access by design — `current_tick` is left `None`,
+    # `retrieve_relevant_memories`' own real fallback (the newest
+    # memory's own formation tick) covers it honestly.
     retrieval_context = agent.working_memory[-1] if agent.working_memory else ""
     retrieved = retrieve_relevant_memories(agent, RECENT_MEMORIES_IN_PROMPT, context=retrieval_context)
     recent = [t for t, _, _ in retrieved]

@@ -2325,10 +2325,68 @@ cannot state one does not ship.
   first real consumer next, then sweep" discipline B0.3/W1-W4 already
   used elsewhere in this codebase — a live-production measurement of
   the stated >30% bar needs that wiring pass first.
-- [ ] **D1** — ACT-R activation replacing four hand-tuned mechanisms
-  (`MEMORY_RETRIEVAL_*` weights, `memory_salience`, `memory_access`,
-  bag-of-words relevance). *Test:* retrieval quality holds on the
-  recorder archive while four constants are deleted.
+- [x] **D1 — SHIPPED, v1.34.240.** New `hearthmind/cognition/
+  activation.py`: the real ACT-R base-level (`Σ_j (t−t_j)^(−d)`, `d≈
+  0.5`, unifying recency AND frequency into one quantity) + spreading
+  activation (salience/relevance/causal-tag as three weighted `S_k`
+  sources) equation, replacing `retrieve_relevant_memories`'s four
+  hand-tuned `MEMORY_RETRIEVAL_*` weights — all four **genuinely
+  deleted** from `hearthmind/agents/agent.py`, per D1's own stated
+  test. Real elapsed-tick input needed a genuine new signal:
+  `Agent.memory_ticks` (index-aligned with `memories`, legacy-
+  backfilled via `age_ticks` + `LEGACY_MEMORY_TICK_GAP` for a
+  pre-D1 snapshot), stamped by `_remember` from a new module-level
+  `population._CURRENT_TICK` (set once per real tick by `Population.
+  tick()`'s own top and mirrored by `SimulationEngine._tick_once()`'s
+  own top for the handful of `_remember` call sites in engine.py's
+  async job `apply()` closures) — deliberately NOT a `tick` param
+  threaded through `_remember`'s own ~46 real call sites, since the
+  module-level-global shape already has a direct, load-bearing
+  precedent in this exact file (`_pending_memory_evictions`, same
+  "`_remember` receives only `agent`, no reference back to Population/
+  World.clock" constraint). Honest scope trim, stated up front in the
+  new module's own docstring: `Agent` carries no per-memory rehearsal/
+  access counter (unlike `Pillar.memory_access`, B8's own reinforce
+  counters — real, but scoped to `Pillar`, never threaded onto `Agent`
+  — the HCA doc's own framing of this as an "already exists" input was
+  imprecise), so every memory today has exactly ONE real presentation;
+  `base_level_activation` already accepts a real list of presentation
+  ticks, not just one, so a future `Agent`-side rehearsal counter needs
+  no signature change here. No RNG anywhere (this project's own
+  standing arbitration discipline). `retrieve_relevant_memories` gained
+  an optional `current_tick` param, threaded through its one real
+  engine-side call site (`_run_personal_belief`, `self.world.clock.
+  tick_count`); its two `build_prompt`-side call sites (`llm/
+  cognition.py`, `llm/letters.py`) are deliberately left at the default
+  — both are pure functions with no engine access by design, degrading
+  honestly to the newest memory's own real formation tick as "now"
+  rather than threading `tick` through a prompt-builder's signature.
+
+  New `scripts/verify_d1_activation.py` (23 checks — the four deleted
+  constants confirmed gone via `hasattr`; the real zero-division floor
+  and same-tick edge case; a genuine frequency proof (two presentations
+  at the same age activate higher than one, absent from the deleted
+  formula entirely); recency still dominating over stacked-but-old
+  presentations at realistic decay; all three spreading sources;
+  end-to-end `_remember`/`Agent.memory_ticks` production wiring; D1's
+  own headline test — a real older high-salience+relevant memory still
+  outranks three merely-recent mundane ones at a realistic elapsed-tick
+  gap for a bounded memory list (an unrealistic multi-year gap was
+  tried first and correctly LOST under a faithful single-presentation
+  ACT-R decay — that's honest model behavior, not a bug, and the test
+  was recalibrated rather than the formula weakened); the `current_
+  tick=None` production degrade; round-trip + legacy backfill incl.
+  preserved relative recency order) — all pass. `scripts/verify_c1_
+  impasse.py`/`verify_c2_chunking.py`/`verify_c3_dispatch.py` re-run
+  clean (unaffected); `pyflakes` clean on all touched/new files (only
+  the six known pre-existing forward-ref findings in `engine.py`);
+  `scripts/verify_replay_hash.py` (800 ticks, seed 777, `--in-process`)
+  — MATCH, byte-identical; `scripts/verify_native_soak.py` (seeds
+  1/55, 800 ticks) — MATCH (both required this pass — `Agent`'s own
+  persisted schema and `simulation/engine.py` both changed). `D2`
+  (declarative/procedural separation made architectural) is the only
+  remaining open Stage D item — resume only on future explicit
+  direction.
 - [ ] **D2** — declarative/procedural separation made architectural.
 - [x] **G1 — SHIPPED, v1.34.216.** *(§2.5a, added 2026-08-02 — "every
   subsystem should itself be capable of adaptation")* — `hearthmind/
@@ -3226,9 +3284,15 @@ dependency on anything above — could genuinely be pulled forward to run
 in parallel with Phase 2 or Phase 3 if a second, memory-focused pass is
 available; placed here only for narrative continuity with the rest of
 HCA.
-1. `D1` — ACT-R activation replacing four hand-tuned mechanisms
-   (`MEMORY_RETRIEVAL_*` weights, `memory_salience`, `memory_access`,
-   the bag-of-words relevance term).
+1. `D1` — **SHIPPED, v1.34.240.** Real ACT-R base-level + spreading
+   activation (`hearthmind/cognition/activation.py`) replacing the four
+   hand-tuned `MEMORY_RETRIEVAL_*` weights, which are genuinely
+   deleted; a new `Agent.memory_ticks` (stamped by `_remember` via a
+   module-level `population._CURRENT_TICK`, same shape as this file's
+   own pre-existing `_pending_memory_evictions`) supplies the real
+   elapsed-tick input the equation needs. See the consolidated Tier 7
+   checklist's own D1 entry above for full detail. `D2` remains the
+   only open Stage D item.
 2. `D2` — declarative/procedural separation made architectural.
 
 **Phase 7 — HCA Stage E: the Cognitive Observatory (`E1`-`E6`). Ship
