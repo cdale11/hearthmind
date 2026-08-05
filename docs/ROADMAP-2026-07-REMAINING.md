@@ -108,6 +108,12 @@ through in one pass per this project's own "never big-bang" discipline.
 - **B14.3** — `batch_size_for_storage` has no real batched-write
   mechanism to size for yet (the snapshot writer is still one `INSERT`
   per row); needs real new design, not a cheap wire-up.
+- **B15.6/B15.7/B15.8** (docs/HEARTHBENCH-RUNTIME-2026-07-23.md) — record
+  host fingerprint/cognition-budget/rung-5 history in the save file +
+  diagnostics; fuzz the scheduler (randomize task order/budgets/
+  dormancy, assert the replay-hash invariant still holds); a semantic-
+  safety class check at tunable *registration* time, not just at
+  hypothesis-apply time.
 
 ## Phase 6 — HearthBench (build the benchmark itself)
 
@@ -142,6 +148,11 @@ measured need, never a default next step.
 Small, independent, no-dependency-order-required items, each real but
 minor relative to Phases 1-7.
 
+- **A1** — 11 of `FieldGrid`'s 12 named fields still unbuilt (only
+  `population_density` is real): moisture, fertility, nutrients,
+  disease-pressure, pollution, scent, traffic, heat, cultural-influence,
+  ownership, beauty, noise. `mining_scars`/`disaster_scars`/the 3x3
+  climate grid were never migrated onto the `FieldGrid` abstraction.
 - **A2** — `cellular_step`'s fuller fire-spread mechanics (today only
   ignition-SITE is weighted; whether/how-often/how fire actually spreads
   stays the native-backed mechanism, deliberately not forced onto).
@@ -151,6 +162,10 @@ minor relative to Phases 1-7.
 - **A4** — migrate `RoadNetwork.wear`/gossip contagion onto `FieldGrid`
   proper (currently correct, independent per-tick local rules) — a real
   but purely structural follow-up.
+- **A5/A6** — per-instance `Entity.affordances`/`Entity.properties`
+  (currently class-level only); the validate-step half (deterministic
+  re-verification of a proposed concept's claimed mechanism) was never
+  attempted.
 - **A7** — the full graph/shape grammar (layout AND architecture, beyond
   the "zero lineage awareness" gap already closed), plus rules becoming
   LLM-proposable. Both explicitly unattempted.
@@ -159,8 +174,36 @@ minor relative to Phases 1-7.
 - **A9** — give `World.location_character()`'s bare wrapper a real
   consumer (a future dialogue/cognition/NPC-inspector location-flavor
   read) — zero callers today.
+- **A10** — ecology-on-fields is only nutrient cycling; migration,
+  competition, decomposition, pollination, and habitat formation all
+  stay unbuilt, as does folding the whole food web onto A1's substrate
+  as one coupled system.
+- **A11** — hydrology's two biggest remaining pieces: groundwater and
+  real erosion into mutable elevation.
 - **A12** — per-instance material generalization beyond `Building`/
   `Vehicle` — audited, no real consumer motivates it yet.
+- **A13** — the automatic-firing reactor half (a rule genuinely
+  mutating world state on its own tick) — only the query half shipped.
+- **A14** — stress/reproduction/development/injury-recovery/sleep as
+  coupled continuous subsystems (only `immune_strength` shipped); a
+  genetic contribution to baseline immune_strength is a flagged future
+  connection to A15.
+- **A15** — wildlife/animal genetics (species adapting across
+  generations, domestication) — entirely unscoped; humans-only shipped.
+- **A16** — trade-as-network-flow and tech-as-DAG graph algorithms;
+  only centrality shipped.
+- **A17** — folding rumor/tradition/belief/song/technique onto
+  `memetics.py`'s weighting, a shared mutate/decay/compete step, and a
+  real fitness-vs-truth axis for rumors — only ontology-concept spread
+  uses the mechanism today.
+- **A18** — a real authoring system letting a village propose its own
+  composable-reaction combinations (today hand-authored only), and
+  consequences beyond relationship-rupture.
+- **A19** — 6 of 9 named spatial-memory history axes still separate/
+  unbuilt: traffic, pollution, fertility, ownership, construction,
+  ecology.
+- **A20** — a genuinely new second `FieldGrid` field, and "culture
+  aggregates settlements' information-ecosystems," both still open.
 - **A21** — folklore/legend pipeline unification remains the one
   genuinely open piece ("aspirational, not attempted").
 - **A22** — keep adding Emergence API producers as new deterministic
@@ -171,6 +214,22 @@ minor relative to Phases 1-7.
   and real (non-round-robin) arbitration all stay open — the same
   underlying refactor Tier 0 named, now ongoing/opportunistic rather than
   blocking (see Phase 9).
+- **B5** — Innovation-as-scientist's evolve/merge paths stay untouched
+  by the hypothesize→observe→revise loop propose already has; a real
+  affordance/reaction query (waiting on Stage IV substrate) is open.
+- **B6** — Reflection-as-meta-scientist never tracks whether *advisory*-
+  path advice (as opposed to governor-nudge advice) actually worked.
+- **B8** — living memory's `reinforce`/`reinterpret` (per-note salience/
+  access tracking) was never attempted; only `consolidate` shipped.
+- **R1** (docs/REFACTOR-2026-07.md) — split `population.py`
+  (~3,930 lines) into a mixin-based package (`_pathfinding.py`/
+  `_needs.py`/`_social.py`/`_settlement_ops.py`/`core.py`); a fully
+  scoped, never-executed maintainability refactor, the single largest
+  named piece of structural debt in the codebase.
+- **R3** (docs/REFACTOR-2026-07.md) — finish the `clamp()` migration:
+  25+ remaining `max(lo, min(hi, x))` sites across `population.py`,
+  `agents/agent.py`, `llm/beliefs.py`, etc. Low-value, low-risk,
+  mechanical.
 
 ## Phase 9 — Standing discipline (perpetual, never "finished")
 
@@ -182,6 +241,10 @@ Not a queue item — re-apply on every relevant future change, forever.
   gain power; re-confirm on every new intention-writing capability.
 - **A25** — periodically re-audit LLM call sites: has anything that
   needed genuine judgment become mechanically deterministic?
+- **C4** (docs/MASTERCHECKLIST-2026-07-22.md) — "the acceptance gate as
+  law": enforce as a standing review rule *and* as a real runtime
+  auditor that retires unread/unused invented state — no such auditor
+  exists yet. Same standing-discipline shape as A23-A25.
 - **Per-agent cognition's volume-safe mirroring design** — the design
   question (what the volume gate should be, beyond the one narrow
   instance already shipped for core-cast goal changes) stays open;

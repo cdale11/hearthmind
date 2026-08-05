@@ -742,6 +742,56 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.252)
+
+Explicit user follow-up, continuing v1.34.251's step 1: acted on the
+background audit's findings for all three large docs.
+
+`docs/REFACTOR-2026-07.md`: 978 -> 194 lines. The R5-R8 native-C++-
+port narrative (~24 modules' worth of "Module N shipped: here's what
+was built and verified") compressed to a module-name -> `cpp/src/`
+file list plus a "lessons that generalize" section keeping the real
+reusable knowledge (STL casters copy not reference; identity-keyed
+index iteration order leaks into tie-breaks; the real test for
+whether a loop's RNG draws can be pre-drawn is same-pass dependency,
+not draw-count; enums cross the pybind11 boundary as plain ints;
+verify the wrapper function, not just the raw ported function). R1
+(the `population.py` mixin split) and R3 (remaining `clamp()` sites)
+— real open items — moved into the roadmap's Phase 8.
+
+`docs/HEARTHBENCH-RUNTIME-2026-07-23.md`: 2425 -> 619 lines. Part B
+(B0-B15, the Adaptive Runtime) held nearly all the bloat — each item
+compressed to what it is + status + genuinely open sub-items. Part A
+(HearthBench, still ~unbuilt) and Part C/SEQUENCE/TESTS/DECISIONS
+RECORD untouched. One real staleness caught: this doc's own B8
+section still says B8.1-B8.3 (the workload forecaster) is unwired —
+it was in fact wired for real later under Tier 7 HCA's `G2`
+(v1.34.217), a fact this doc never got updated to reflect. Also fixed
+a literal duplicate A1.3 bullet. B15.6/B15.7/B15.8 (save-file profile
+recording, scheduler fuzz testing, a tunable-registration-time safety
+check) added to the roadmap's Phase 5.
+
+`docs/MASTERCHECKLIST-2026-07-22.md`: left mostly intact (1383 ->
+1400 — a status note added, not a rewrite) — the audit found this
+doc's own Status/Spec/Data-model/Feeds structure is genuine, still-
+needed spec (~45% redundant history vs. the other two docs' ~70-85%),
+each item being only a first slice of a much larger named vision.
+Fixed instead: five section headers (A5/A6/A7/A12/A13/A15) still said
+`MISSING` after their own first bullet said "shipped a first slice"
+— corrected to `PARTIAL`; A1's stale pre-shipment Status bullet marked
+superseded rather than silently rewritten. The long un-rolled-up tail
+of open sub-items (11 more `FieldGrid` fields; A10/A11/A13/A14/A15/
+A16/A17/A18/A19/A20's named-but-unbuilt pieces; B5/B6/B8's remaining
+gaps; C4's missing runtime auditor) folded into the roadmap's Phase
+8/9 rather than left implicit in the roadmap's original 9-item
+illustrative list.
+
+`docs/ROADMAP-2026-07-REMAINING.md` gained ~20 bullets from both
+audits (Phase 5: B15.6-8; Phase 8: R1, R3, and the MASTERCHECKLIST
+tail above; Phase 9: C4) — 227 -> ~290 lines, still far below its
+pre-consolidation 6,013. Nothing found by either audit pass was left
+untracked.
+
 ## Current state (v1.34.251)
 
 Explicit user follow-up: "do the same thing you did with roadmap to

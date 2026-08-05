@@ -23,6 +23,21 @@ The governing law, from both docs:
 > LLM answers *"given what's possible, what happens next, and why?"* No
 > pillar ever violates a deterministic rule; the LLM never invents fact.
 
+**Status note (v1.34.251, consolidated).** Unlike `docs/ROADMAP-2026-
+07-REMAINING.md`'s old form or `docs/HEARTHBENCH-RUNTIME-2026-07-23.md`'s
+Part B, this doc was found to be mostly genuine, still-needed spec —
+each item's own "Spec"/"Data model"/"Feeds" text is the real TODO for
+that item (most items are only a first slice of a much larger named
+vision), not duplicate history, so it was left largely intact rather
+than rewritten. Two small fixes made at consolidation time: five
+section headers (A5/A6/A7/A12/A13/A15) still said `— MISSING` after
+their own first bullet said "shipped a first slice" — corrected to
+`PARTIAL`; A1's stale pre-shipment `Status` bullet was superseded, not
+deleted. The long tail of open sub-items across A1/A5/A6/A10/A11/A13/
+A14/A15/A16/A17/A18/A19/A20/B5/B6/B8/C4 is now also tracked, compactly,
+in the roadmap's own Phase 8/9 — this document still holds the depth
+behind each; the roadmap holds the authoritative "what's left" list.
+
 ---
 
 # PART A — THE DETERMINISTIC BODY (det_sys.md, 25 systems)
@@ -37,9 +52,11 @@ through-line for nearly every PARTIAL below.
 
 ### A1 — Continuous environmental fields [det #1] — SHIPPED (scoped, v1.4.9) → the foundation
 
-- [ ] **Status:** A 9-region climate grid and sparse `terrain_activity`/
+- [x] **Status (superseded by the Spec bullet below, kept for
+  context):** A 9-region climate grid and sparse `terrain_activity`/
   `mining_scars`/`disaster_scars` dicts exist in `world/state.py`;
-  explicitly *not* per-tile fields (deferred as "R7/C++-first").
+  none was ever migrated onto the new `FieldGrid` abstraction shipped
+  below, and none is a per-tile field (deferred as "R7/C++-first").
 - [x] **Spec:** Introduce a `FieldGrid` abstraction — a set of named
   scalar fields over the map (moisture, fertility, nutrients, disease-
   pressure, pollution, scent, traffic, heat, cultural-influence,
@@ -147,7 +164,7 @@ through-line for nearly every PARTIAL below.
 - [ ] **Feeds:** removes the "isolated incident" texture the prior audits
   flagged; events become threshold-crossings of continuous state.
 
-### A5 — Capabilities/affordances over object classes [det #5] — MISSING
+### A5 — Capabilities/affordances over object classes [det #5] — PARTIAL (first slice shipped, v1.16.0)
 
 - [x] **Status:** **Shipped a first slice, v1.16.0** (roadmap Stage IV
   step 18). New `world/affordances.py`: the exact closed `AFFORDANCE_
@@ -172,7 +189,7 @@ through-line for nearly every PARTIAL below.
   or any native-store code; wraps it entirely as external data.
 - [x] **Feeds:** wired — see A6 below.
 
-### A6 — Exposed affordances for discovery [det #6] — MISSING
+### A6 — Exposed affordances for discovery [det #6] — PARTIAL (first slice shipped, v1.16.0)
 
 - [x] **Status:** **Shipped a first slice, v1.16.0**, alongside A5 (same
   module). `affordances_present(standing_kinds)` — "what here can_X?" —
@@ -204,7 +221,7 @@ through-line for nearly every PARTIAL below.
   own framing ("the prerequisite that lets Innovation discover
   unprogrammed combinations").
 
-### A7 — Grammar-based procedural systems [det #7] — MISSING (deterministic form)
+### A7 — Grammar-based procedural systems [det #7] — PARTIAL (first slice shipped, v1.25.0)
 
 - [x] **Status:** The LLM does architecture/ritual/language/myth
   creatively; there's no *deterministic* grammar layer.
@@ -344,7 +361,7 @@ through-line for nearly every PARTIAL below.
   map heatmap option under the same "🗺️ fields" toggle A1's note
   describes — see that entry for the shared mechanism.
 
-### A12 — Material science / physical properties [det #12] — MISSING
+### A12 — Material science / physical properties [det #12] — PARTIAL (first slice shipped, v1.17.0)
 
 - [x] **Status:** **Shipped a first slice, v1.17.0** (roadmap Stage IV
   step 19). New `world/materials.py`: `Material` (all ten named
@@ -377,7 +394,7 @@ through-line for nearly every PARTIAL below.
   Innovation's generate-step too. A13's chemistry/reaction system
   actually consuming these properties remains open, flagged.
 
-### A13 — Chemistry / reaction system [det #13] — MISSING
+### A13 — Chemistry / reaction system [det #13] — PARTIAL (first slice shipped, v1.18.0)
 
 - [x] **Status:** **Shipped a first slice, v1.18.0** (roadmap Stage IV
   step 20). New `world/chemistry.py`: exactly the doc's own three
@@ -436,7 +453,7 @@ through-line for nearly every PARTIAL below.
   and a genuine immune-vs-pathogen (not just resistance-scalar)
   dynamic remain open.
 
-### A15 — Genetic inheritance / mutation / drift / selection [det #15] — MISSING
+### A15 — Genetic inheritance / mutation / drift / selection [det #15] — PARTIAL (first slice shipped, v1.20.0; humans only)
 
 - [x] **Status:** **Shipped a first slice, v1.20.0** (roadmap Stage IV
   step 22), scoped to humans — the doc's own "humans slowly vary too"
