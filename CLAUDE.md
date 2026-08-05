@@ -742,6 +742,81 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.249)
+
+Explicit user instruction: "Complete phase 8 this turn" — Phase 8's
+third and last named step, "Sweep," directly following steps 1-2
+(v1.34.247/.248). Docs-only: a real, systematic audit rather than a
+forced-fit extension.
+
+**Sweep, investigated and closed honestly.** The pilot's own
+condition for sweeping was met (92.5% of a 40-day soak resolved
+without an LLM call, clearing C3's own >30% bar), so every remaining
+ambient (`critical=False`) `_schedule_llm_job` call site was checked
+against musing's own shape (a single recurring subject, checked every
+firing, with no prior dedup mechanism suppressing an identical
+re-ask) — the exact gap Stage C exists to close. Finding: that shape
+is genuinely uncommon elsewhere in this codebase. Every candidate
+investigated falls into one of three buckets:
+
+- **Already self-deduplicating.** `_maybe_react_to_predator_
+  extinction`/`_maybe_react_to_grazer_extinction` (Nature causal-
+  reasoning) already gate on a real one-shot flag that structurally
+  prevents an identical anomaly from re-asking the LLM while it
+  persists; `_maybe_schedule_reflection_question` carries its own
+  explicit "asked once, not re-asked every year the hypothesis stays
+  open" guard. Wrapping either in `dispatch_impasse` would be a
+  redundant second suppression mechanism over an already-solved
+  problem.
+- **`critical=True` — a different, mutually exclusive discipline.**
+  `_maybe_schedule_dream` and the Nature causal-reasoning triggers are
+  all `critical=True` (Constitution §3/§7: defer and retry on natural
+  cadence, never fake crucial cognition with a fallback OR a stale
+  cache). A chunk-hit skip is a third way for the call to not happen,
+  layered on a discipline that exists specifically to guarantee
+  crucial cognition is never silently dropped — mixing the two would
+  blur exactly the crucial/ambient distinction the Tick loop workflow
+  rule draws. Musing is deliberately `critical=False`, which is
+  precisely why it was the pilot and why every `critical=True` job
+  stays out of scope here.
+- **No single recurring subject to key a chunk on.** `_maybe_
+  schedule_institution_belief` picks a DIFFERENT institution most
+  months (a weighted draw); its own `Institution.objective_ticks_
+  unmet` streak tracks whether the institution's WANT is unmet, but
+  the belief text itself can be about something else entirely —
+  gating on the objective's streak risks silently suppressing
+  genuinely new, unrelated belief content, a real quality regression,
+  not a safe cache hit. `_maybe_schedule_folklore`/`_maybe_schedule_
+  tradition`/`_maybe_schedule_culture_digest` condense whatever the
+  settlement actually lived through that period — the real input
+  differs firing to firing, so there's no fixed subject to key a
+  chunk on at all.
+
+`_maybe_schedule_rule_proposal` (`Institution.objective_ticks_unmet`
+— precisely HCA's own worked "family lines dying out... no rule"
+example, and the closest structural fit found) was investigated
+directly and deliberately left out: C2's `ChunkStore` has no expiry
+(an accepted limitation for texture-only musing), and for something
+this consequential — a settlement's actual laws — a stale cached
+"nothing changed" outcome could suppress a genuinely-overdue new rule
+for a worsening problem indefinitely, never re-asking once one chunk
+compiles. Sweeping this site safely needs a real chunk-expiry
+mechanism first, which doesn't exist yet — flagged as real, distinct
+future work rather than rushed past under a "this turn" time
+pressure a correctness gap like this shouldn't be forced past. Same
+reasoning that excluded it from the pilot in step 1 still holds.
+
+No code changed this pass — the pilot (step 1) and its dev-console
+panel (step 2) remain the real, shipped, verified production consumer
+of Stage C; this step's job was to check whether more of it should
+exist yet, and the honest, carefully-checked answer is not yet,
+without further real infrastructure this pass didn't build.
+
+**This closes Tier 7 HCA Phase 8 in full** (Pilot v1.34.247, E1 goes
+live v1.34.248, Sweep here). Resume with a genuinely new candidate
+job, or with a chunk-expiry mechanism unblocking `rule_proposal`
+specifically, only on future explicit direction.
+
 ## Current state (v1.34.248)
 
 Explicit user instruction: "Start step 2" — Phase 8's second named

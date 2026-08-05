@@ -3786,22 +3786,95 @@ resolve, not just a documentation gap this doc keeps repeating.
    native_soak.py` (seeds 1/55, 800 ticks) — MATCH (both required
    again — `simulation/engine.py`'s own `__init__` and the same real
    `_TICK_JOBS`-registered method both changed further this pass).
-3. [ ] **Sweep.** Once the pilot's own real measured behavior confirms
-   the ladder helps (call volume genuinely drops, emergence quality
-   holds — the project's own headline falsification test, finally
-   measurable live), extend the same wrap-in-`Impasse`-classify-
-   dispatch pattern to further `_schedule_llm_job` call sites in one
-   batch (never one at a time, per this project's own standing "sweep
-   once a pattern is proven" instruction) rather than doling them out
-   call-site by call-site. Not attempted this pass — resume only on
-   future explicit direction.
+3. [x] **Sweep — AUDITED, v1.34.249. No further well-fitting site
+   found this pass; none forced through.** The pilot's own real
+   measured behavior confirms the ladder helps (92.5% of a 40-day
+   soak resolved without an LLM call — clears C3's own >30% bar), so
+   the condition for sweeping was met; a real, systematic audit of
+   every remaining ambient (`critical=False`) `_schedule_llm_job` call
+   site was carried out, not skipped. Finding: musing's own shape
+   (a single recurring subject, checked every real day, with NO prior
+   dedup mechanism suppressing an identical re-ask) turns out to be
+   genuinely uncommon in this codebase — every other candidate
+   investigated falls into one of three buckets that make wrapping it
+   either redundant or unsafe:
 
-Steps 1-2 (the Pilot, E1 goes live) are shipped, v1.34.247/v1.34.248 —
-C1-C3 now have a real production consumer AND a real dev-console
-panel rendering its output for the first time, closing the "not wired
-into production" gap this phase exists to fix. Step 3 (the Sweep)
-remains open, same standing convention as every other phased item in
-this doc — resume only on future explicit direction.
+   - **Already self-deduplicating, no LLM-call-reduction opportunity
+     left to claim.** `_maybe_react_to_predator_extinction`/`_maybe_
+     react_to_grazer_extinction` (Nature causal-reasoning triggers)
+     already gate on a real one-shot flag (`_nature_predator_
+     extinction_flagged`/`_nature_grazer_extinction_flagged`) that
+     structurally prevents the identical anomaly from re-asking the
+     LLM while it persists — the "same subject keeps re-firing"
+     problem Stage C exists to solve does not occur here at all.
+     `_maybe_schedule_reflection_question` carries its own explicit
+     "asked once, not re-asked every year the hypothesis stays open"
+     guard in its own docstring, for the same reason. Wrapping either
+     in `dispatch_impasse` would add a second, redundant suppression
+     mechanism over a problem that's already solved.
+   - **`critical=True` crucial-cognition jobs — a different, mutually
+     exclusive discipline.** `_maybe_schedule_dream` and the Nature
+     causal-reasoning triggers above are both `critical=True`
+     (Constitution §3/§7: a budget-exhausted or failed call DEFERS
+     and retries on its natural cadence, never substituting a
+     deterministic fallback or a stale cache for genuine cognition).
+     A chunk-hit skip is a THIRD way for the call to not happen,
+     layered on top of a discipline that already exists specifically
+     to guarantee crucial cognition is never faked or silently
+     dropped — mixing the two would blur exactly the distinction
+     CLAUDE.md's own "Tick loop" workflow rule draws between crucial
+     and ambient jobs. Musing is deliberately `critical=False`
+     (real texture, a genuine deterministic fallback already exists)
+     — that's why it was chosen as the pilot in the first place, and
+     it's the reason every `critical=True` job is out of scope here,
+     not an oversight.
+   - **No single recurring "subject" to key a chunk on.**
+     `_maybe_schedule_institution_belief` picks a DIFFERENT
+     institution most months (a weighted draw, not a fixed target);
+     its own `Institution.objective_ticks_unmet` streak tracks
+     whether the institution's WANT is unmet, but the belief text
+     itself (`parsed["subject"]`) can be about something else
+     entirely — gating the call on the objective's streak risks
+     silently suppressing genuinely new, unrelated belief content
+     just because the objective happens to still be unmet, a real
+     quality regression, not a safe cache hit. `_maybe_schedule_
+     folklore`/`_maybe_schedule_tradition`/`_maybe_schedule_culture_
+     digest` condense whatever the settlement actually lived through
+     that period — the real input differs firing to firing, so there
+     is no fixed subject to key a chunk on at all.
+
+   `_maybe_schedule_rule_proposal` (the closest structural fit —
+   `Institution.objective_ticks_unmet` is precisely HCA's own worked
+   "family lines dying out... no rule" example) was investigated
+   directly and deliberately left out: C2's `ChunkStore` has no
+   expiry (a documented, accepted limitation for texture-only musing),
+   and for something this consequential — a settlement's actual laws
+   — a stale cached "nothing changed" outcome could suppress a
+   genuinely-overdue new rule for a worsening problem indefinitely,
+   never re-asking once one chunk compiles. Sweeping this site safely
+   would need a real chunk-expiry mechanism first, which doesn't
+   exist yet — flagged as real, distinct future work, not attempted
+   under a "complete this turn" time pressure that a correctness gap
+   like this shouldn't be rushed past. Same reasoning that excluded it
+   from the pilot in step 1 still holds.
+
+   No code changed this pass (docs-only audit, same shape as prior
+   Tier-0-era "audited, no further site found" entries in this file's
+   own history) — the pilot (step 1) and its dev-console panel (step
+   2) are the real, shipped, verified consumer of Stage C in
+   production; this step's job was to check whether MORE of it should
+   exist yet, and the honest answer, checked carefully rather than
+   assumed, is not yet without further real infrastructure (chunk
+   expiry) this pass didn't build.
+
+**This closes Phase 8.** Steps 1-2 (the Pilot, E1 goes live) are
+shipped, v1.34.247/v1.34.248 — C1-C3 now have a real production
+consumer AND a real dev-console panel rendering its output for the
+first time, closing the "not wired into production" gap this phase
+exists to fix. Step 3 (the Sweep) is closed on a real, documented
+audit rather than left open indefinitely — resume with a genuinely
+new candidate job, or with a chunk-expiry mechanism unblocking `rule_
+proposal` specifically, only on future explicit direction.
 
 **Parallel, optional track — semantic embedding (does not block or get
 blocked by anything above).**

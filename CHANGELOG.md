@@ -4,6 +4,43 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.249] — Tier 7 HCA Phase 8, step 3: the Sweep (closes Phase 8)
+
+Explicit user instruction: "Complete phase 8 this turn" — Phase 8's
+third and last named step. Docs-only: a real, systematic audit of
+every remaining ambient (`critical=False`) `_schedule_llm_job` call
+site for musing's own shape (a single recurring subject, no prior
+dedup mechanism), rather than forcing an ill-fitting site into the
+pattern just to hit a count.
+
+**Finding: no further well-fitting site exists this pass, and none
+was forced through.** Every candidate falls into one of three
+buckets: already self-deduplicating via its own bespoke guard (the
+Nature causal-reasoning triggers' one-shot flags; `_maybe_schedule_
+reflection_question`'s own "asked once" check) — wrapping either
+would be a redundant second suppression mechanism over an
+already-solved problem; a `critical=True` crucial-cognition job
+(`_maybe_schedule_dream`, the same Nature triggers), where
+Constitution §3/§7's defer-never-fake discipline is a distinct,
+mutually exclusive mechanism from a chunk-hit skip; or no single
+fixed "subject" to key a chunk on at all (`_maybe_schedule_
+institution_belief` picks a different institution most months;
+folklore/tradition/culture_digest condense whatever actually
+happened that period, which differs firing to firing).
+
+`_maybe_schedule_rule_proposal` (`Institution.objective_ticks_unmet`
+— precisely HCA's own worked "family lines dying out... no rule"
+example) was investigated directly and deliberately left out: C2's
+`ChunkStore` has no expiry, and for something this consequential — a
+settlement's actual laws — a stale cached "nothing changed" outcome
+could suppress a genuinely-overdue rule for a worsening problem
+indefinitely. Sweeping it safely needs a real chunk-expiry mechanism
+first, which doesn't exist yet — flagged as real, distinct future
+work rather than rushed past under time pressure.
+
+**This closes Phase 8.** Full detail in `docs/ROADMAP-2026-07-
+REMAINING.md`'s own Sweep entry.
+
 ## [1.34.248] — Tier 7 HCA Phase 8, step 2: E1 goes live
 
 Explicit user instruction: "Start step 2" — Phase 8's second named
