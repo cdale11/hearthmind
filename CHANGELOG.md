@@ -4,6 +4,24 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.251] — Doc consolidation pass, step 1: status-pointer fixes
+
+Continuing the explicit "do the same thing you did with roadmap to
+other docs" instruction. First increment: corrected two stale status
+claims left behind by v1.34.250's roadmap rewrite — `docs/README.md`'s
+HCA and HearthBench/Adaptive-Runtime bullets both still said work was
+"not yet implemented"/"deliberately not started," though Tier 7
+Stages A/B/C/D/G/H and Part B of the Adaptive Runtime are now shipped.
+`docs/COGNITIVE-ARCHITECTURE-2026-08-02.md`'s own §7 gained a short
+status note pointing at the roadmap's Phase 1/3 as the live tracker,
+leaving the static item list below it untouched (it's the spec each
+item's falsifiable test is checked against, not a status log). A
+background research pass was launched in the same turn to audit
+`HEARTHBENCH-RUNTIME-2026-07-23.md`, `REFACTOR-2026-07.md`, and
+`MASTERCHECKLIST-2026-07-22.md` for the same bloat/missing-item
+questions the roadmap itself was audited for — its findings land in
+the next entry.
+
 ## [1.34.250] — Roadmap consolidation: a single phase-ordered final list
 
 Explicit user instruction: "consolidate the roadmap and summarize

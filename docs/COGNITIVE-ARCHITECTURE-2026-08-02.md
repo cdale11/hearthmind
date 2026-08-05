@@ -1022,6 +1022,19 @@ legible every time it is made.
 
 ## 7. Roadmap: Tier 7
 
+**Status note (kept current as of v1.34.250):** the list below is the
+original, static filing — kept unmodified as the spec each item's own
+falsifiable test is checked against. It does **not** track live
+status. As of this note, Stages A, B, C, D, G, and H are shipped in
+full; Stage E is shipped except `E3`'s competing-goals half; only
+`F1` (Stage F, gated behind Tier 6 `L1.1`) remains genuinely unbuilt,
+alongside a handful of narrower named gaps (`E3` above, `H1`'s
+per-domain budgets, and a real chunk-expiry mechanism needed before
+Stage C's dispatch ladder can safely extend to `rule_proposal`). See
+`ROADMAP-2026-07-REMAINING.md`'s Phase 1/3 for the authoritative,
+maintained status and next steps — this section stays a historical
+spec, not a live checklist.
+
 Filed into `ROADMAP-2026-07-REMAINING.md` as **Tier 7 — The Cognitive
 Architecture**. Sequenced by dependency; **each item carries a
 falsifiable success test**, which is the guard against renaming

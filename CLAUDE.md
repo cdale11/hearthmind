@@ -742,6 +742,45 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.251)
+
+Explicit user follow-up: "do the same thing you did with roadmap to
+other docs in the project and add to this roadmap if you missed
+anything." Docs-only, step 1 of that pass.
+
+Fixed two stale status pointers left behind by v1.34.250's roadmap
+rewrite: `docs/README.md`'s HCA bullet said Tier 7 was "nothing
+implemented yet" and its HearthBench/Adaptive-Runtime bullet said the
+whole doc was "deliberately not started" — both false now (Tier 7
+Stages A/B/C/D/G/H shipped in full, E except one gap; the Adaptive
+Runtime's Part B largely shipped). Both corrected to point at the new
+roadmap's Phase 1/3/4/5/6 for live status instead of restating it.
+`docs/COGNITIVE-ARCHITECTURE-2026-08-02.md`'s §7 gained a short status
+note above its own static item list, same reasoning — the list itself
+is the spec each item's falsifiable test is checked against and stays
+untouched, only the top-of-section status claim needed correcting.
+
+A background research pass (same technique as v1.34.250's own roadmap
+audit) read `HEARTHBENCH-RUNTIME-2026-07-23.md`/`REFACTOR-2026-07.md`/
+`MASTERCHECKLIST-2026-07-22.md` in full against the new roadmap's
+Phase 1-9 content, checking each for the same "duplicates CHANGELOG/
+CLAUDE.md" bloat the old roadmap had and for open items the roadmap
+compression might have dropped. Findings, acted on in the next
+version: `REFACTOR-2026-07.md` is ~85% redundant per-module shipped
+narrative (same shape as the old roadmap) with two real missed items
+(R1's `population.py` mixin split, R3's remaining `clamp()` sites);
+`HEARTHBENCH-RUNTIME-2026-07-23.md`'s Part B (the Adaptive Runtime) is
+~70% redundant shipped narrative with three missed items (`B15.6`/
+`B15.7`/`B15.8`) plus B10.2's remaining 72 flagged sites, while Part A
+(HearthBench itself) is still genuine, needed spec; `MASTERCHECKLIST-
+2026-07-22.md` is only ~45% redundant (each item's spec/data-model
+text is the real TODO, not duplicate history) but has a real internal
+staleness bug (five section headers still tagged `— MISSING` after
+their own first bullet says "shipped a first slice") and a long tail
+of un-rolled-up open sub-items (A1's 11 remaining fields, A10/A11/A13/
+A14/A15/A16/A17/A18/A19/A20's named-but-unbuilt pieces, B5/B6/B8/C4/C5)
+the roadmap's 9-item illustrative list didn't fully represent.
+
 ## Current state (v1.34.250)
 
 Explicit user instruction: "consolidate the roadmap and summarize

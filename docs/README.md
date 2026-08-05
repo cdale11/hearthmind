@@ -39,8 +39,10 @@ moved to `docs/archive/` (see the path-change note at the bottom).
   subsystem among several, impasse-gated deliberation, a global
   workspace with broadcast, prediction-error salience. Also defines the
   **Cognitive Observatory** UI and the amended three-surface rule.
-  `CONSTITUTION.md` still wins on priority ordering. Roadmap: Tier 7.
-  Nothing implemented yet.
+  `CONSTITUTION.md` still wins on priority ordering. Roadmap: Tier 7 —
+  now mostly SHIPPED (Stages A/B/C/D/G/H in full, E except one gap);
+  see `ROADMAP-2026-07-REMAINING.md`'s Phase 1/3 for what's left, not
+  this doc's own static §7 (kept as the original spec).
 
 - **`ROADMAP-2026-07-REMAINING.md`** — **the** roadmap. A phase-ordered
   (Phase 1 → 9) list of every genuinely open item across the whole
@@ -56,9 +58,13 @@ moved to `docs/archive/` (see the path-change note at the bottom).
   cognitive pillars) and Part C (the Body↔Mind "Seam"). The roadmap
   tracks status; this document holds the specs.
 
-- **`HEARTHBENCH-RUNTIME-2026-07-23.md`** — the Tier 5 program
-  (HearthBench model-selection benchmark + the Adaptive Runtime).
-  Deliberately not started; sequenced after Tiers 0–4.
+- **`HEARTHBENCH-RUNTIME-2026-07-23.md`** — the Tier 5 program's two
+  tracks: HearthBench (Part A, the model-selection benchmark — still
+  almost entirely unbuilt, see the roadmap's Phase 6) and the Adaptive
+  Runtime (Part B — now largely SHIPPED via the "Adaptive Runtime &
+  HCA dependency-ordered build sequence," see the roadmap's Phase 4/5
+  for what's left). This doc is the original spec for both; it does
+  not track live status.
 
 - **`ML-ARCHITECTURE-2026-08-01.md`** — **the AI/ML architecture to
   build.** Supersedes the audit's M0-M9 staging: every proposed model
