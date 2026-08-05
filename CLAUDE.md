@@ -742,6 +742,65 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.250)
+
+Explicit user instruction: "consolidate the roadmap and summarize
+everything at the bottom of the document... make a new phase based
+new roadmap at the top of this file of the remaining open items —
+all of them, don't skip anything. This final roadmap should be a
+final pass and after completing that should ship the game I always
+have wanted." Docs-only, `docs/ROADMAP-2026-07-REMAINING.md` rewritten
+in full: 6,013 lines -> 227.
+
+A background research pass read the entire prior document (years of
+verbose "shipped, vX.Y.Z" narrative interleaved with open items marked
+by inconsistent conventions across sections — checkboxes, "not
+attempted," "remains open," "flagged for future work," "needs
+individual live judgment") and produced an exhaustive, deduplicated
+inventory of every genuinely open item across Part A (deterministic
+Body)/Part B (cognitive Mind)/Part C (the seam), Tier 5 (HearthBench +
+the Adaptive Runtime), Tier 6 (learned models), Tier 7 (HCA), and the
+C++ native-porting backlog — cross-checking status conflicts against
+the doc's own later-dated statements (e.g. Tier 0's checklist item vs.
+its own later "CLOSED, reclassified to ongoing maintenance" note;
+B10.2's "open" earlier framing vs. its own later "confirmed exhausted
+after 4 pilots" conclusion; the two competing C++-backlog sections,
+one explicitly marked as superseding the other).
+
+That inventory became a single **Phase 1-9** roadmap at the top of the
+document, in dependency order: **1** semantic substrate + the goal-
+policy flagship (Tier 6 `L1.1`/`L2.2`/`L2.3`, HCA `F1`) — **2** wiring
+the already-built ML substrate (`L2.1`/`L3.1`/`L3.2`/`L4.1`/`L5`/`L6`/
+`B13.5`) to real production consumers — **3** the last Tier 7 gaps
+(`E3`'s competing-goals half, `H1`'s per-domain budgets, a real chunk-
+expiry mechanism unblocking `rule_proposal`, confirming B1's own
+headline test live) — **4** the two ~200-site live-judgment audits
+(`B3.3`, `B9.3`, `B4.2`'s last two dormancy candidates) — **5**
+finishing the Adaptive Runtime's wiring (`B11`/`B12`/`B14.3`) — **6**
+building HearthBench itself (`A2`-`A13` in full dependency order) —
+**7** native performance, opportunistic only, not gated on anything
+(`R8`, the weather region-grid re-audit) — **8** residual polish on
+already-shipped mechanisms (13 small independent items — `A2`'s
+fire-spread, `A3`'s procgen question, `A4`'s `FieldGrid` migration,
+`A7`'s shape grammar, `A8`'s grammar mutation, `A9`'s unused wrapper,
+`A12`'s material generalization, `A21`'s folklore/legend unification,
+`A22`'s open-ended producer growth, Part B's `B1`/`B2`/`B3`/`B7` full
+pillar-refactor coverage) — **9** standing discipline, perpetual, not
+a queue item (`A23`/`A24`/`A25`, the per-agent mirroring design
+question, Tier 0's now-opportunistic mirror sweep, Tier 0.5's live-
+inference re-measurement once a real LLM server is available). Nothing
+found in the research pass was dropped — ambiguous-status items were
+resolved by re-checking the source text rather than guessed at either
+direction.
+
+Everything shipped is now one short paragraph at the document's own
+bottom ("Shipped so far"), pointing to `CHANGELOG.md` (chronological)
+and this file's own "Current state" log (topical, most-recent-first)
+as the authoritative history — the roadmap doc no longer duplicates
+either. `docs/README.md`'s own index entry updated to match (the old
+"tiered Tier 0 -> Tier 7, see the Open-task checklist" description no
+longer described the file). No code changed.
+
 ## Current state (v1.34.249)
 
 Explicit user instruction: "Complete phase 8 this turn" — Phase 8's

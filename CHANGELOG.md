@@ -4,6 +4,44 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.250] — Roadmap consolidation: a single phase-ordered final list
+
+Explicit user instruction: "consolidate the roadmap and summarize
+everything at the bottom... make a new phase-based roadmap at the
+top of this file of the remaining open items — all of them, don't
+skip anything. This final roadmap should be a final pass and after
+completing that should ship the game I always have wanted."
+
+`docs/ROADMAP-2026-07-REMAINING.md` rewritten in full: 6,013 lines
+→ 227. A background research pass read the entire prior document
+(mixing years of verbose "shipped, vX.Y.Z" narrative with open items
+marked by inconsistent conventions — checkboxes, "not attempted,"
+"remains open," "flagged for future work") and produced an
+exhaustive, deduplicated inventory of every genuinely open item
+across Part A/B/C, Tier 5 (HearthBench + Adaptive Runtime), Tier 6
+(learned models), Tier 7 (HCA), and the C++ native-porting backlog.
+
+That inventory is now a single **Phase 1-9** roadmap at the top of
+the document, in dependency order: semantic substrate + the goal-
+policy flagship (1) → wiring already-built ML substrate to real
+consumers (2) → closing the last HCA gaps (3) → the two ~200-site
+live-judgment audits (4) → finishing the Adaptive Runtime's wiring
+(5) → building HearthBench itself (6) → native performance,
+opportunistic only (7) → residual polish (8) → standing discipline,
+perpetual (9). Nothing found in the audit was dropped — a few items
+flagged by the audit as ambiguous status (e.g. B10.2's remaining
+sites, confirmed exhausted; several "Known scope trims" confirmed as
+permanent decisions, not open work) were resolved by re-checking the
+source text before being included or excluded.
+
+Everything shipped is now summarized in one short paragraph at the
+document's own bottom, pointing to `CHANGELOG.md` (chronological) and
+`CLAUDE.md`'s "Current state" log (topical) as the authoritative
+history — this document no longer duplicates either. `docs/README.md`'s
+own index entry updated to match (the old "tiered Tier 0 → Tier 7,
+see the Open-task checklist" description no longer describes the
+file). Docs-only; no code changed.
+
 ## [1.34.249] — Tier 7 HCA Phase 8, step 3: the Sweep (closes Phase 8)
 
 Explicit user instruction: "Complete phase 8 this turn" — Phase 8's

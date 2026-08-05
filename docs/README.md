@@ -42,9 +42,10 @@ moved to `docs/archive/` (see the path-change note at the bottom).
   `CONSTITUTION.md` still wins on priority ordering. Roadmap: Tier 7.
   Nothing implemented yet.
 
-- **`ROADMAP-2026-07-REMAINING.md`** — **the** roadmap. Every open item,
-  tiered (Tier 0 → Tier 7). Its "Open-task checklist" section near the
-  top is the fastest read of what is actually left.
+- **`ROADMAP-2026-07-REMAINING.md`** — **the** roadmap. A phase-ordered
+  (Phase 1 → 9) list of every genuinely open item across the whole
+  project; shipped history is summarized at its own bottom and lives in
+  full in `CHANGELOG.md`/this file's own "Current state" log.
 
 - **`DECISIONS.md`** — running design-decision log: root causes,
   rationale, verification data. Appended to by every behavioural
