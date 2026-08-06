@@ -127,6 +127,7 @@ from hearthmind.simulation.hardware_profile import GoodCitizenPolicy, HostProbe,
 from hearthmind.simulation.forecasting import (
     ForecastAccuracyTracker, WorkloadForecaster, is_quiet_window, make_training_example,
 )
+from hearthmind.ml.embedding import SkipGramEmbedding
 from hearthmind.ml.goal_policy import GoalPolicy
 from hearthmind.ml.specialist import LearningSpecialist
 from hearthmind.simulation.persistence_scheduling import SnapshotPolicy, SnapshotScheduler
@@ -1930,6 +1931,44 @@ def _load_goal_policy(path: str | None) -> "GoalPolicy | None":
         return None
 
 
+EMBEDDING_FILENAME = "embedding_weights.json"
+"""Tier 6 L1.1's real control point (v1.34.259): same file-next-to-
+`db_path`/never-auto-created discipline as `GOAL_POLICY_FILENAME` --
+a random-init untrained `SkipGramEmbedding` would score WORSE than
+the bag-of-words relevance it would replace (every vector is a random
+draw with no real semantic structure), so absence means the exact
+prior bag-of-words behavior, not a degraded embedding. Unlike `Goal
+Policy`, training needs no live-LLM archive at all -- `scripts/train_
+embedding_from_world.py` builds its corpus straight from THIS world's
+own already-real `World.emergence_log`/`Agent.memories`/`Settlement.
+beliefs` text (see `hearthmind/ml/corpus.py`), so any operator can
+train one locally from their own running world with zero external
+dependency."""
+
+
+def _embedding_path_for(db_path: str) -> str | None:
+    """Same sibling-file-next-to-`db_path` convention as `_goal_
+    policy_path_for`/`_machine_profile_path_for` -- `None` for
+    `:memory:`."""
+    if db_path == ":memory:":
+        return None
+    directory = os.path.dirname(os.path.abspath(db_path))
+    return os.path.join(directory, EMBEDDING_FILENAME)
+
+
+def _load_embedding(path: str | None) -> "SkipGramEmbedding | None":
+    """`None` (bag-of-words fallback) unless a real, readable, schema-
+    valid trained-weights file exists -- same degrade-never-crash
+    discipline as `_load_goal_policy`."""
+    if path is None or not os.path.exists(path):
+        return None
+    try:
+        with open(path) as f:
+            return SkipGramEmbedding.from_dict(json.load(f))
+    except (OSError, ValueError, KeyError, json.JSONDecodeError):
+        return None
+
+
 INSTITUTION_DORMANCY_IDLE_CHECKS_THRESHOLD = 3
 """Tier 5 B4.2 pilot ("idle institutions"): consecutive monthly
 `_update_institution_dormancy` checks with an unchanged fingerprint
@@ -2359,6 +2398,8 @@ class SimulationEngine:
         self._last_strategy = None
         self._goal_policy_path = _goal_policy_path_for(config.db_path)
         self._goal_policy: "GoalPolicy | None" = _load_goal_policy(self._goal_policy_path)
+        self._embedding_path = _embedding_path_for(config.db_path)
+        self._embedding: "SkipGramEmbedding | None" = _load_embedding(self._embedding_path)
         """Tier 6 L2.2. `None` (the overwhelmingly common case — no
         operator has trained one for this world yet) reproduces
         `fallback_goal`'s exact prior deterministic `agent_id % 3`/
@@ -12256,6 +12297,7 @@ class SimulationEngine:
         retrieved = retrieve_relevant_memories(
             agent, RECENT_MEMORIES_IN_PROMPT, context=retrieval_context,
             current_tick=self.world.clock.tick_count,
+            embedding=self._embedding,
         )
         recent = [faded_memory_text(t, s) for t, s, _c in retrieved]
         existing = list(agent.beliefs)
@@ -16830,6 +16872,16 @@ class SimulationEngine:
             "goal_policy": {
                 "loaded": self._goal_policy is not None,
                 "path": self._goal_policy_path,
+            },
+            # Tier 6 L1.1's real control point (v1.34.259): whether
+            # `_run_personal_belief`'s memory retrieval is drawing on a
+            # real trained semantic embedding or the original bag-of-
+            # words relevance term -- `loaded=False` means byte-
+            # identical prior behavior, same discipline as `goal_policy`.
+            "embedding": {
+                "loaded": self._embedding is not None,
+                "path": self._embedding_path,
+                "vocab_size": len(self._embedding.vocab) if self._embedding is not None else 0,
             },
             # Tier 5 B15.3/B15.4's real control point: the ladder's real
             # current rung, its own logged transition history (bounded,

@@ -742,6 +742,74 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.259)
+
+Explicit user follow-up: "why did I have to download your weights,
+can my system not do the training... automate this if crucial in
+run.sh... similarly for other blocked items... also finish phase 1,"
+plus a mid-turn live report of two UI bugs. Three pieces.
+
+**Local training, answered and closed.** No GPU/torch needed for the
+Tier 6 ML-substrate models (`GoalPolicy`, embeddings, the retrieval
+scorer, the LLM cost regressor) — small pure-Python SGD-trained MLPs.
+The real blocker was always DATA: `GoalPolicy` needs recorded
+`(structured_input, goal)` pairs only the operator's own live
+deployment produces. `L1.1`'s embedding needed NO archive at all —
+the deterministic-fallback path already writes real sentences even
+LLM-disabled, the actual (overlooked) reason it stayed unwired.
+Deliberately NOT automated into `scripts/run.sh` — per B0's own
+invariant, scheduling belongs in the engine (the same shape G2's
+`_maybe_tick_workload_forecaster` already uses for automatic
+retraining), not a shell timer; a real in-engine retrain cadence for
+`GoalPolicy` is flagged as its own future item, not bolted on here.
+
+**L1.1 wired, closes roadmap Phase 1.** New `hearthmind/ml/corpus.py`'s
+`collect_world_corpus(world)`: real text already living in `World`
+state (`emergence_log` summaries, agent memories, settlement beliefs/
+folklore/legends, all five pillars' `world_model`) — zero new tracked
+field, no LLM call. `simulation/engine.py` gained `EMBEDDING_FILENAME`/
+`_embedding_path_for`/`_load_embedding` (same file-next-to-`db_path`
+pattern as `GOAL_POLICY_FILENAME`); `_run_personal_belief` now passes
+`embedding=self._embedding` to `retrieve_relevant_memories`;
+`full_diagnostics()['embedding']` surfaces `{loaded, path,
+vocab_size}`. New `scripts/train_embedding_from_world.py` trains
+directly from any real, already-persisted `World` — no live archive
+needed. Verified: new `scripts/verify_l1_1_corpus_and_wiring.py` (10
+checks) — real corpus extraction, junk filtering, dedup, the three
+engine-loading cases, `embedding=None` byte-for-byte parity, and a
+real subprocess end-to-end run against a fresh LLM-disabled world
+ticked in this environment. `scripts/verify_replay_hash.py`/`verify_
+native_soak.py` — both MATCH.
+
+**UI fix 1: WebSocket-stall watchdog.** Live report: after hours of
+runtime the UI froze on the static "connecting…" placeholder. Root
+cause: a WebSocket can sit OPEN-but-silently-dead (server broadcast
+loop stalled under backpressure, or a proxy drops the connection
+without a close frame) — the old reconnect only fired on a genuine
+`onclose`/`onerror`, never produced by a merely-stalled socket. New
+`app.js` stale-message watchdog (`WS_STALE_MS=30000`) force-closes a
+quiet connection, which reliably drives the existing reconnect loop.
+Also: `boot()`'s initial `/terrain` fetch is now `try`/`catch`-wrapped
+— an uncaught failure there previously aborted `boot()` before
+`connectWebSocket()` (the last line) was ever reached, leaving a
+freshly-loaded page with zero connection attempts.
+
+**UI fix 2: large-map sidebar-wrap oscillation.** Live report: a
+120x120 map kept growing to fill the screen, pushing `#sidebar` below
+it, snapping back, repeating. `resizeCanvasDisplay`'s reserved
+sidebar-width budget (296px) was smaller than `#sidebar`'s real CSS
+(`flex: 1 1 320px`, a 320px flex-basis, not just its 280px min-width),
+invisible at ordinary map sizes but real once a large buffer's
+computed display width reached that boundary. Fixed two ways: the
+reserved budget now matches the real flex-basis plus a scrollbar-width
+margin, AND a new hard `window.innerWidth`-relative ceiling
+(`MAP_DISPLAY_MAX_VIEWPORT_FRACTION=0.62`) bounds the map's width
+independent of any flex-layout measurement — structurally incapable
+of starving the sidebar regardless of future CSS drift. Verified
+live: a real dev server with a genuine 120x120 world, Playwright at
+1600x900 — six repeated resize events and five repeated terrain
+redraws (both real trigger paths) held identical geometry, zero wrap.
+
 ## Current state (v1.34.258)
 
 Explicit user request: an uploaded real-deployment `review_pack.json`

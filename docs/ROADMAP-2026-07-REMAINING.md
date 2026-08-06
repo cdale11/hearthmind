@@ -23,8 +23,8 @@ The two Tier 6 items everything else in this roadmap either builds on or
 gates behind.
 
 - **L1.1 — Semantic embedding** of the sim's own vocabulary — **SHIPPED
-  (substrate), not yet wired.** `hearthmind/ml/embedding.py`: a
-  pure-Python skip-gram-with-negative-sampling word embedding, trained
+  and WIRED into production (v1.34.259).** `hearthmind/ml/embedding.py`:
+  a pure-Python skip-gram-with-negative-sampling word embedding, trained
   on a caller-supplied text corpus (corpus-agnostic by design, same
   "decouple from World internals" discipline `cross_run.py` already
   established). `SkipGramEmbedding.text_similarity(a, b)` is the real
@@ -32,12 +32,49 @@ gates behind.
   verified against the architecture doc's own worked example ("the
   wolves took Bram" scores measurably closer to "a predator killed my
   brother" than to an unrelated harvest sentence, `scripts/verify_ml_
-  l1_embedding.py`, 19 checks). Real waiting consumers (memory
-  retrieval's hand-tuned weights, four text-dedup sites, `Pillar.
-  word_overlap`, topic-novelty checks) are NOT wired yet — needs a real
-  corpus-building pass from `World`/`Agent` text plus a live-consumer
-  migration, same "ship the substrate, wire it once a real consumer
-  exists" discipline every other L-layer piece has shipped under.
+  l1_embedding.py`, 19 checks).
+
+  **The corpus-building pass, closed.** New `hearthmind/ml/corpus.py`'s
+  `collect_world_corpus(world)` extracts every real sentence-shaped
+  string already living in a `World`'s own persisted state —
+  `emergence_log` summaries, every agent's `memories`/`semantic_
+  memories`, every settlement's `beliefs`/`folklore`/`legends`/
+  `records`, and all five cognitive pillars' `world_model` belief
+  text — deduplicated, no new tracked field, no LLM call of its own.
+  The load-bearing finding this pass corrects: unlike L2.2 (which
+  genuinely needed a live-LLM recorder archive), L1.1 needed no
+  external archive at all — this codebase's deterministic-fallback
+  path already writes plenty of real sentences (event/chronicle
+  templates), so a corpus can be built from ANY world, including one
+  freshly created and ticked right here with the LLM disabled;
+  verified directly against exactly such a fixture.
+
+  **Real wiring.** Same file-next-to-`db_path`/never-auto-created
+  pattern as `GOAL_POLICY_FILENAME` — new `EMBEDDING_FILENAME`/
+  `_embedding_path_for`/`_load_embedding` in `simulation/engine.py`;
+  a random-init untrained embedding would score WORSE than the bag-
+  of-words relevance it replaces (no real semantic structure), so
+  absence means the exact prior behavior, not a degraded one.
+  `SimulationEngine.__init__` loads it once (`self._embedding`);
+  `_run_personal_belief` (the one real engine-side `retrieve_
+  relevant_memories` call site) now passes `embedding=self._embedding`
+  — `full_diagnostics()['embedding']` surfaces `{loaded, path,
+  vocab_size}`. `cognition.py`/`letters.py`'s own `retrieve_relevant_
+  memories` calls are pure `build_prompt` functions with no engine
+  access by design and stay at the default, same as before.
+
+  New `scripts/train_embedding_from_world.py`: loads a real, already-
+  persisted `World` from any operator's own `db_path` (the same load
+  path `server.py` itself uses), builds its corpus via `collect_
+  world_corpus`, trains, and saves to the exact path `Simulation
+  Engine` auto-loads — **needs no live-LLM training-recorder archive,
+  unlike `train_goal_policy_from_archive.py`.** Real waiting consumers
+  named in earlier filings (four text-dedup sites, `Pillar.word_
+  overlap`, topic-novelty checks, L2.3's retrieval scorer, HCA `F1`'s
+  end-to-end concept-vector pull) are NOT migrated onto this embedding
+  yet — each needs its own real wiring pass, same discipline as every
+  other L-layer piece; this pass closes the corpus-building gap every
+  one of them was actually blocked on.
   Unblocks L2.3/HCA `F1` at the substrate level; both still need their
   own real wiring pass.
 - **L2.2 — Goal policy** (the flagship, the largest single remaining Tier

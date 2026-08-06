@@ -2586,7 +2586,33 @@ const MAP_DISPLAY_MAX_SCALE = 1.5;
 // reserve a fixed budget for the sidebar (its own CSS min-width, see
 // `#sidebar { min-width: 280px }`, plus `main`'s own gap) instead of
 // reading a position coupled to the very decision being computed.
-const SIDEBAR_RESERVED_WIDTH = 280 + 16; // #sidebar min-width + main's flex gap
+//
+// A large map (live report: 120x120, buffer 1440px+ at CELL=12) kept
+// re-triggering the SAME class of oscillation this fix already
+// existed to prevent, for a second, more subtle reason: the reserved
+// budget above (296px) was smaller than `#sidebar`'s own real CSS
+// (`flex: 1 1 320px` — flex-BASIS 320px, not the 280px min-width alone;
+// see style.css) plus a real scrollbar can also appear/disappear as
+// content height changes, shifting `mainRect.width` by another ~15px.
+// A too-small reserved budget computes a map width that's still too
+// wide to coexist with the sidebar's real rendered width, tripping
+// `flex-wrap` — which is invisible at typical map sizes (the
+// difference rounds away under `MAP_DISPLAY_MAX_SCALE`'s cap) but
+// becomes the exact same "grows to fill the screen, pushes the
+// sidebar below, a later reflow snaps it back, repeat" loop once a
+// large buffer lets the computed display width actually reach that
+// boundary. Fixed two ways, not just a bigger guess, so this class of
+// bug can't recur from a future CSS tweak either: (1) the reserved
+// budget now matches `#sidebar`'s real flex-basis (320px) plus a
+// scrollbar-width safety margin, not just its floor; (2) a HARD cap,
+// `MAP_DISPLAY_MAX_VIEWPORT_FRACTION`, bounds the map's display width
+// to a fraction of `window.innerWidth` directly — a value that never
+// depends on flex-wrap state at all — so the map is structurally
+// incapable of claiming enough width to starve the sidebar below its
+// own min-width, regardless of exactly how the reserved-budget guess
+// above drifts from CSS reality in the future.
+const SIDEBAR_RESERVED_WIDTH = 320 + 16 + 20; // #sidebar flex-basis + main's flex gap + scrollbar margin
+const MAP_DISPLAY_MAX_VIEWPORT_FRACTION = 0.62;
 
 function resizeCanvasDisplay() {
   if (!staticCanvas) return;
@@ -2598,7 +2624,13 @@ function resizeCanvasDisplay() {
   const mainRect = mainEl.getBoundingClientRect();
   const mainStyle = getComputedStyle(mainEl);
   const mainPaddingX = (parseFloat(mainStyle.paddingLeft) || 0) + (parseFloat(mainStyle.paddingRight) || 0);
-  const availW = Math.max(240, mainRect.width - mainPaddingX - SIDEBAR_RESERVED_WIDTH);
+  const availW = Math.max(
+    240,
+    Math.min(
+      mainRect.width - mainPaddingX - SIDEBAR_RESERVED_WIDTH,
+      window.innerWidth * MAP_DISPLAY_MAX_VIEWPORT_FRACTION,
+    ),
+  );
   const availH = Math.max(240, window.innerHeight - panel.getBoundingClientRect().top - 24);
   let scale = Math.min(availW / bufferW, availH / bufferH);
   scale = Math.max(MAP_DISPLAY_MIN_SCALE, Math.min(MAP_DISPLAY_MAX_SCALE, scale));
@@ -5441,15 +5473,50 @@ if (whisperForm) {
   });
 }
 
+// Real live-report bug: after running for hours the UI got permanently
+// stuck reading "connecting…" with a frozen map, even though the
+// WebSocket itself never fired onclose/onerror. Root cause: a socket
+// can sit in a technically-OPEN-but-silently-dead state (the server's
+// own broadcast loop stalled under sustained LLM backpressure, or an
+// intermediate proxy/NAT dropped the connection without a close frame
+// ever reaching the client) — nothing in the old code ever noticed,
+// since the only reconnect trigger was a real `onclose`/`onerror`
+// event that a merely-stalled socket never produces. A stale-message
+// watchdog is the fix: if no message has arrived for `WS_STALE_MS`,
+// treat the connection as dead and force a reconnect regardless of
+// whether the browser ever tells us it closed.
+const WS_STALE_MS = 30000;
+let wsLastMessageAt = 0;
+let wsStaleWatchdog = null;
+
 function connectWebSocket() {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   const ws = new WebSocket(`${proto}//${location.host}/ws`);
-  ws.onmessage = (ev) => applyPayload(JSON.parse(ev.data));
+  wsLastMessageAt = Date.now();
+  ws.onopen = () => { wsLastMessageAt = Date.now(); };
+  ws.onmessage = (ev) => {
+    wsLastMessageAt = Date.now();
+    applyPayload(JSON.parse(ev.data));
+  };
   ws.onclose = () => {
     document.getElementById("clock-line").textContent = "disconnected — retrying…";
     setTimeout(connectWebSocket, 2000);
   };
   ws.onerror = () => ws.close();
+
+  if (wsStaleWatchdog !== null) clearInterval(wsStaleWatchdog);
+  wsStaleWatchdog = setInterval(() => {
+    if (Date.now() - wsLastMessageAt > WS_STALE_MS) {
+      clearInterval(wsStaleWatchdog);
+      wsStaleWatchdog = null;
+      // A close on an already-dead/stuck socket still reliably fires
+      // onclose (browsers guarantee this even for a socket that never
+      // saw a server-sent close frame), which is what actually drives
+      // the reconnect loop above — this just supplies the trigger a
+      // silently-stalled connection would otherwise never produce.
+      ws.close();
+    }
+  }, 5000);
 }
 
 // --- sparklines: a sim-year of curves from GET /metrics ---------------------
@@ -5503,8 +5570,22 @@ async function refreshSparklines() {
 }
 
 async function boot() {
-  terrain = await fetchJSON("/terrain");
-  drawStaticTerrain();
+  // Real live-report bug: an uncaught failure in this first fetch (a
+  // transient server hiccup mid-restart, a dropped connection during
+  // page load) used to abort `boot()` entirely — `connectWebSocket()`
+  // is the LAST line, so a page that never gets past this point never
+  // even attempts its first WebSocket connection, leaving it stuck on
+  // the static "connecting…" HTML forever with no retry of any kind.
+  // Terrain is re-fetched via the WebSocket's own periodic terrain-
+  // resync anyway, so a failed first attempt here is recoverable —
+  // it just must never block the real connection from being tried.
+  try {
+    terrain = await fetchJSON("/terrain");
+    drawStaticTerrain();
+  } catch (e) {
+    // retried automatically once the WebSocket below delivers its
+    // first terrain resync; the canvas simply stays blank until then
+  }
   refreshSparklines();
   setInterval(refreshSparklines, SPARKLINE_REFRESH_MS);
   try {

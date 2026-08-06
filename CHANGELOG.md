@@ -4,6 +4,119 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.259] — Local training closes Phase 1; WebSocket-stall and large-map layout fixes
+
+Three independent pieces requested in one turn: explaining and closing
+the gap on local ML-substrate training, finishing Tier 6 Phase 1
+(`L1.1` semantic embedding), and two live-reported UI bugs.
+
+**Local training, explained and closed.** Direct answer to "why do I
+have to download your weights, can my system not do the training":
+this dev environment has no live LLM server at all, but the Tier 6
+"ML substrate" models (`GoalPolicy`, embeddings, the retrieval scorer,
+the LLM cost regressor) are small pure-Python MLPs trained by plain
+SGD — **no GPU, no torch, nothing beyond a Python interpreter**. The
+real blocker was always DATA, not compute: `GoalPolicy` specifically
+needs recorded `(structured_input, goal)` decision pairs from a real
+LLM deployment, which only exists on the operator's own machine.
+`L1.1`'s embedding needed no such archive at all — it only needs
+sentences, and this codebase already writes those via its
+deterministic-fallback templates even with the LLM disabled — the
+real, if overlooked, reason it stayed unwired this long. Both trainer
+scripts (`scripts/train_goal_policy_from_archive.py`, new `scripts/
+train_embedding_from_world.py`) are ordinary, fast (seconds-to-
+minutes), local, offline commands any operator can run themselves
+against their own archive/world and drop the output next to their
+`db_path`. Deliberately NOT wired into `scripts/run.sh` as an
+automatic shell-triggered retrain: per this project's own standing
+Adaptive Runtime invariant (B0 — scheduling belongs to the tick loop/
+`SimulationEngine`, never a shell timer), a real automatic retrain
+cadence belongs inside the engine (the same shape `_maybe_tick_
+workload_forecaster`'s G2 job already uses), which is real, separate,
+larger future work — not something to bolt onto a launch script
+without that design. `L2.3`'s retrieval scorer stays blocked on a
+genuinely different, still-unsolved problem (a "did this memory
+demonstrably influence the output" label, which no automated
+mechanism in this codebase can derive yet — not a data-availability
+gap `L2.2`'s pattern can be copied for). The Tier 6 item that
+genuinely does need real GPU/training infrastructure (LoRA/QLoRA
+fine-tuning of the LLM itself) remains its own, explicitly separate,
+still-unattempted item — `llm/eval_harness.py`'s `training_readiness_
+report` is the tooling that already exists for it.
+
+**Tier 6 L1.1, wired (closes roadmap Phase 1).** New `hearthmind/ml/
+corpus.py`'s `collect_world_corpus(world)`: extracts every real
+sentence-shaped string already living in a `World`'s own persisted
+state — `emergence_log` summaries, every agent's `memories`/
+`semantic_memories`, every settlement's `beliefs`/`folklore`/
+`legends`/`records`, and all five cognitive pillars' `world_model`
+belief text — deduplicated, zero new tracked field. `simulation/
+engine.py` gained `EMBEDDING_FILENAME`/`_embedding_path_for`/`_load_
+embedding` (same file-next-to-`db_path`/never-auto-created pattern as
+`GOAL_POLICY_FILENAME`); `_run_personal_belief` (the one real engine-
+side `retrieve_relevant_memories` call site) now passes `embedding=
+self._embedding`; `full_diagnostics()['embedding']` surfaces
+`{loaded, path, vocab_size}`. New `scripts/train_embedding_from_
+world.py` loads any real, already-persisted `World` and trains
+directly from its own text, needing no external archive.
+
+Verified: new `scripts/verify_l1_1_corpus_and_wiring.py` (10 checks,
+all pass first run) — real corpus extraction across every named
+source, short/junk-string filtering, deduplication, safe degradation
+on a world with no pillars attached, the engine's three real loading
+cases (no file/corrupted file/real file), `embedding=None` byte-for-
+byte parity, and a full subprocess end-to-end run of the training
+script against a genuinely locally-ticked (LLM-disabled) world built
+fresh in this very environment. `scripts/verify_replay_hash.py` (800
+ticks, seed 777) and `scripts/verify_native_soak.py` (2 seeds, 800
+ticks) — both MATCH, confirming the default (`embedding=None`) path
+is unaffected.
+
+**UI: WebSocket-stall watchdog.** Live report: after running for
+hours the UI got permanently stuck reading the static "connecting…"
+placeholder with a frozen map. Root cause: a WebSocket can sit in a
+technically-OPEN-but-silently-dead state (the server's own broadcast
+loop stalling under sustained backpressure, or an intermediate proxy
+dropping the connection with no close frame ever reaching the
+client) — the old reconnect logic only ever triggered on a genuine
+`onclose`/`onerror` event, which a merely-stalled-but-still-open
+socket never produces. New `app.js` stale-message watchdog: if no
+message has arrived within `WS_STALE_MS` (30s), the socket is force-
+closed, which reliably drives the existing reconnect loop regardless
+of whether the browser itself ever reports the connection as closed.
+Also hardened `boot()`: the initial `/terrain` fetch is now wrapped in
+its own `try`/`catch` — a failure there used to abort `boot()` before
+`connectWebSocket()` (the function's last line) was ever reached,
+leaving a freshly-loaded page with zero connection attempts and no
+retry of any kind.
+
+**UI: large-map sidebar-wrap oscillation, fixed for real.** Live
+report: a 120x120 map kept growing to fill the screen, pushing the
+sidebar below it, snapping back on some interactions, and repeating —
+the same class of bug a prior fix (v1.34.163) had addressed for a
+different root cause. This time: `resizeCanvasDisplay`'s reserved
+sidebar-width budget (296px) was smaller than `#sidebar`'s real CSS
+(`flex: 1 1 320px` — a 320px flex-BASIS, not just its 280px min-width
+floor), plus a real vertical scrollbar can shift the container's
+measured width by another ~15px — invisible at ordinary map sizes
+(rounds away under the existing display-scale cap) but real once a
+large buffer's computed display width actually reaches that boundary,
+tripping `flex-wrap` into the same self-reinforcing loop. Fixed two
+ways: the reserved budget now matches the sidebar's real flex-basis
+plus a scrollbar-width safety margin, and a new hard `window.
+innerWidth`-relative ceiling (`MAP_DISPLAY_MAX_VIEWPORT_FRACTION =
+0.62`) bounds the map's display width independent of any flex-layout
+measurement at all — structurally incapable of starving the sidebar
+regardless of how the CSS numbers drift in the future.
+
+Verified live: a real dev server serving a genuine 120x120 world
+(`--width 120 --height 120`) through Playwright at a 1600x900
+viewport — six repeated `resize` events and five repeated terrain
+redraws (the two real trigger paths) all held byte-identical map/
+sidebar geometry with zero wrap; a narrower 900px viewport still fit
+side-by-side (real available space, not a false wrap). `node --check`
+clean on `app.js`.
+
 ## [1.34.258] — Tier 6 L2.2 (goal policy) wired into real production
 
 Explicit user request: an uploaded `review_pack_20260806_083545.zip`
