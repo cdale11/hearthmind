@@ -133,6 +133,7 @@ from hearthmind.ml.decision_policy import (
 )
 from hearthmind.ml.embedding import SkipGramEmbedding
 from hearthmind.ml.goal_policy import GoalPolicy
+from hearthmind.ml.law_scorer import LawCandidateScorer
 from hearthmind.ml.specialist import LearningSpecialist
 from hearthmind.simulation.persistence_scheduling import SnapshotPolicy, SnapshotScheduler
 from hearthmind.simulation.escalation import CognitionBudget, EscalationLadder, Rung
@@ -1982,7 +1983,9 @@ DECISION_POLICY_FILENAMES = {
 """Tier 6 Phase 1's last named item, wired (v1.34.260): the four real
 `fallback_*`-shaped sites `hearthmind.ml.decision_policy` promotes to
 an L-layer slot -- `llm/laws.py`'s dynamic-candidate-set decision is
-deliberately excluded, see that module's own docstring. Same file-
+deliberately excluded here, handled instead by `hearthmind.ml.law_
+scorer`'s own genuinely different scoring mechanism (see `LAW_SCORER_
+FILENAME` below and that module's docstring for why). Same file-
 next-to-`db_path`/never-auto-created pattern as `GOAL_POLICY_
 FILENAME`/`EMBEDDING_FILENAME` -- one file per site, so an operator
 can train and drop in only the ones they care about."""
@@ -2015,6 +2018,31 @@ def _load_decision_policy(path: str | None, site: str) -> "DecisionPolicy | None
         return None
     try:
         return DecisionPolicy.load(path, _DECISION_POLICY_CONFIGS[site])
+    except (OSError, ValueError, KeyError, json.JSONDecodeError):
+        return None
+
+
+LAW_SCORER_FILENAME = "law_scorer_weights.json"
+"""`hearthmind.ml.law_scorer.LawCandidateScorer`'s own file-next-to-
+`db_path`, never-auto-created weights -- the real mechanism `llm/
+laws.py`'s "which hardship becomes a law" was excluded from `DECISION_
+POLICY_FILENAMES` above for. `None` (no file present) reproduces
+`_maybe_schedule_laws`'s exact original two-key `max()` tiebreak
+byte-for-byte -- see `_law_candidate_score`'s own docstring."""
+
+
+def _law_scorer_path_for(db_path: str) -> str | None:
+    if db_path == ":memory:":
+        return None
+    directory = os.path.dirname(os.path.abspath(db_path))
+    return os.path.join(directory, LAW_SCORER_FILENAME)
+
+
+def _load_law_scorer(path: str | None) -> "LawCandidateScorer | None":
+    if path is None or not os.path.exists(path):
+        return None
+    try:
+        return LawCandidateScorer.load(path)
     except (OSError, ValueError, KeyError, json.JSONDecodeError):
         return None
 
@@ -2461,6 +2489,13 @@ class SimulationEngine:
         operator has trained one for this world yet) reproduces
         `fallback_goal`'s exact prior deterministic `agent_id % 3`/
         trait-standout behavior at every real call site below."""
+        self._law_scorer_path = _law_scorer_path_for(config.db_path)
+        self._law_scorer: "LawCandidateScorer | None" = _load_law_scorer(self._law_scorer_path)
+        """`llm/laws.py`'s dynamic-candidate-set decision, wired via
+        `hearthmind.ml.law_scorer` rather than `DecisionPolicy` — see
+        that module's own docstring. `None` reproduces `_maybe_
+        schedule_laws`'s exact original two-key tiebreak byte-for-
+        byte, verified directly."""
         # B8.4's real control point: a bounded history of daily
         # `CognitionRunner.backlog` readings, sampled unconditionally in
         # `_maybe_tune_llm_concurrency` regardless of whether that
@@ -14078,6 +14113,21 @@ class SimulationEngine:
         "faction_rivalry": "two factions turning on each other, again and again",
     }
 
+    def _law_candidate_score(self, key: str, occurrences: int, initiated_by_conviction: bool) -> float:
+        """Tier 6's `hearthmind.ml.law_scorer.LawCandidateScorer` --
+        a genuine third-level tiebreak for `_maybe_schedule_laws`'s
+        candidate pick, appended after the real occurrence count
+        (dominant) and `village_pillar.subject_confidence` (secondary,
+        unchanged). `self._law_scorer is None` (no trained weights for
+        this world) returns the same constant `0.0` for every
+        candidate -- since a constant never changes which key wins a
+        `max()`, this reproduces the exact prior two-key tiebreak
+        byte-for-byte, verified directly."""
+        if self._law_scorer is None:
+            return 0.0
+        confidence = self.world.village_pillar.subject_confidence(key)
+        return self._law_scorer.score(occurrences, confidence, initiated_by_conviction)
+
     def _maybe_schedule_laws(self, events: list[str]) -> None:
         """§7 item 7 / item 8's "politics" ask, folded together (see
         llm/laws.py's module docstring). Gated on real accumulated
@@ -14176,9 +14226,17 @@ class SimulationEngine:
         # category-keyed producer (see the dispute_feud/theft/
         # materials_bottleneck mirrors above) already has a standing
         # theory about — real occurrences stay the sole determinant
-        # except in a tie.
+        # except in a tie. A trained `LawCandidateScorer` (Tier 6,
+        # v1.34.261) is a genuine THIRD tiebreak layer, appended last —
+        # `_law_candidate_score` returns a constant 0.0 for every key
+        # when no scorer is loaded, so this is a real no-op until an
+        # operator trains one.
         pattern_key = max(
-            candidates, key=lambda k: (candidates[k], self.world.village_pillar.subject_confidence(k)),
+            candidates, key=lambda k: (
+                candidates[k],
+                self.world.village_pillar.subject_confidence(k),
+                self._law_candidate_score(k, candidates[k], False),
+            ),
         )
         occurrences = candidates[pattern_key]
         initiated_by_conviction = False
@@ -14203,7 +14261,12 @@ class SimulationEngine:
             ]
             if not convicted:
                 return
-            pattern_key = max(convicted, key=lambda k: self.world.village_pillar.subject_confidence(k))
+            pattern_key = max(
+                convicted, key=lambda k: (
+                    self.world.village_pillar.subject_confidence(k),
+                    self._law_candidate_score(k, candidates[k], True),
+                ),
+            )
             occurrences = candidates[pattern_key]
             initiated_by_conviction = True
         if self._pillar_interpret_backpressured("village"):
@@ -14213,6 +14276,16 @@ class SimulationEngine:
         prompt = laws.build_prompt(target.name, pattern_text, occurrences, target.laws, remembered=initiated_by_conviction)
         fallback = laws.fallback_laws()
         target_id = target.id
+        # Tier 6 (v1.34.261): `hearthmind.ml.law_scorer`'s real
+        # training signal — the picked candidate's own generic state,
+        # never the category NAME itself (see that module's docstring
+        # for why), so a future archive can train a scorer that
+        # generalizes to any pattern_key, present or future.
+        laws_structured_input = {
+            "occurrences": occurrences,
+            "pillar_confidence": self.world.village_pillar.subject_confidence(pattern_key),
+            "initiated_by_conviction": initiated_by_conviction,
+        }
 
         def apply(result: dict, used_fallback: bool) -> None:
             parsed = laws.parse_laws(result, fallback)
@@ -14278,7 +14351,10 @@ class SimulationEngine:
         # judgment about the settlement (v1.3.37).
         self._submit_and_resolve(
             'laws', 'laws',
-            lambda: self._schedule_llm_job("laws", prompt, laws.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True),
+            lambda: self._schedule_llm_job(
+                "laws", prompt, laws.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True,
+                structured_input=laws_structured_input,
+            ),
         )
 
     # --- item 9: occasional LLM nudges for non-core-cast agents -----------------
@@ -16978,6 +17054,11 @@ class SimulationEngine:
                 site: {"loaded": getattr(self, f"_{site}_policy") is not None, "path": path}
                 for site, path in self._decision_policy_paths.items()
             },
+            # `llm/laws.py`'s dynamic-candidate-set decision, wired via
+            # `hearthmind.ml.law_scorer` rather than the fixed-class
+            # policies above -- `loaded=False` means `_maybe_schedule_
+            # laws`'s real original two-key tiebreak, unchanged.
+            "law_scorer": {"loaded": self._law_scorer is not None, "path": self._law_scorer_path},
             # Tier 5 B15.3/B15.4's real control point: the ladder's real
             # current rung, its own logged transition history (bounded,
             # newest-last), and the cognition budget it's currently

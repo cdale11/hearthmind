@@ -913,6 +913,7 @@ guardrail #3.
 | Goal policy (per-agent "what should I do") | `goal_policy_weights.json` | **Yes** — real `cognition` recordings |
 | Semantic embedding (memory relevance) | `embedding_weights.json` | **No** — trains from your world's own saved text |
 | Dispute / fission / migration / founding | `dispute_policy_weights.json`, `fission_policy_weights.json`, `migration_policy_weights.json`, `founding_policy_weights.json` | **Yes** — real per-site recordings |
+| Law-candidate scorer (which pressured hardship gets asked about) | `law_scorer_weights.json` | **Yes** — real `laws` task recordings |
 
 Everything in the "Yes" column needs the **training recorder** turned
 on for a while first (it's off by default — see `docs/TRAINING_
@@ -946,6 +947,11 @@ python3 scripts/train_embedding_from_world.py \
 # enough real recorded examples, skips the rest honestly:
 python3 scripts/train_decision_policies_from_archive.py \
     --archive-dir training_archive --out-dir .
+
+# The laws.py candidate scorer — a different shape from the four above
+# (see "What's genuinely NOT available locally" below for why):
+python3 scripts/train_law_scorer_from_archive.py \
+    --archive-dir training_archive --out-dir .
 ```
 
 Each command prints, per model: how many usable real examples it found,
@@ -962,9 +968,9 @@ directory, exact filename the trainer printed. `SimulationEngine` looks
 for it automatically on the next server start (or `python3 -m
 hearthmind.server` restart); nothing else needs configuring. To confirm
 it loaded, check `GET /diagnostics` → `goal_policy`/`embedding`/
-`decision_policies`, each reporting `{"loaded": true, "path": "..."}`.
-Delete or rename the file to fall back to the original deterministic
-behavior instantly — no other change needed.
+`decision_policies`/`law_scorer`, each reporting `{"loaded": true,
+"path": "..."}`. Delete or rename the file to fall back to the original
+deterministic behavior instantly — no other change needed.
 
 ```
 world/
@@ -974,7 +980,8 @@ world/
 ├── dispute_policy_weights.json     # optional — from train_decision_policies_from_archive.py
 ├── fission_policy_weights.json     #   "
 ├── migration_policy_weights.json   #   "
-└── founding_policy_weights.json    #   "
+├── founding_policy_weights.json    #   "
+└── law_scorer_weights.json         # optional — from train_law_scorer_from_archive.py
 ```
 
 ### Automating it — deliberately *not* wired into `scripts/run.sh`
@@ -992,13 +999,30 @@ distinct future work; for now, re-running the relevant script above
 by hand whenever you want fresher weights — a fast, cheap, local
 operation — is the supported path.
 
+### A different shape: the `laws.py` candidate scorer
+
+`llm/laws.py`'s "which hardship becomes a law" isn't a fixed-class
+decision the way the four sites above are — it picks among a *dynamic*,
+ever-growing set of named hardship categories (14 today, more added
+over time), never a fixed list a closed-class classifier could
+enumerate as output neurons. `law_scorer_weights.json` is a genuinely
+different mechanism for it: a single scalar model that scores "how
+likely is *this* pressured candidate to actually become a law," using
+only generic signals (occurrence count, standing village conviction) —
+never the candidate's own name — so the same trained scorer applies to
+any hardship category, including ones that don't exist yet. It only
+ever informs *which* already-eligible candidate gets this month's real
+LLM call — a genuine tiebreak layered after the real occurrence count
+(always dominant) and village conviction (second). It never touches
+whether a law forms, what kind it is, or its actual wording — that
+text is free prose only the LLM may author; `llm/laws.py`'s own
+fallback stays a genuine "not yet" no-op on every skipped call, exactly
+as before. Train it the same way as the four sites above, via
+`scripts/train_law_scorer_from_archive.py`.
+
 ### What's genuinely NOT available locally
 
-`llm/laws.py`'s "which hardship becomes a law" decision is deliberately
-excluded from the four decision-policy sites above — it chooses among a
-*dynamic* set of currently-pressured candidates, not a fixed closed
-list, a different (ranking) problem this pattern doesn't fit yet. And
-none of the above touches the underlying LLM itself (Nemotron/Gemma/
+None of the above touches the underlying LLM itself (Nemotron/Gemma/
 whichever GGUF model `llama-server` is running) — genuinely fine-tuning
 that model (LoRA/QLoRA) is a real, heavier undertaking needing GPU
 training infrastructure (`torch`/`peft`/`transformers`) this project

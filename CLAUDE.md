@@ -742,6 +742,96 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.261)
+
+Explicit user instruction: "start on laws.py's dynamic-candidate
+decision mechanism" — closes Phase 1's last flagged item, the fifth
+`fallback_goal`-shaped site v1.34.260 deliberately excluded from
+`DecisionPolicy` (a fixed-class shape that structurally can't
+represent a set of named candidates that keeps growing over time —
+14 today, more added over Tier 0's own history).
+
+New `hearthmind/ml/law_scorer.py`'s `LawCandidateScorer`: the same
+L2.3 `RetrievalScorer` pattern (one scalar sigmoid model, never a
+softmax over named classes) scoring "how likely is this specific
+pressured hardship, right now, to actually crystallize into a law if
+asked." Deliberately generic schema (`occurrences_scaled`, `pillar_
+confidence`, `initiated_by_conviction` — no candidate NAME anywhere),
+so the same trained scorer applies to any of `_maybe_schedule_laws`'s
+14 named `pattern_key`s today, and any future one Tier 0 adds
+tomorrow, with no schema change and no retrain-from-scratch — exactly
+the "ranking/scoring problem" shape the roadmap flagged as genuinely
+different from a fixed-class classifier.
+
+**What it does NOT do, deliberately.** `llm/laws.py`'s own module
+docstring is explicit: "the fallback is a genuine no-op, never an
+invented norm." No learned model here ever proposes, gates, or
+fabricates a law's TEXT/`forms`/`kind` — `laws.fallback_laws()` stays
+untouched, still the same honest "not yet" on every skipped/
+backpressured/failed call. This module's score only ever informs
+WHICH already-eligible candidate (Body-gated by real occurrences, or
+a real standing conviction — both unchanged) gets spent on this
+month's real LLM call: a genuine third-level tiebreak in `_maybe_
+schedule_laws`'s two real `max()` picks, after the real occurrence
+count (primary, always dominant) and `village_pillar.subject_
+confidence` (secondary, unchanged) — same "a lean only breaks a
+genuine tie" discipline every Tier 0 site already holds. New
+`SimulationEngine._law_candidate_score` returns a constant `0.0` for
+every candidate when no scorer is loaded — since a constant never
+changes which key wins a `max()`, this reproduces the exact prior
+two-key tiebreak byte-for-byte, verified directly.
+
+`simulation/engine.py` gained `LAW_SCORER_FILENAME`/`_law_scorer_
+path_for`/`_load_law_scorer`, the same file-next-to-`db_path`,
+never-auto-created pattern as every other Tier 6 model;
+`full_diagnostics()['law_scorer']` surfaces `{loaded, path}`.
+`_maybe_schedule_laws`'s real `_schedule_llm_job("laws", ...)` call
+site now also passes `structured_input={occurrences, pillar_
+confidence, initiated_by_conviction}` — previously nothing was
+recorded for this task at all, so no archive could have trained this
+scorer before this change.
+
+New `scripts/train_law_scorer_from_archive.py` (same `review_pack.
+json`-or-raw-archive-dir shape as every other Tier 6 trainer,
+`lr=0.003`/`epochs=200`) and `scripts/verify_law_scorer_wiring.py`
+(19 checks, all pass first run) — round-trip/schema-mismatch
+rejection; `encode_candidate`'s cap on an extreme occurrence count
+(HCA's own "family lines dying out, 590 occurrences" worked example);
+`rank()`/`learn()` correctness; the engine's constant-0.0 no-op proof
+AND a real trained-scorer tiebreak-flip proof (both directions, so
+the wiring is provably live); the three real loading cases (no file/
+corrupted file/real file); a full subprocess end-to-end training-
+script run, plus a `fallback_used=True`-only archive correctly
+training nothing. One real seed-sensitivity finding during
+verification, not a bug in the shipped module: `MLP.random_init` can
+occasionally land on an all-dead-ReLU init (a real, seed-dependent
+pathology, not new to this pass) that no learning rate/epoch count
+can recover from — caught directly by comparing `mean_loss` before/
+after training across a seed sweep, worked around by picking a
+verified-converging seed in the test itself, not by touching the
+module.
+
+README's local-training guide extended: a new "A different shape:
+the `laws.py` candidate scorer" section explaining why this needed a
+different mechanism than the four `DecisionPolicy` sites, plus the
+new trainer command and weights-file entry in the file-tree diagram.
+The old "not available locally" note about `laws.py` is removed —
+only real LoRA/QLoRA fine-tuning remains genuinely unavailable now.
+
+Verified: the new script (19 checks); `pyflakes` clean on all
+touched/new files (only the six known pre-existing forward-ref
+findings in `engine.py`); `scripts/verify_decision_policies_
+wiring.py` (18 checks) re-run clean, confirming this pass's engine.py
+edits didn't disturb v1.34.260's wiring; `scripts/verify_replay_
+hash.py` (800 ticks, seed 777, `--in-process`) — MATCH, byte-
+identical, confirming default (`_law_scorer=None`) tick-loop behavior
+is completely unaffected; `scripts/verify_native_soak.py` (seeds
+1/55, 800 ticks) — MATCH.
+
+**This closes all five of Phase 1's flagged `fallback_goal`-shaped
+sites** — dispute/fission/migration/founding (v1.34.260) plus laws.py
+(this pass), each now backed by a real, optional, trainable model.
+
 ## Current state (v1.34.260)
 
 Explicit user follow-up: "you wire everything and put a guide in

@@ -246,11 +246,7 @@ gates behind.
   silent gap the trainer would hit later. New `scripts/train_decision_
   policies_from_archive.py` trains whichever of the four sites has
   enough real recorded examples in a given archive, skipping the rest
-  honestly. `llm/laws.py`'s "which hardship becomes a law" stays
-  explicitly excluded — a dynamic-candidate-set decision, a genuinely
-  different (ranking) problem shape this fixed-class pattern doesn't
-  fit, flagged as real, distinct future work rather than forced
-  through. Verified: `scripts/verify_decision_policies_wiring.py` (18
+  honestly. Verified: `scripts/verify_decision_policies_wiring.py` (18
   checks) — round-trip/mismatched-config rejection, masking/
   renormalization, `policy=None` byte-for-byte parity for all four
   `fallback_*` functions, the engine's per-site loading (no-file/
@@ -260,6 +256,30 @@ gates behind.
   every site wired, zero crash. `scripts/verify_replay_hash.py`/
   `verify_native_soak.py` — both MATCH, confirming the default
   (all four `None`) path is completely unaffected.
+- **`llm/laws.py`'s "which hardship becomes a law"** — **SHIPPED and
+  WIRED (v1.34.261)**, the fifth and last flagged Phase-1 site, via a
+  genuinely different mechanism than the four above. New `hearthmind/
+  ml/law_scorer.py`'s `LawCandidateScorer`: the same L2.3 `Retrieval
+  Scorer` pattern (one scalar sigmoid score, never a softmax over
+  named classes) over a deliberately generic schema (occurrence
+  count, `village_pillar` confidence, conviction-initiated flag — no
+  candidate NAME anywhere) — the same trained scorer applies to any
+  of the 14 named `pattern_key`s today and any future one Tier 0 adds,
+  with no schema change. Never touches `forms`/`kind`/text — `laws.
+  fallback_laws()` stays the same honest "not yet" no-op; the scorer
+  is only ever a real third-level tiebreak in `_maybe_schedule_laws`'s
+  candidate pick, after the real occurrence count (dominant) and
+  `village_pillar.subject_confidence` (secondary) — a constant `0.0`
+  with no scorer loaded reproduces the exact prior tiebreak byte-for-
+  byte. `_maybe_schedule_laws`'s `_schedule_llm_job` call gained
+  `structured_input` too, the missing prerequisite a future archive
+  needs to train it. New `scripts/train_law_scorer_from_archive.py` +
+  `scripts/verify_law_scorer_wiring.py` (19 checks — round-trip,
+  occurrence-count capping, both the no-op AND the live-tiebreak-flip
+  proof, the three real engine loading cases, a full subprocess
+  training run). `scripts/verify_replay_hash.py`/`verify_native_
+  soak.py` — both MATCH. **This closes all five of Phase 1's flagged
+  `fallback_goal`-shaped sites.**
 
 ## Phase 2 — Wire the already-built ML substrate to real consumers
 
