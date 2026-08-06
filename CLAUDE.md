@@ -742,6 +742,65 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.263)
+
+Explicit user instruction: "continue with roadmap phase 2" — closes
+L5 ("the lifelong-learning loop... a real per-model retrain cadence,
+needs a real per-model decision of what counts as new examples").
+`GoalPolicy` (Tier 6 L2.2, the flagship) was already built on G1's
+`LearningSpecialist` internally, but nothing ever fed it a real live
+retrain the way G2 built for `WorkloadForecaster` — v1.34.258/.259's
+own docstrings named this exact gap directly.
+
+`SimulationEngine._run_cognition` now captures a real `(agent_state,
+goal)` pair from every genuine (non-fallback) LLM cognition answer —
+encoded identically to `fallback_goal`'s own `goal_policy` branch and
+to `scripts/train_goal_policy_from_archive.py`'s offline extraction,
+just accumulated live instead of from a static export. Bounded at
+`GOAL_POLICY_PENDING_EXAMPLES_MAX` (oldest evicted); only appended
+when a policy is actually loaded. New `_maybe_tick_goal_policy`
+(monthly, `_TICK_JOBS`): once `GOAL_POLICY_MIN_EXAMPLES_TO_RETRAIN`
+real examples have banked, splits a holdout slice and calls `GoalPolicy.
+learn` — already a thin pass-through to its own wrapped `Learning
+Specialist` (fixed to `loss="cross_entropy"`), so no new training
+path was built. Reuses the exact `lr=0.003`/`epochs=200` the offline
+trainer already settled on for this model from a real archive sweep
+(v1.34.258), not re-derived. `self._goal_policy` mutates in place
+only on shadow-gate acceptance — unlike G2's separately-held
+forecaster/specialist pair, no explicit model-sync step is needed.
+Deliberately does NOT write retrained weights back to disk, same
+choice G2 already made — re-running the offline trainer by hand
+against a fresher archive stays the supported path to a durable
+weights-file update. `full_diagnostics()['goal_policy']` gained
+`pending_examples_banked`/`learn_log_recent`.
+
+New `scripts/verify_l5_goal_policy_retrain.py` (15 checks, all pass
+first run) — capture-on-real-answer/no-capture-on-fallback/no-
+capture-with-no-policy-loaded; correct field-by-field state encoding
+incl. `materials_critical`/`has_plan`; bounded pending-example
+eviction; the retrain gate's three real conditions (month_end,
+minimum examples, non-empty after holdout split); a real accepted
+retrain genuinely shifting the policy's prediction toward the taught
+goal over several cycles; an all-malformed-goal batch degrading
+safely without clearing pending state; `_TICK_JOBS` registration;
+`full_diagnostics()` shape; a 400-tick no-policy soak proving zero
+behavior change at the default; and a real end-to-end proof — a
+~95-day soak through the actual `_tick_once()`/background-task-
+draining path with a real `GoalPolicy` and a fake LLM client produces
+a genuine retrain attempt.
+
+Verified: the new script (15 checks); `scripts/verify_llm_cost_
+regressor_wiring.py` re-run clean (19/19, confirming this pass's
+`engine.py` edits didn't disturb v1.34.262's wiring); `pyflakes`
+clean on all touched/new files (only the six known pre-existing
+forward-ref findings in `engine.py`); `scripts/verify_replay_hash.py`
+(800 ticks, seed 777, `--in-process`) — MATCH, byte-identical;
+`scripts/verify_native_soak.py` (seeds 1/55, 800 ticks) — MATCH (both
+required — `simulation/engine.py`'s own `__init__`, `_run_cognition`,
+and `_TICK_JOBS` all changed). Phase 2's other four items (L2.1,
+L4.1, L6, B13.5) remain open — resume only on future explicit
+direction naming one.
+
 ## Current state (v1.34.262)
 
 Explicit user instruction: "continue with roadmap phase 2" — Phase 2

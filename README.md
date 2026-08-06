@@ -999,13 +999,23 @@ here on purpose. This project's own standing architecture rule (the
 Adaptive Runtime's "prime invariant," see `CLAUDE.md`) keeps every
 scheduling decision inside the simulation's own tick loop, never a
 shell timer bolted onto the launch script — a real automatic retrain
-cadence belongs there (the workload forecaster already has exactly this
-shape, retraining itself from live data on a real in-engine cadence),
-not as an external cron job racing the running server for the same
-file. Building that in-engine cadence for the models above is real,
-distinct future work; for now, re-running the relevant script above
-by hand whenever you want fresher weights — a fast, cheap, local
-operation — is the supported path.
+cadence belongs there instead, not as an external cron job racing the
+running server for the same file.
+
+**The goal policy already does this, once loaded.** If a `goal_
+policy_weights.json` is present, `SimulationEngine` captures a real
+`(agent_state, goal)` pair from every genuine LLM cognition answer as
+the world runs and, once enough have banked, retrains it monthly
+in-engine (the exact same shadow-gated `LearningSpecialist.learn`
+loop the workload forecaster already used) — no script, no restart
+needed. This keeps the *in-memory* policy improving across a long
+session; it deliberately does NOT write the improved weights back to
+`goal_policy_weights.json` on disk, so re-running `train_goal_policy_
+from_archive.py` by hand against a fresher exported archive remains
+the supported path to a durable, restart-surviving weights update.
+Every other model above still needs a hand-run script for a fresher
+retrain — building the same in-engine cadence for them is real,
+distinct future work.
 
 ### A different shape: the `laws.py` candidate scorer
 

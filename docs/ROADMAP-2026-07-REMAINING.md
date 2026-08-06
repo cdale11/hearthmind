@@ -311,8 +311,24 @@ live production call site — the recurring gap across Tier 6.
   open piece, unrelated to L3.1's own closure.
 - **L4.1** belief-confidence calibration → a real consumer; needs a real
   settled-hypothesis history from a live world.
-- **L5** the lifelong-learning loop → a real per-model retrain cadence
-  (needs a real per-model decision of "what counts as new examples").
+- **L5 SHIPPED, v1.34.263.** The goal policy's own real per-model
+  retrain cadence — the flagship's long-flagged gap: `GoalPolicy` was
+  already built on G1's `LearningSpecialist` internally, but nothing
+  fed it a real live cadence the way G2 built for `WorkloadForecaster`.
+  `SimulationEngine._run_cognition` now captures a real `(agent_state,
+  goal)` pair from every genuine (non-fallback) LLM cognition answer,
+  encoded identically to `fallback_goal`'s own consumption and the
+  offline trainer's own extraction — the concrete answer to "what
+  counts as new examples." New `_maybe_tick_goal_policy` (monthly)
+  retrains once enough real examples bank, reusing `scripts/train_
+  goal_policy_from_archive.py`'s own settled `lr`/`epochs`. Weights
+  deliberately stay in-memory only (not written back to disk), same
+  choice G2 made for `WorkloadForecaster`. `scripts/verify_l5_goal_
+  policy_retrain.py` (15 checks). L6/B13.5 remain their own,
+  structurally different open items — L5's own lifelong-learning
+  substrate (`hearthmind/ml/lifelong.py`) is otherwise already fully
+  real and consumed (`LearningSpecialist`, wired for both `Workload
+  Forecaster` and now `GoalPolicy`).
 - **L6** evolutionary model-genome participation → a real evolutionary
   cadence / `simulation/engine.py` call site.
 - **B13.5** evolutionary tunable-set search (`tunable_evolution.py`) →

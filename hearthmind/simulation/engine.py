@@ -38,8 +38,10 @@ from hearthmind.agents.agent import (
     DEBT_SIGNIFICANT_THRESHOLD,
     DIALOGUE_COOLDOWN_TICKS,
     DIALOGUE_SENTIMENT_DELTA,
+    EMOTION_ANGER,
     EMOTION_FEAR,
     EMOTION_GRIEF,
+    EMOTION_JOY,
     FORAGE_HUNGER_THRESHOLD,
     PERSONAL_FOOD_CAPACITY,
     RIVALRY_THRESHOLD,
@@ -48,6 +50,7 @@ from hearthmind.agents.agent import (
     SKILL_INVENTION_BONUS_WEIGHT,
     SKILL_MEDICINE,
     TRAIT_AMBITION,
+    TRAIT_OPENNESS,
     TRAIT_RESILIENCE,
     TRAIT_SOCIABILITY,
     TRIGGERED_COGNITION_COOLDOWN_TICKS,
@@ -132,7 +135,7 @@ from hearthmind.ml.decision_policy import (
     DecisionPolicy,
 )
 from hearthmind.ml.embedding import SkipGramEmbedding
-from hearthmind.ml.goal_policy import GoalPolicy
+from hearthmind.ml.goal_policy import GoalPolicy, build_distillation_examples
 from hearthmind.ml.law_scorer import LawCandidateScorer
 from hearthmind.ml.llm_cost import CostPredictionAccuracyTracker, LLMCostRegressor, should_preflight_defer
 from hearthmind.ml.specialist import LearningSpecialist
@@ -1278,6 +1281,42 @@ DELIBERATION_EMERGENCE_HISTORY_MAX = 200
 sample, so 200 entries is a genuinely long trend window (~200 real
 days) without growing unbounded. Same bounded-deque discipline as
 `WORKLOAD_LEARN_LOG_MAX`/`_adaptive_tuning_log`."""
+
+GOAL_POLICY_PENDING_EXAMPLES_MAX = 300
+"""Tier 6 L2.2's real in-engine retrain cadence (roadmap Phase 2, L5 —
+"a real per-model retrain cadence... needs a real per-model decision
+of what counts as new examples"). Bound on real `(agent_state, goal)`
+pairs accumulated since the last goal-policy retrain — oldest evicted
+first, same cap-and-append discipline as `WORKLOAD_TRAINING_EXAMPLES_
+MAX`. Each pair is captured directly at `_run_cognition`'s real
+non-fallback resolution — the identical source `scripts/train_goal_
+policy_from_archive.py`'s offline trainer reads from a recorder
+archive, just accumulated live instead."""
+
+GOAL_POLICY_MIN_EXAMPLES_TO_RETRAIN = 20
+"""A monthly goal-policy retrain attempt is skipped entirely below this
+many accumulated real examples — same real-evidence-not-a-guess bar as
+`WORKLOAD_MIN_EXAMPLES_TO_RETRAIN`, and the exact `MIN_EXAMPLES_
+REQUIRED` the offline trainer already uses for the identical model."""
+
+GOAL_POLICY_HOLDOUT_FRACTION = 0.2
+"""The exact `HOLDOUT_FRACTION` `scripts/train_goal_policy_from_
+archive.py` already settled on for this model — held-out examples
+shadow-gate the retrained candidate, never trained on."""
+
+GOAL_POLICY_LEARN_LOG_MAX = 24
+"""Bounded, newest-first-readable log of every real live-cadence
+goal-policy retrain attempt — same shape as `WORKLOAD_LEARN_LOG_MAX`."""
+
+GOAL_POLICY_LEARNING_RATE = 0.003
+GOAL_POLICY_EPOCHS = 200
+"""The exact `lr`/`epochs` `scripts/train_goal_policy_from_archive.py`
+settled on from a real sweep against a live 420-example archive
+(v1.34.258 — the module's own bare default AND that script's
+first-draft `lr=0.05` both reliably diverged the candidate on real
+data). Reused verbatim here, not re-derived — this is the identical
+model shape trained from the identical shape of real data, just
+accumulated live instead of from a static export."""
 
 MACHINE_PROFILE_FILENAME = "machine_profile.json"
 """Tier 5 B7.2's real control point (explicit user directive: "B8 and
@@ -2500,6 +2539,19 @@ class SimulationEngine:
         self._last_strategy = None
         self._goal_policy_path = _goal_policy_path_for(config.db_path)
         self._goal_policy: "GoalPolicy | None" = _load_goal_policy(self._goal_policy_path)
+        self._goal_policy_pending_examples: list = []
+        """Roadmap Phase 2, L5's real in-engine goal-policy retrain
+        cadence: real `(agent_state, goal)` pairs captured directly at
+        `_run_cognition`'s non-fallback resolution, bounded at `GOAL_
+        POLICY_PENDING_EXAMPLES_MAX` (oldest evicted). `self._goal_
+        policy is None` (no trained policy loaded for this world) means
+        nothing is ever appended here — capturing examples only makes
+        sense once there's a live policy to retrain."""
+        self._goal_policy_learn_log: deque[dict] = deque(maxlen=GOAL_POLICY_LEARN_LOG_MAX)
+        """Bounded, append-only record of every real monthly goal-policy
+        retrain attempt (accepted or rejected, never a no-op check) —
+        dev-console-visible via `full_diagnostics()`, same shape as
+        `_workload_learn_log`."""
         self._embedding_path = _embedding_path_for(config.db_path)
         self._embedding: "SkipGramEmbedding | None" = _load_embedding(self._embedding_path)
         self._decision_policy_paths = {
@@ -4660,6 +4712,77 @@ class SimulationEngine:
         })
         self._workload_training_examples = []
 
+    def _maybe_tick_goal_policy(self, events: list[str]) -> None:
+        """Roadmap Phase 2, L5's real in-engine continual-retrain
+        cadence for Tier 6 L2.2's `GoalPolicy` — the item its own
+        docstring (v1.34.258/.259) flagged as still open ("a real
+        in-engine retrain cadence for GoalPolicy is flagged as its own
+        future item, not bolted on here"). Uses the identical shadow-
+        gated `LearningSpecialist.learn` loop `_maybe_tick_workload_
+        forecaster` already established for G2 — `GoalPolicy.learn` is
+        already a thin pass-through to its own wrapped specialist
+        (fixed to `loss="cross_entropy"`, the correct metric for this
+        model's softmax head), so no new training path is built here.
+
+        Real examples accumulate directly at `_run_cognition`'s own
+        non-fallback resolution (see `self._goal_policy_pending_
+        examples`'s docstring) rather than from a second measurement
+        pass — the identical `(agent_state, goal)` shape `scripts/
+        train_goal_policy_from_archive.py`'s offline trainer reads from
+        a recorder archive, just accumulated live instead of from a
+        static export. Monthly, once `GOAL_POLICY_MIN_EXAMPLES_TO_
+        RETRAIN` real examples have banked — real evidence, never a
+        guess from a handful of samples, same bar `_maybe_tick_
+        workload_forecaster` holds. `self._goal_policy` is never
+        replaced wholesale by a retrain attempt — `GoalPolicy.learn`
+        mutates its own wrapped `LearningSpecialist.model` in place
+        only on shadow-gate acceptance, so (unlike the workload
+        forecaster's separately-held forecaster/specialist pair) no
+        explicit model-sync step is needed here.
+
+        Deliberately does NOT write the retrained weights back to
+        disk — the same choice `_maybe_tick_workload_forecaster`
+        already made for its own model: the in-memory policy keeps
+        improving across the running session, and re-running `scripts/
+        train_goal_policy_from_archive.py` by hand against a fresher
+        archive remains the supported path to a durable weights-file
+        update (see README's "Local ML training" section)."""
+        if "month_end" not in events or self._goal_policy is None:
+            return
+        if len(self._goal_policy_pending_examples) < GOAL_POLICY_MIN_EXAMPLES_TO_RETRAIN:
+            return
+        tick = self.world.clock.tick_count
+        pairs = list(self._goal_policy_pending_examples)
+        n_holdout = max(1, int(len(pairs) * GOAL_POLICY_HOLDOUT_FRACTION))
+        holdout_pairs, train_pairs = pairs[-n_holdout:], pairs[:-n_holdout]
+        if not train_pairs:
+            return
+        train_examples = build_distillation_examples(
+            [state for state, _ in train_pairs], [goal for _, goal in train_pairs],
+        )
+        holdout_examples = build_distillation_examples(
+            [state for state, _ in holdout_pairs], [goal for _, goal in holdout_pairs],
+        )
+        if not train_examples:
+            # Every real pair banked this cycle carried a malformed/
+            # unrecognized goal string (build_distillation_examples'
+            # own skip) -- nothing genuinely learnable. Left un-cleared
+            # so a future real example still gets a fair retrain
+            # attempt next month, same "only clear once a real learn()
+            # attempt was actually made" discipline the empty-train-
+            # pairs branch above already holds.
+            return
+        result = self._goal_policy.learn(
+            train_examples, holdout_examples, tick,
+            learning_rate=GOAL_POLICY_LEARNING_RATE, epochs=GOAL_POLICY_EPOCHS,
+        )
+        self._goal_policy_learn_log.append({
+            "tick": tick, "accepted": result.accepted,
+            "candidate_metric": result.candidate_metric, "baseline_metric": result.baseline_metric,
+            "reason": result.reason, "examples_used": len(train_examples), "holdout_size": len(holdout_examples),
+        })
+        self._goal_policy_pending_examples = []
+
     def _maybe_sample_deliberation_emergence(self, events: list[str]) -> None:
         """Tier 7 HCA E4 (roadmap Phase 7, explicit user instruction
         "Start E4"): the real production sampler feeding the "learning
@@ -5584,6 +5707,7 @@ class SimulationEngine:
         ("_maybe_advance_escalation_ladder", _JOB_EVENTS),
         ("_maybe_auto_llm_concurrency_hypothesis", _JOB_EVENTS),
         ("_maybe_tick_workload_forecaster", _JOB_EVENTS),
+        ("_maybe_tick_goal_policy", _JOB_EVENTS),
         ("_maybe_sample_deliberation_emergence", _JOB_EVENTS),
     )
 
@@ -6421,6 +6545,32 @@ class SimulationEngine:
                 self._cognition_runner.calls_deferred_critical += 1
             else:
                 self._pending_goal_results[agent_id] = (scheduled_tick, result, seek_candidate_id)
+                if self._goal_policy is not None:
+                    # Roadmap Phase 2, L5's real live-cadence retrain
+                    # signal: this genuine LLM answer, encoded exactly
+                    # the way `fallback_goal`'s own goal_policy branch
+                    # builds its state dict (see its docstring) — the
+                    # same `(agent_state, goal)` shape `scripts/train_
+                    # goal_policy_from_archive.py`'s offline trainer
+                    # reads from a recorder archive, just accumulated
+                    # live. See `_maybe_tick_goal_policy`.
+                    self._goal_policy_pending_examples.append(({
+                        "hunger": hunger, "energy": energy,
+                        "trait_resilience": traits.get(TRAIT_RESILIENCE, 0.0),
+                        "trait_sociability": traits.get(TRAIT_SOCIABILITY, 0.0),
+                        "trait_ambition": traits.get(TRAIT_AMBITION, 0.0),
+                        "trait_openness": traits.get(TRAIT_OPENNESS, 0.0),
+                        "emotion_fear": emotions.get(EMOTION_FEAR, 0.0),
+                        "emotion_grief": emotions.get(EMOTION_GRIEF, 0.0),
+                        "emotion_joy": emotions.get(EMOTION_JOY, 0.0),
+                        "emotion_anger": emotions.get(EMOTION_ANGER, 0.0),
+                        "materials_critical": 1.0 if materials_critical else 0.0,
+                        "has_plan": 1.0 if plan_intent else 0.0,
+                    }, result.get("goal")))
+                    if len(self._goal_policy_pending_examples) > GOAL_POLICY_PENDING_EXAMPLES_MAX:
+                        self._goal_policy_pending_examples = (
+                            self._goal_policy_pending_examples[-GOAL_POLICY_PENDING_EXAMPLES_MAX:]
+                        )
             self._record_llm_call(used_fallback)
         finally:
             self._inflight_cognition_agent_ids.discard(agent_id)
@@ -17125,6 +17275,14 @@ class SimulationEngine:
             "goal_policy": {
                 "loaded": self._goal_policy is not None,
                 "path": self._goal_policy_path,
+                # Roadmap Phase 2, L5's real in-engine retrain cadence
+                # (v1.34.263): how many real (agent_state, goal) pairs
+                # are banked toward the next monthly attempt, and every
+                # real attempt's outcome (accepted/rejected, never a
+                # no-op check) -- same shape `workload_forecaster`'s
+                # own `learn_log_recent` already established.
+                "pending_examples_banked": len(self._goal_policy_pending_examples),
+                "learn_log_recent": list(self._goal_policy_learn_log)[-10:],
             },
             # Tier 6 L1.1's real control point (v1.34.259): whether
             # `_run_personal_belief`'s memory retrieval is drawing on a
