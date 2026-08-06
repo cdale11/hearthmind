@@ -9,6 +9,8 @@ sociability and the council's existence — a legible rule, not a coin
 flip."""
 from __future__ import annotations
 
+import random
+
 from hearthmind.agents.agent import TRAIT_SOCIABILITY, Agent, describe_traits
 
 _VALID_OUTCOMES = ("reconcile", "feud", "council_ruling", "ostracism")
@@ -116,7 +118,7 @@ def fallback_dispute(
     agent_a: Agent, agent_b: Agent, has_council: bool, reputation_a: float = 0.0, reputation_b: float = 0.0,
     rival_factions: bool = False, debt_a_owes_b: float = 0.0, debt_b_owes_a: float = 0.0,
     rival_families: bool = False, council_favors_a: bool = False, council_favors_b: bool = False,
-    has_law_against_feuding: bool = False,
+    has_law_against_feuding: bool = False, policy=None, rng: "random.Random | None" = None,
 ) -> dict:
     """Deterministic stand-in: a sociable pair finds its own way back; an
     unsociable one hardens; a council steps in for the in-between case.
@@ -130,7 +132,54 @@ def fallback_dispute(
     owed (or owing) something concrete is friction reconciliation has
     to overcome. v0.87.11: a durable inter-family feud pushes the same
     direction as rival factions — harder still, since it's generational
-    rather than personal."""
+    rather than personal.
+
+    `policy` (Tier 6, `hearthmind.ml.decision_policy.DecisionPolicy`
+    built from `DISPUTE_POLICY_CONFIG`) is optional and defaults to
+    `None`, reproducing this function's exact original if-ladder
+    output byte-for-byte. When supplied, it REPLACES the whole
+    sociability-threshold ladder below with a real learned prediction
+    over the same closed classes — masked to `{"reconcile", "feud"}`
+    (or plus `"council_ruling"`/`"ostracism"` when `has_council` is
+    True) so the policy is structurally incapable of choosing an
+    outcome that requires a council this settlement doesn't have, same
+    "real constraint enforced by masking" discipline `GoalPolicy`'s
+    `explore` exclusion established. `ostracized`/`narration` are
+    still derived deterministically from real state (which party has
+    the lower reputation, real names) — the policy predicts only the
+    closed-class outcome itself, never free text or a name choice."""
+    if policy is not None:
+        allowed = {"reconcile", "feud"}
+        if has_council:
+            allowed |= {"council_ruling", "ostracism"}
+        state = {
+            "trait_sociability_a": agent_a.traits.get(TRAIT_SOCIABILITY, 0.0),
+            "trait_sociability_b": agent_b.traits.get(TRAIT_SOCIABILITY, 0.0),
+            "reputation_a": reputation_a, "reputation_b": reputation_b,
+            "rival_factions": 1.0 if rival_factions else 0.0,
+            "rival_families": 1.0 if rival_families else 0.0,
+            "debt_a_owes_b": debt_a_owes_b, "debt_b_owes_a": debt_b_owes_a,
+            "council_favors_a": 1.0 if council_favors_a else 0.0,
+            "council_favors_b": 1.0 if council_favors_b else 0.0,
+            "has_law_against_feuding": 1.0 if has_law_against_feuding else 0.0,
+            "has_council": 1.0 if has_council else 0.0,
+        }
+        outcome = policy.sample_class(state, rng or random.Random(), allowed_classes=allowed)
+        if outcome == "ostracism":
+            ostracized = "a" if reputation_a < reputation_b else "b"
+            shunned = agent_a if ostracized == "a" else agent_b
+            other = agent_b if shunned is agent_a else agent_a
+            return {
+                "outcome": "ostracism", "ostracized": ostracized,
+                "narration": f"The village turned its back on {shunned.name} for what happened with {other.name}.",
+            }
+        narrations = {
+            "reconcile": f"{agent_a.name} and {agent_b.name} talked it through at last and set the feud down.",
+            "council_ruling": f"The council of elders ruled on the feud between {agent_a.name} and {agent_b.name}.",
+            "feud": f"Nothing softened between {agent_a.name} and {agent_b.name}; the feud hardened.",
+        }
+        return {"outcome": outcome, "narration": narrations[outcome]}
+
     avg_sociability = (
         agent_a.traits.get(TRAIT_SOCIABILITY, 0.0) + agent_b.traits.get(TRAIT_SOCIABILITY, 0.0)
     ) / 2.0

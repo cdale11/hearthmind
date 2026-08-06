@@ -10,6 +10,8 @@ the founder's own ambition, so a deterministic run still gets early
 foundings from its most driven masters."""
 from __future__ import annotations
 
+import random
+
 from hearthmind.agents.agent import TRAIT_AMBITION, Agent, describe_traits
 
 FALLBACK_FOUND_AMBITION = 0.4
@@ -40,7 +42,22 @@ def build_prompt(founder: Agent, skill: str, master_count: int, settlement_name:
     )
 
 
-def fallback_founding(founder: Agent) -> dict:
+def fallback_founding(
+    founder: Agent, master_count: int = 0, policy=None, rng: "random.Random | None" = None,
+) -> dict:
+    """`policy` (Tier 6, `hearthmind.ml.decision_policy.DecisionPolicy`
+    built from `FOUNDING_POLICY_CONFIG`) is optional and defaults to
+    `None`, reproducing this function's exact original ambition-
+    threshold output byte-for-byte."""
+    if policy is not None:
+        state = {"trait_ambition": founder.traits.get(TRAIT_AMBITION, 0.0), "master_count": master_count}
+        outcome = policy.sample_class(state, rng or random.Random())
+        found = outcome == "found"
+        return {
+            "found": found,
+            "reason": "the craft deserves a proper guild" if found else "it can wait a while yet",
+        }
+
     ambitious = founder.traits.get(TRAIT_AMBITION, 0.0) >= FALLBACK_FOUND_AMBITION
     return {
         "found": ambitious,

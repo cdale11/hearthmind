@@ -4,6 +4,88 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.260] — Four more decision policies wired; README training guide
+
+Explicit user follow-up: "wire everything and put a guide in readme
+as to how I should train, generate data, and then use the obtained
+weights. Also in phase 1 this is left [the five `fallback_goal`-
+shaped sites]."
+
+**Four of the five sites, wired.** New `hearthmind/ml/decision_
+policy.py`'s `DecisionPolicy(classes, schema)` generalizes `Goal
+Policy` once — identical softmax-MLP/entropy-floor/`allowed_classes`
+-masking/shadow-gated-continual-learning machinery, parameterized
+instead of hard-coded to `AgentGoal`. `goal_policy.py` itself is
+untouched, a real, already-working production consumer left exactly
+as it was. Four real site configs mirror each site's own real
+`fallback_*` function inputs exactly:
+
+- `llm/dispute.py`'s `fallback_dispute` (4-class: reconcile/feud/
+  council_ruling/ostracism) — `council_ruling`/`ostracism` are
+  structurally masked out whenever `has_council` is `False`, the same
+  "real constraint enforced by masking" discipline `GoalPolicy`'s own
+  `explore` exclusion established, not merely hoped for from training.
+- `llm/fission.py` and `llm/migration.py`'s `fallback_decision`
+  (binary stay/depart).
+- `llm/founding.py`'s `fallback_founding` (binary decline/found).
+
+Each function gained an optional `policy`/`rng` param pair;
+`policy=None` (every call site's default until real weights exist)
+reproduces the function's exact original if-ladder output byte-for-
+byte, verified directly. `simulation/engine.py` gained `DECISION_
+POLICY_FILENAMES`/`_decision_policy_path_for`/`_load_decision_policy`
+— one file per site, file-next-to-`db_path`, never auto-created, same
+pattern as `GOAL_POLICY_FILENAME`; `DecisionPolicy.from_dict`'s own
+`kind`/`classes`/schema cross-check rejects a weights file trained for
+the wrong site, not just a schema-version mismatch. All four real
+`_schedule_llm_job` call sites also gained a `structured_input` dict
+(previously none of the four ever recorded one) — the real
+prerequisite a live archive needs to train these four at all, closed
+in the same pass rather than left as a silent trap for the trainer.
+New `scripts/train_decision_policies_from_archive.py` trains whichever
+of the four sites has enough real recorded examples in a given
+archive, skipping the rest honestly rather than fabricating a
+weights file from too little data. `llm/laws.py`'s "which hardship
+becomes a law" stays deliberately excluded — a dynamic-candidate-set
+decision, a genuinely different (ranking, not classification) problem
+this fixed-class pattern doesn't fit, flagged as real, distinct
+future work.
+
+Verified: new `scripts/verify_decision_policies_wiring.py` (18 checks,
+all pass first run) — round-trip/mismatched-config rejection for
+`to_dict`/`from_dict`, masking/renormalization, masked `sample_class`
+only ever drawing from the allowed set, `policy=None` byte-for-byte
+parity for all four real `fallback_*` functions, dispute's real
+`has_council`-gated masking proven directly (50 draws, never
+`council_ruling`/`ostracism` when `has_council=False`), the engine's
+four real per-site loading cases (no-file/corrupted-file/real-file/
+wrong-site-file rejection), and a full subprocess end-to-end run of
+the training script against a synthetic archive. A live smoke test:
+all four trained policies loaded into a real `SimulationEngine`,
+which then ran 50 real ticks with every site wired, zero crash; the
+no-file control correctly showed nothing loaded. `scripts/verify_
+replay_hash.py` (800 ticks, seed 777) and `scripts/verify_native_
+soak.py` (2 seeds, 800 ticks) — both MATCH, confirming the default
+(all four `None`) path is completely unaffected.
+
+**README: a full local-training guide.** New "Local ML training"
+section — a table of which models need a live recorder archive
+(goal policy; the four decision policies) versus which need only the
+world's own saved text (the embedding), exact commands for training
+each of the now five trainer scripts, exactly where to drop the
+output (next to `db_path`, filenames the trainers print), how to
+confirm a weights file loaded (`GET /diagnostics`), and an explicit,
+reasoned answer for why this is deliberately NOT auto-triggered from
+`scripts/run.sh` — this project's own Adaptive Runtime invariant keeps
+scheduling decisions inside the simulation's tick loop, not a shell
+timer; a real in-engine automatic retrain cadence (the shape the
+workload forecaster already has) is flagged as real, distinct future
+work rather than bolted onto the launch script. Also states plainly
+what's genuinely NOT available locally: `laws.py`'s dynamic-candidate
+decision, and real LoRA/QLoRA fine-tuning of the underlying LLM itself
+(needs real GPU training infrastructure this project has deliberately
+not built).
+
 ## [1.34.259] — Local training closes Phase 1; WebSocket-stall and large-map layout fixes
 
 Three independent pieces requested in one turn: explaining and closing

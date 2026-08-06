@@ -742,6 +742,94 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.260)
+
+Explicit user follow-up: "you wire everything and put a guide in
+readme as to how I should train, generate data, and then use the
+obtained weights. Also in phase 1 this is left 'Five more fallback_
+goal-shaped LLM/deterministic sites...'" Two pieces, one batch: wire
+the remaining Phase 1 decision sites, and document the whole local-
+training loop end to end.
+
+**Four of the five flagged `fallback_goal`-shaped sites, wired.** New
+`hearthmind/ml/decision_policy.py` generalizes `goal_policy.py`'s
+architecture (never touched — a real, already-shipped production
+consumer) into a reusable `DecisionPolicy(config)` over an arbitrary
+closed class list + `FeatureSchema`, same `allowed_classes` masking/
+entropy-floor/shadow-gated `learn()` shape. Four real configs:
+`DISPUTE_POLICY_CONFIG` (reconcile/feud/council_ruling/ostracism,
+`council_ruling`/`ostracism` masked out unless `has_council`),
+`FISSION_POLICY_CONFIG`/`MIGRATION_POLICY_CONFIG` (stay/depart),
+`FOUNDING_POLICY_CONFIG` (decline/found). `llm/laws.py` deliberately
+excluded — a dynamic candidate-set decision, not a fixed closed class,
+same reasoning L2.2 already used to exclude it.
+
+`fallback_dispute`/`fallback_decision` (fission + migration)/
+`fallback_founding` each gained `policy=None, rng=None` params —
+`policy=None` (every call site's default until real weights exist)
+reproduces the exact prior output byte-for-byte, verified directly;
+a supplied policy predicts through the same masking guarantee dispute
+already needed structurally. `simulation/engine.py` gained
+`DECISION_POLICY_FILENAMES`/`_decision_policy_path_for`/`_load_
+decision_policy`, mirroring `GOAL_POLICY_FILENAME`'s file-next-to-
+`db_path`, never-auto-created pattern exactly — four independent
+optional files, `full_diagnostics()['decision_policies']` surfaces
+`{loaded, path}` per site.
+
+**Real prerequisite gap found and closed in the same pass**: none of
+the four real `_schedule_llm_job` call sites (dispute/founding/
+fission/migration_decision) had ever passed `structured_input` — so
+even with a live archive, no real archive could have trained these
+sites before this change. All four now build a `structured_input`
+dict matching their config's schema exactly, so a future archive from
+this point forward carries the real training signal.
+
+New `scripts/train_decision_policies_from_archive.py`: one generic
+trainer over all four sites (task name -> filename/config/outcome-
+extractor), same `review_pack.json`-or-raw-archive-dir input shape as
+`train_goal_policy_from_archive.py`, same `lr=0.003`/`epochs=200`
+settled values (plain-SGD-divergence class already documented there).
+Skips a site with fewer than `MIN_EXAMPLES_REQUIRED=20` real pairs
+rather than training on an unrepresentative handful.
+
+**README gained a new "Local ML training" section**: what needs a
+live recorder archive vs. not (goal policy + the four decision
+policies need one; the embedding needs only an already-played world,
+no archive); exact commands for all three trainer scripts; where to
+drop the resulting weights files (next to `db_path`, exact filenames
+listed); an explicit "why this isn't auto-triggered in `scripts/
+run.sh`" note (B0's prime invariant — scheduling belongs in the
+engine, not a shell timer, same reasoning L2.2's own filing already
+used); and a "what's genuinely not available locally" note naming
+`llm/laws.py`'s exclusion and real LoRA/QLoRA fine-tuning as the two
+still-unsolved gaps (no GPU/torch/peft dependency exists or was
+added).
+
+New `scripts/verify_decision_policies_wiring.py` (18 checks, all pass
+first run) — `DecisionPolicy` round-trip/schema-mismatch-rejection/
+masking/sampling; all four `fallback_*` functions' `policy=None`
+byte-for-byte parity across real scenarios plus a real trained
+policy's structural validity; the engine's three real loading cases
+(no file/corrupted file/real file) for all four sites independently;
+a full subprocess end-to-end run of the new training script.
+
+Verified: the new script (18 checks); `pyflakes` clean on all
+touched/new files (only the six known pre-existing forward-ref
+findings in `engine.py`); a real live smoke test — four tiny real
+`DecisionPolicy` instances trained and saved, a real `SimulationEngine`
+constructed against that directory loads all four (`full_diagnostics()
+['decision_policies']` shows `loaded: true` for each), runs 50 real
+ticks with zero crash; a sibling engine with no weights files shows
+`loaded: false` for all four. `scripts/verify_replay_hash.py` (800
+ticks, seed 777, `--in-process`) — MATCH, byte-identical, confirming
+default (`policy=None`) tick-loop behavior is completely unaffected.
+`scripts/verify_native_soak.py` (seeds 1/55, 800 ticks) — MATCH.
+
+**This closes four of Phase 1's five flagged sites.** `llm/laws.py`
+stays open, correctly, as a dynamic-candidate-set decision this
+class of model can't represent — real, distinct future work if a
+different mechanism is designed for it.
+
 ## Current state (v1.34.259)
 
 Explicit user follow-up: "why did I have to download your weights,

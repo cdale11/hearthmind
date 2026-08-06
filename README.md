@@ -879,6 +879,133 @@ extra**: the base simulation stays dependency-free — install
 `requirements.txt` to get the browser window, or run with
 `--api-disabled` (or without the extra installed) to skip it.
 
+## Local ML training — trading a hand-written fallback for a trained one
+
+Several deterministic decision points that only ever run when a live LLM
+call is skipped/backpressured/fails (goal selection, memory-relevance
+scoring, and a handful of major life decisions) are, today, a fixed
+hand-written if-ladder — e.g. "an agent above ambition 0.55 leaves to
+found a settlement." Each one can *optionally* be upgraded to a small,
+real, trained model instead — same role, learned from what actually
+happened in *your* world rather than one fixed rule. This is entirely
+opt-in: nothing here is required, nothing is checked into the repo, and
+absence of a trained-weights file always means the exact original
+deterministic behavior, byte-for-byte.
+
+**No GPU, no PyTorch, no training framework of any kind.** Every model
+below is a small (one hidden layer, a few dozen parameters) softmax
+classifier trained by plain gradient descent in pure Python
+(`hearthmind/ml/`). A laptop CPU trains any of them in seconds to a
+couple of minutes. The real prerequisite isn't compute — it's **data**:
+some of these models need real recorded examples of what your own LLM
+actually decided, which only your own running deployment produces. That
+is also the honest answer to "why do I have to download weights you
+trained" — it's not a compute limitation on either side, it's that the
+weights are trained from one *specific* world's lived history, and
+shipping a default in the repo would make every future world start
+from someone else's — see `docs/ML-ARCHITECTURE-2026-08-01.md`'s
+guardrail #3.
+
+### What needs your own live archive, and what doesn't
+
+| Model | File it produces | Needs a live LLM archive? |
+|---|---|---|
+| Goal policy (per-agent "what should I do") | `goal_policy_weights.json` | **Yes** — real `cognition` recordings |
+| Semantic embedding (memory relevance) | `embedding_weights.json` | **No** — trains from your world's own saved text |
+| Dispute / fission / migration / founding | `dispute_policy_weights.json`, `fission_policy_weights.json`, `migration_policy_weights.json`, `founding_policy_weights.json` | **Yes** — real per-site recordings |
+
+Everything in the "Yes" column needs the **training recorder** turned
+on for a while first (it's off by default — see `docs/TRAINING_
+RECORDER.md`). It writes every real LLM call's `(prompt input, actual
+answer)` pair to `training_archive/<task>/<date>.jsonl` on disk. Start
+it via the dev console's recorder panel, `POST /recorder/start`, or
+`scripts/recorder_tools.py`. Let the world run for a while (hours to
+days, LLM enabled) so enough real examples accumulate — `scripts/
+recorder_tools.py stats` shows you the count per task.
+
+The embedding needs none of that — it trains straight from a world's
+own already-saved text (event descriptions, agent memories, settlement
+beliefs), which exists even with the LLM disabled, since this codebase's
+deterministic-fallback text templates write real sentences too.
+
+### Training a model
+
+```bash
+# Goal policy — needs a real recorder archive:
+python3 scripts/train_goal_policy_from_archive.py \
+    --archive-dir training_archive --out goal_policy_weights.json
+#   (or --review-pack review_pack.json if you exported one via
+#   POST /recorder/export-review-pack or `recorder_tools.py
+#   export-review-pack`)
+
+# Semantic embedding — needs only your world's own db, no archive:
+python3 scripts/train_embedding_from_world.py \
+    --db-path world.sqlite3 --out embedding_weights.json
+
+# The four decision-policy sites — trains whichever of the four have
+# enough real recorded examples, skips the rest honestly:
+python3 scripts/train_decision_policies_from_archive.py \
+    --archive-dir training_archive --out-dir .
+```
+
+Each command prints, per model: how many usable real examples it found,
+whether the shadow-gated safety check accepted or rejected the trained
+weights (a candidate that would score *worse* than an untrained/uniform
+baseline on held-out data is rejected, never silently shipped), and the
+real holdout accuracy achieved. If a model reports too few examples,
+that's the honest answer — let the recorder run longer.
+
+### Using the trained weights
+
+Drop the output file **next to your world's `db_path`** — same
+directory, exact filename the trainer printed. `SimulationEngine` looks
+for it automatically on the next server start (or `python3 -m
+hearthmind.server` restart); nothing else needs configuring. To confirm
+it loaded, check `GET /diagnostics` → `goal_policy`/`embedding`/
+`decision_policies`, each reporting `{"loaded": true, "path": "..."}`.
+Delete or rename the file to fall back to the original deterministic
+behavior instantly — no other change needed.
+
+```
+world/
+├── hearthmind.db
+├── goal_policy_weights.json        # optional — from train_goal_policy_from_archive.py
+├── embedding_weights.json          # optional — from train_embedding_from_world.py
+├── dispute_policy_weights.json     # optional — from train_decision_policies_from_archive.py
+├── fission_policy_weights.json     #   "
+├── migration_policy_weights.json   #   "
+└── founding_policy_weights.json    #   "
+```
+
+### Automating it — deliberately *not* wired into `scripts/run.sh`
+
+There's no `--auto-retrain` flag or periodic shell-triggered retrain
+here on purpose. This project's own standing architecture rule (the
+Adaptive Runtime's "prime invariant," see `CLAUDE.md`) keeps every
+scheduling decision inside the simulation's own tick loop, never a
+shell timer bolted onto the launch script — a real automatic retrain
+cadence belongs there (the workload forecaster already has exactly this
+shape, retraining itself from live data on a real in-engine cadence),
+not as an external cron job racing the running server for the same
+file. Building that in-engine cadence for the models above is real,
+distinct future work; for now, re-running the relevant script above
+by hand whenever you want fresher weights — a fast, cheap, local
+operation — is the supported path.
+
+### What's genuinely NOT available locally
+
+`llm/laws.py`'s "which hardship becomes a law" decision is deliberately
+excluded from the four decision-policy sites above — it chooses among a
+*dynamic* set of currently-pressured candidates, not a fixed closed
+list, a different (ranking) problem this pattern doesn't fit yet. And
+none of the above touches the underlying LLM itself (Nemotron/Gemma/
+whichever GGUF model `llama-server` is running) — genuinely fine-tuning
+that model (LoRA/QLoRA) is a real, heavier undertaking needing GPU
+training infrastructure (`torch`/`peft`/`transformers`) this project
+has deliberately not built; `scripts/recorder_tools.py training-
+readiness` reports, per task, whether enough labeled volume exists to
+be worth attempting once that infrastructure does get built.
+
 ## Verification
 
 This project does **not** run its automated unit test suite (a standing

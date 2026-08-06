@@ -213,23 +213,53 @@ gates behind.
   own headline check (21 checks total, incl. a real HRR bind/unbind
   round-trip proof and an end-to-end real-embedding-to-hinted-prompt
   test).
-- **Five more `fallback_goal`-shaped LLM/deterministic sites, found by a
-  background audit while scoping L2.2, none yet promoted to an L-layer
-  slot:** `llm/dispute.py`'s `fallback_dispute` (4-class: reconcile/
-  council_ruling/feud/ostracism), `llm/fission.py` and `llm/migration.
-  py` (binary leave-or-stay), `llm/laws.py` (which hardship becomes a
-  law, among real candidates), `llm/founding.py` (found/don't). Each is
-  structurally identical to what L2.2 already targets — a bounded-
-  choice decision made today by a hand-written if-ladder or an LLM
-  call whenever the LLM path doesn't fire, with a real recorded-
-  outcome history this world already accumulates. ML-AUDIT's own §2b
-  SPLIT table already names all five alongside `cognition`; none was
-  ever carried into ML-ARCHITECTURE-2026-08-01.md's 8-model plan.
-  Building an `L2.2`-shaped policy for each (reusing `goal_policy.py`'s
-  own pattern — closed-class schema, `build_distillation_examples`,
-  `reweight_by_outcome`, `LearningSpecialist`) is real, scoped,
-  unstarted follow-up work — resume only on future explicit direction
-  naming one.
+- **Four of the five `fallback_goal`-shaped LLM/deterministic sites
+  found by the background audit above — SHIPPED and WIRED (v1.34.260).**
+  New `hearthmind/ml/decision_policy.py`'s `DecisionPolicy(classes,
+  schema)` generalizes `GoalPolicy` once (identical softmax-MLP/
+  entropy-floor/`allowed_classes`-masking/shadow-gated-continual-
+  learning machinery, parameterized instead of hard-coded to
+  `AgentGoal`) rather than four near-duplicate copies; `goal_policy.py`
+  itself is untouched. Four real site configs (`DISPUTE_POLICY_
+  CONFIG`/`FISSION_POLICY_CONFIG`/`MIGRATION_POLICY_CONFIG`/
+  `FOUNDING_POLICY_CONFIG`), each mirroring exactly what that site's
+  own real `fallback_*` function already reads. `llm/dispute.py`'s
+  `fallback_dispute`, `llm/fission.py`/`llm/migration.py`'s `fallback_
+  decision`, and `llm/founding.py`'s `fallback_founding` all gained an
+  optional `policy`/`rng` param pair — `policy=None` (every call
+  site's default until real weights exist) reproduces each function's
+  exact original if-ladder output byte-for-byte. Dispute's `allowed_
+  classes` masking is load-bearing, not cosmetic: `council_ruling`/
+  `ostracism` are structurally excluded whenever `has_council` is
+  `False`, the same "real constraint enforced by masking" discipline
+  `GoalPolicy`'s own `explore` exclusion established. `simulation/
+  engine.py` gained `DECISION_POLICY_FILENAMES`/`_decision_policy_
+  path_for`/`_load_decision_policy` (one file per site, file-next-to-
+  `db_path`, never-auto-created, same pattern as `GOAL_POLICY_
+  FILENAME`) — `DecisionPolicy.from_dict`'s own `kind`/`classes`/
+  schema cross-check rejects a file trained for the wrong site, not
+  just a version mismatch. All four real `_schedule_llm_job` call
+  sites also gained a `structured_input` dict (previously none of the
+  four ever recorded one) matching each site's own real fallback
+  inputs exactly — the prerequisite a live archive needs to actually
+  train these four, closed in the same pass rather than left as a
+  silent gap the trainer would hit later. New `scripts/train_decision_
+  policies_from_archive.py` trains whichever of the four sites has
+  enough real recorded examples in a given archive, skipping the rest
+  honestly. `llm/laws.py`'s "which hardship becomes a law" stays
+  explicitly excluded — a dynamic-candidate-set decision, a genuinely
+  different (ranking) problem shape this fixed-class pattern doesn't
+  fit, flagged as real, distinct future work rather than forced
+  through. Verified: `scripts/verify_decision_policies_wiring.py` (18
+  checks) — round-trip/mismatched-config rejection, masking/
+  renormalization, `policy=None` byte-for-byte parity for all four
+  `fallback_*` functions, the engine's per-site loading (no-file/
+  corrupted-file/real-file/wrong-site-file), and a full subprocess
+  end-to-end training-script run. A live smoke test confirmed all four
+  policies load and a real `SimulationEngine` runs 50 real ticks with
+  every site wired, zero crash. `scripts/verify_replay_hash.py`/
+  `verify_native_soak.py` — both MATCH, confirming the default
+  (all four `None`) path is completely unaffected.
 
 ## Phase 2 — Wire the already-built ML substrate to real consumers
 

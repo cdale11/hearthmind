@@ -127,6 +127,10 @@ from hearthmind.simulation.hardware_profile import GoodCitizenPolicy, HostProbe,
 from hearthmind.simulation.forecasting import (
     ForecastAccuracyTracker, WorkloadForecaster, is_quiet_window, make_training_example,
 )
+from hearthmind.ml.decision_policy import (
+    DISPUTE_POLICY_CONFIG, FISSION_POLICY_CONFIG, FOUNDING_POLICY_CONFIG, MIGRATION_POLICY_CONFIG,
+    DecisionPolicy,
+)
 from hearthmind.ml.embedding import SkipGramEmbedding
 from hearthmind.ml.goal_policy import GoalPolicy
 from hearthmind.ml.specialist import LearningSpecialist
@@ -1969,6 +1973,52 @@ def _load_embedding(path: str | None) -> "SkipGramEmbedding | None":
         return None
 
 
+DECISION_POLICY_FILENAMES = {
+    "dispute": "dispute_policy_weights.json",
+    "fission": "fission_policy_weights.json",
+    "migration": "migration_policy_weights.json",
+    "founding": "founding_policy_weights.json",
+}
+"""Tier 6 Phase 1's last named item, wired (v1.34.260): the four real
+`fallback_*`-shaped sites `hearthmind.ml.decision_policy` promotes to
+an L-layer slot -- `llm/laws.py`'s dynamic-candidate-set decision is
+deliberately excluded, see that module's own docstring. Same file-
+next-to-`db_path`/never-auto-created pattern as `GOAL_POLICY_
+FILENAME`/`EMBEDDING_FILENAME` -- one file per site, so an operator
+can train and drop in only the ones they care about."""
+
+_DECISION_POLICY_CONFIGS = {
+    "dispute": DISPUTE_POLICY_CONFIG,
+    "fission": FISSION_POLICY_CONFIG,
+    "migration": MIGRATION_POLICY_CONFIG,
+    "founding": FOUNDING_POLICY_CONFIG,
+}
+
+
+def _decision_policy_path_for(db_path: str, site: str) -> str | None:
+    """Same sibling-file-next-to-`db_path` convention as `_goal_
+    policy_path_for`/`_embedding_path_for` -- `None` for `:memory:`."""
+    if db_path == ":memory:":
+        return None
+    directory = os.path.dirname(os.path.abspath(db_path))
+    return os.path.join(directory, DECISION_POLICY_FILENAMES[site])
+
+
+def _load_decision_policy(path: str | None, site: str) -> "DecisionPolicy | None":
+    """`None` (the site's exact original deterministic fallback) unless
+    a real, readable, schema-valid, SITE-MATCHED trained-weights file
+    exists -- `DecisionPolicy.from_dict`'s own `kind`/`classes`/schema
+    cross-check (not just `schema_version`) is what makes "site-
+    matched" a real guarantee, not just a naming convention; same
+    degrade-never-crash discipline as `_load_goal_policy`."""
+    if path is None or not os.path.exists(path):
+        return None
+    try:
+        return DecisionPolicy.load(path, _DECISION_POLICY_CONFIGS[site])
+    except (OSError, ValueError, KeyError, json.JSONDecodeError):
+        return None
+
+
 INSTITUTION_DORMANCY_IDLE_CHECKS_THRESHOLD = 3
 """Tier 5 B4.2 pilot ("idle institutions"): consecutive monthly
 `_update_institution_dormancy` checks with an unchanged fingerprint
@@ -2400,6 +2450,13 @@ class SimulationEngine:
         self._goal_policy: "GoalPolicy | None" = _load_goal_policy(self._goal_policy_path)
         self._embedding_path = _embedding_path_for(config.db_path)
         self._embedding: "SkipGramEmbedding | None" = _load_embedding(self._embedding_path)
+        self._decision_policy_paths = {
+            site: _decision_policy_path_for(config.db_path, site) for site in DECISION_POLICY_FILENAMES
+        }
+        self._dispute_policy = _load_decision_policy(self._decision_policy_paths["dispute"], "dispute")
+        self._fission_policy = _load_decision_policy(self._decision_policy_paths["fission"], "fission")
+        self._migration_policy = _load_decision_policy(self._decision_policy_paths["migration"], "migration")
+        self._founding_policy = _load_decision_policy(self._decision_policy_paths["founding"], "founding")
         """Tier 6 L2.2. `None` (the overwhelmingly common case — no
         operator has trained one for this world yet) reproduces
         `fallback_goal`'s exact prior deterministic `agent_id % 3`/
@@ -13504,7 +13561,7 @@ class SimulationEngine:
         fallback = dispute.fallback_dispute(
             agent_a, agent_b, has_council, reputation_a, reputation_b, rival_factions,
             debt_a_owes_b, debt_b_owes_a, rival_families, council_favors_a, council_favors_b,
-            has_law_against_feuding,
+            has_law_against_feuding, policy=self._dispute_policy,
         )
         a_id, b_id = agent_a.id, agent_b.id
         dispute_home_id = dispute_home.id
@@ -13606,9 +13663,21 @@ class SimulationEngine:
 
         # Major life decision: a dispute outcome reshapes two lives and
         # settlement history (v1.3.37).
+        dispute_structured_input = {
+            "trait_sociability_a": agent_a.traits.get(TRAIT_SOCIABILITY, 0.0),
+            "trait_sociability_b": agent_b.traits.get(TRAIT_SOCIABILITY, 0.0),
+            "reputation_a": reputation_a, "reputation_b": reputation_b,
+            "rival_factions": rival_factions, "rival_families": rival_families,
+            "debt_a_owes_b": debt_a_owes_b, "debt_b_owes_a": debt_b_owes_a,
+            "council_favors_a": council_favors_a, "council_favors_b": council_favors_b,
+            "has_law_against_feuding": has_law_against_feuding, "has_council": has_council,
+        }
         self._submit_and_resolve(
             'dispute', 'dispute',
-            lambda: self._schedule_llm_job("dispute", prompt, dispute.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True),
+            lambda: self._schedule_llm_job(
+                "dispute", prompt, dispute.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True,
+                structured_input=dispute_structured_input,
+            ),
         )
 
     def _maybe_schedule_faction(self, events: list[str]) -> None:
@@ -13721,7 +13790,7 @@ class SimulationEngine:
         self._mark_monthly_resolved("guild_founding")
         founder, skill, masters = candidate
         prompt = founding.build_prompt(founder, skill, len(masters), guild_target.name)
-        fallback = founding.fallback_founding(founder)
+        fallback = founding.fallback_founding(founder, len(masters), policy=self._founding_policy)
         founder_id = founder.id
         guild_target_id = guild_target.id
 
@@ -13767,9 +13836,15 @@ class SimulationEngine:
                 )
 
         # Major life decision: deliberately founding a guild (v1.3.37).
+        founding_structured_input = {
+            "trait_ambition": founder.traits.get(TRAIT_AMBITION, 0.0), "master_count": len(masters),
+        }
         self._submit_and_resolve(
             'guild_founding', 'guild_founding',
-            lambda: self._schedule_llm_job("guild_founding", prompt, founding.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True),
+            lambda: self._schedule_llm_job(
+                "guild_founding", prompt, founding.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True,
+                structured_input=founding_structured_input,
+            ),
         )
 
     def _maybe_schedule_institution_belief(self, events: list[str]) -> None:
@@ -14602,7 +14677,7 @@ class SimulationEngine:
             leader, home.name, members, housing, self.world.clock.season,
             religion_name=home_religion_name,
         )
-        fallback = fission.fallback_decision(leader)
+        fallback = fission.fallback_decision(leader, members, housing, policy=self._fission_policy)
         leader_id, home_id = leader.id, home.id
 
         def apply(result: dict, used_fallback: bool) -> None:
@@ -14727,9 +14802,17 @@ class SimulationEngine:
 
         # Major life decision: whether to leave and found a new
         # settlement (v1.3.37).
+        fission_structured_input = {
+            "trait_ambition": leader.traits.get("ambition", 0.0),
+            "trait_openness": leader.traits.get("openness", 0.0),
+            "crowding_ratio": (members / housing) if housing else 0.0,
+        }
         self._submit_and_resolve(
             'fission', 'fission',
-            lambda: self._schedule_llm_job("fission", prompt, fission.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True),
+            lambda: self._schedule_llm_job(
+                "fission", prompt, fission.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True,
+                structured_input=fission_structured_input,
+            ),
         )
 
     def _maybe_schedule_migration_decision(self) -> None:
@@ -14772,7 +14855,7 @@ class SimulationEngine:
         if home is None:
             return
         prompt = migration.build_prompt(agent, home.name, target.name, push_reason)
-        fallback = migration.fallback_decision(agent)
+        fallback = migration.fallback_decision(agent, policy=self._migration_policy)
         agent_id, home_id, target_id = agent.id, home.id, target.id
 
         def apply(result: dict, used_fallback: bool) -> None:
@@ -14811,11 +14894,16 @@ class SimulationEngine:
 
         # Major life decision: weighing a real reason to leave against
         # roots/relationships (v1.3.37).
+        migration_structured_input = {
+            "trait_resilience": agent.traits.get("resilience", 0.0),
+            "trait_openness": agent.traits.get("openness", 0.0),
+            "standing_penalty": agent.standing_penalty,
+        }
         self._submit_and_resolve(
             'migration_decision', 'migration_decision',
             lambda: self._schedule_llm_job(
                 "migration_decision", prompt, migration.SYSTEM_PROMPT, fallback, apply, settlement=home.name,
-                deep_reasoning=True,
+                deep_reasoning=True, structured_input=migration_structured_input,
             ),
         )
 
@@ -16882,6 +16970,13 @@ class SimulationEngine:
                 "loaded": self._embedding is not None,
                 "path": self._embedding_path,
                 "vocab_size": len(self._embedding.vocab) if self._embedding is not None else 0,
+            },
+            # Tier 6 Phase 1's four `fallback_*`-shaped decision
+            # policies (v1.34.260) -- each `loaded=False` means that
+            # site's real original deterministic fallback, unchanged.
+            "decision_policies": {
+                site: {"loaded": getattr(self, f"_{site}_policy") is not None, "path": path}
+                for site, path in self._decision_policy_paths.items()
             },
             # Tier 5 B15.3/B15.4's real control point: the ladder's real
             # current rung, its own logged transition history (bounded,

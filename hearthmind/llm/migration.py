@@ -14,6 +14,8 @@ decisions must stay call-volume-bounded, CLAUDE.md's standing rule) —
 everyone else keeps the original flat-chance-roll path."""
 from __future__ import annotations
 
+import random
+
 FALLBACK_DEPART_PENALTY_THRESHOLD = 0.0
 """Fallback bar: without the LLM, only someone already carrying a real
 standing penalty (genuinely unwelcome, not just pushed by circumstance)
@@ -48,7 +50,24 @@ def build_prompt(
     return "\n".join(lines)
 
 
-def fallback_decision(agent) -> dict:
+def fallback_decision(agent, policy=None, rng: "random.Random | None" = None) -> dict:
+    """`policy` (Tier 6, `hearthmind.ml.decision_policy.DecisionPolicy`
+    built from `MIGRATION_POLICY_CONFIG`) is optional and defaults to
+    `None`, reproducing this function's exact original penalty-
+    threshold output byte-for-byte."""
+    if policy is not None:
+        state = {
+            "trait_resilience": agent.traits.get("resilience", 0.0),
+            "trait_openness": agent.traits.get("openness", 0.0),
+            "standing_penalty": agent.standing_penalty,
+        }
+        outcome = policy.sample_class(state, rng or random.Random())
+        depart = outcome == "depart"
+        reason = (
+            "There's nothing left for me here." if depart else "This is still my home, whatever else is true."
+        )
+        return {"depart": depart, "reason": reason}
+
     depart = agent.standing_penalty > FALLBACK_DEPART_PENALTY_THRESHOLD
     reason = (
         "There's nothing left for me here." if depart else "This is still my home, whatever else is true."
