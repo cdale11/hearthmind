@@ -59,7 +59,13 @@ def main() -> int:
     eng._current_backpressure_limit = lambda: 1  # type: ignore[method-assign]
     eng._effective_backlog = lambda: 999  # type: ignore[method-assign]
     before_cycles = eng._machine_workspace._cycle
+    # Roadmap Phase 3, H1 "per-domain budgets": `_maybe_advance_
+    # escalation_ladder` now only SUBMITS its real bid -- the actual
+    # arbitration + resolver-invocation moved to a new shared
+    # `_maybe_resolve_machine_domain`, so a direct test call must
+    # drive both to reproduce a real production day_end cycle.
     eng._maybe_advance_escalation_ladder(["day_end"])
+    eng._maybe_resolve_machine_domain(["day_end"])
     report_pressured = eng.full_diagnostics()
     check("a real forced-pressure day_end call produces a real logged rung transition",
           len(report_pressured["escalation_ladder"]["history_recent"]) == 1

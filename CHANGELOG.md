@@ -4,6 +4,105 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.268] — Roadmap Phase 3, H1: a real second MACHINE-domain bidder
+
+Explicit user instruction: "continue with phase 3's remaining items,"
+resolved via `AskUserQuestion` to "H1 per-domain budgets" over E3's
+competing-goals half (a bigger new mechanism touching every agent's
+daily cognition fallback) and confirming B1's headline test live
+(impossible in this offline environment — no real production
+deployment to measure).
+
+H1's own write-scope enforcement (WORLD/MACHINE/OBSERVER) has been
+real since Stage H shipped; what the roadmap itself flagged as missing
+was real per-domain budget CONTENTION — with only `propose_escalation_
+bid` ever submitting to `SimulationEngine._machine_workspace`, the
+MACHINE domain was structurally a coalition of one every real cycle,
+so B2's own starvation/comparison machinery had nothing real to
+compare.
+
+New `hearthmind/cognition/runtime_specialist.py`'s `propose_machine_
+profile_refresh_bid`: gives B7.2's monthly `MachineProfile` disk
+refresh (previously an unconditional inline write once its own
+month_end + quiet-window gate cleared) a real `Bid` too, on a
+DIFFERENT subject (`"machine_profile_refresh"`) than the escalation
+ladder's (`"escalation_ladder"`) — `GlobalWorkspace.arbitrate()`
+compares every pending bid together regardless of subject, resolving
+ONE winner for the whole cycle, so this is genuine domain-level
+contention, not two independent decisions.
+
+**A real, meaningful score split, not a coin flip.** `propose_
+escalation_bid` now takes `pressured: bool` and scores itself
+`ESCALATION_BID_PRESSURED_SCORE` (1.0) when genuinely pressured,
+`ESCALATION_BID_CALM_SCORE` (0.3, deliberately below the profile
+refresh's own flat `MACHINE_PROFILE_REFRESH_BID_SCORE=0.5`) otherwise
+— `arbitrate()`'s own deterministic first-submitted-wins tie-break (no
+RNG) would otherwise let `_TICK_JOBS`' fixed dispatch order decide
+every single cycle regardless of real urgency. Result: a genuinely
+pressured cycle ALWAYS wins the domain's attention for the escalation
+ladder (never starved by background maintenance, preserving B15.3/
+B15.4's own safety-relevant response); a genuinely CALM cycle — the
+only time `is_quiet_window` would ever have let the profile refresh's
+own gate clear anyway — lets real periodic maintenance spend the
+domain's one action instead of an unnecessary "hold" call. Losing
+costs nothing structurally: a profile refresh that loses simply tries
+again next month_end.
+
+**Real architecture change needed to make this possible at all**:
+`_maybe_advance_escalation_ladder`/`_maybe_refresh_machine_profile`
+now only SUBMIT their bids — the actual `arbitrate()` call moved to a
+new shared `SimulationEngine._maybe_resolve_machine_domain`, run once
+per real day_end, registered in `_TICK_JOBS` right after both
+submitters. A submit-then-immediately-arbitrate pattern (the shape
+every W1-W4 site and the escalation ladder's own prior wiring used) is
+structurally a coalition of one — real multi-bid contention needs bids
+collected from more than one specialist before the one real
+arbitration call. On the common day nothing else bids (still the
+overwhelming majority — the profile refresh's own gate rarely clears),
+this reproduces the exact prior byte-for-byte behavior — verified
+directly.
+
+New `scripts/verify_h1_machine_domain_budget.py` (23 checks, all pass
+first run) — the real score ordering that makes contention meaningful;
+a real `GlobalWorkspace` with both bids pending resolving to whichever
+one `pressured` favors, in BOTH directions, with the loser correctly
+recorded; a full real production proof through `SimulationEngine` — on
+a genuinely calm cycle the profile refresh wins and the escalation
+ladder's own resolver does NOT run (rung/streak untouched), on a
+genuinely pressured cycle the reverse (the profile's storage benchmark
+never runs even though its own gate cleared); the ordinary single-
+bidder case unchanged; `_maybe_resolve_machine_domain`'s own gate
+(never arbitrates off a non-day_end tick); `_TICK_JOBS` ordering. One
+real test-harness bug caught and fixed before shipping, not a bug in
+the module under test: the first draft put three "independent" test
+engines in the same tmpdir with different db filenames, but `_machine_
+profile_path_for` derives the real persisted profile's path from the
+DIRECTORY alone (a fixed `machine_profile.json` filename, per B7.2) —
+so the second and third engines silently loaded the first engine's
+already-saved profile instead of starting genuinely fresh. Fixed by
+giving each test engine its own subdirectory.
+
+Updated four pre-existing scripts to drive the new two-step submit/
+resolve shape wherever they called `_maybe_advance_escalation_ladder`/
+`_maybe_refresh_machine_profile` directly (`scripts/verify_b15_
+escalation_ladder.py`, `scripts/verify_b8_predictive_scheduling.py`,
+`scripts/verify_e6_machine_surface.py`, `scripts/verify_h2_h3_runtime_
+domain.py`) — all four re-run clean, confirming the restructuring
+disturbs no existing behavior beyond the deliberate real change this
+item makes.
+
+Verified: the new script (23 checks); all four updated scripts re-run
+clean; `scripts/verify_runtime_invariant.py` re-run clean (the two
+new/changed MACHINE-domain functions stay provably world-state-free);
+`pyflakes` clean on all touched files (only the six known pre-existing
+forward-ref findings in `engine.py`); `scripts/verify_replay_hash.py`
+(800 ticks, seed 777, `--in-process`) — MATCH, byte-identical;
+`scripts/verify_native_soak.py` (seeds 1/55, 800 ticks) — MATCH (both
+required — `simulation/engine.py`'s own `__init__`/`_TICK_JOBS`
+dispatch table changed). Phase 3's other two items (E3's competing-
+goals half, confirming B1's headline test live) remain open — resume
+only on future explicit direction.
+
 ## [1.34.267] — Water-capable exploration fix + roadmap Phase 3's chunk-expiry mechanism
 
 Explicit user instruction: "fix the island-exploration water_capable

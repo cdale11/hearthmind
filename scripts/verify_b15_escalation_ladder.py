@@ -74,6 +74,18 @@ def make_engine(tmpdir: str, db_name: str) -> SimulationEngine:
     return SimulationEngine.load_or_create(conn, cfg)
 
 
+def advance_ladder(eng: SimulationEngine, events: list[str]) -> None:
+    """Roadmap Phase 3, H1 "per-domain budgets": `_maybe_advance_
+    escalation_ladder` now only SUBMITS its real bid into `self.
+    _machine_workspace` -- the actual arbitration + resolver-invocation
+    moved to a new shared `_maybe_resolve_machine_domain`, so a direct
+    (non-`_tick_once`) test call must drive both, same shape this
+    script's own test 1 already gets for free through the real
+    `_TICK_JOBS` dispatch table."""
+    eng._maybe_advance_escalation_ladder(events)
+    eng._maybe_resolve_machine_domain(events)
+
+
 def force_significant_core_cast(eng: SimulationEngine, n: int) -> list:
     """Marks the first `n` living agents core-cast and gives each a
     dominant emotion (fear) so `_is_significant_moment` reads True --
@@ -111,7 +123,7 @@ async def main() -> None:
         eng2 = make_engine(tmpdir, "escalate.db")
         with mock.patch.object(SimulationEngine, "llm_pressure_ratio", return_value=2.0):
             for _ in range(4):
-                eng2._maybe_advance_escalation_ladder(["day_end"])
+                advance_ladder(eng2, ["day_end"])
             check(
                 "4 pressured days reaches PAUSE (rung 4), not yet REDUCE_COGNITION_BREADTH",
                 eng2._escalation_ladder.current_rung is Rung.PAUSE,
@@ -121,7 +133,7 @@ async def main() -> None:
                 eng2._cognition_budget.count == ESCALATION_COGNITION_BASE_BUDGET,
             )
             for _ in range(5):
-                eng2._maybe_advance_escalation_ladder(["day_end"])
+                advance_ladder(eng2, ["day_end"])
             check(
                 "sustained pressure past the threshold reaches REDUCE_COGNITION_BREADTH (rung 5)",
                 eng2._escalation_ladder.current_rung is Rung.REDUCE_COGNITION_BREADTH,
@@ -134,7 +146,7 @@ async def main() -> None:
         # 3. A cleared-pressure reading de-escalates the real ladder and
         #    restores the unbounded budget.
         with mock.patch.object(SimulationEngine, "llm_pressure_ratio", return_value=0.0):
-            eng2._maybe_advance_escalation_ladder(["day_end"])
+            advance_ladder(eng2, ["day_end"])
         check("clearing pressure de-escalates one rung", eng2._escalation_ladder.current_rung is Rung.PAUSE)
         check(
             "the real cognition budget is restored to unbounded once off rung 5",
@@ -214,10 +226,10 @@ async def main() -> None:
         #    pacing mechanism's own "pressure begins here" semantics).
         eng5 = make_engine(tmpdir, "threshold.db")
         with mock.patch.object(SimulationEngine, "llm_pressure_ratio", return_value=LLM_PRESSURE_SLOWDOWN_START_RATIO - 0.01):
-            eng5._maybe_advance_escalation_ladder(["day_end"])
+            advance_ladder(eng5, ["day_end"])
         check("just below the shared pressure threshold: no escalation", eng5._escalation_ladder.current_rung is Rung.REORDER_BATCH)
         with mock.patch.object(SimulationEngine, "llm_pressure_ratio", return_value=LLM_PRESSURE_SLOWDOWN_START_RATIO):
-            eng5._maybe_advance_escalation_ladder(["day_end"])
+            advance_ladder(eng5, ["day_end"])
         check("at the shared pressure threshold: real escalation fires", eng5._escalation_ladder.current_rung is Rung.DEFER_WITHIN_DEADLINE)
 
     print()

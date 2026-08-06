@@ -68,7 +68,7 @@ def main() -> int:
 
     # --- H2: propose_escalation_bid produces a real MACHINE Bid ---
     calls: list[str] = []
-    bid = runtime_specialist.propose_escalation_bid(42, lambda: calls.append("ran"))
+    bid = runtime_specialist.propose_escalation_bid(42, lambda: calls.append("ran"), pressured=True)
     check("propose_escalation_bid returns a MACHINE-domain bid",
           bid.domain is Domain.MACHINE)
     check("propose_escalation_bid names the real subject",
@@ -85,7 +85,7 @@ def main() -> int:
     ws = GlobalWorkspace()
     fired: list[int] = []
     for tick in range(5):
-        b = runtime_specialist.propose_escalation_bid(tick, lambda t=tick: fired.append(t))
+        b = runtime_specialist.propose_escalation_bid(tick, lambda t=tick: fired.append(t), pressured=True)
         ws.submit(b)
         winner = ws.arbitrate()
         if winner is not None:
@@ -119,9 +119,13 @@ def main() -> int:
           and engine._machine_workspace not in engine._w3_workspaces.values())
 
     # --- real production call: _maybe_advance_escalation_ladder now
-    #     routes through the bid/arbitrate mechanism ---
+    #     routes through the bid/arbitrate mechanism. Roadmap Phase 3,
+    #     H1 "per-domain budgets": that method now only SUBMITS -- the
+    #     actual arbitration moved to a new shared `_maybe_resolve_
+    #     machine_domain`, so a direct test call must drive both. ---
     before_cycles = engine._machine_workspace._cycle
     engine._maybe_advance_escalation_ladder(["day_end"])
+    engine._maybe_resolve_machine_domain(["day_end"])
     check("a real day_end call advances the machine workspace's own cycle counter",
           engine._machine_workspace._cycle == before_cycles + 1)
     check("a real day_end call records a real winner (coalition-of-one) in the machine workspace's history",
@@ -141,6 +145,7 @@ def main() -> int:
     engine2._current_backpressure_limit = lambda: 1  # type: ignore[method-assign]
     engine2._effective_backlog = lambda: 999  # type: ignore[method-assign]
     engine2._maybe_advance_escalation_ladder(["day_end"])
+    engine2._maybe_resolve_machine_domain(["day_end"])
     after_world = engine2.world.to_dict()
     check("a real (even pressured) escalation-ladder cycle leaves World.to_dict() byte-identical",
           before_world == after_world)

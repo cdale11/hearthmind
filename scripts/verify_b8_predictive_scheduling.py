@@ -88,6 +88,22 @@ def make_engine(tmpdir: str, db_name: str = "b8.db", llm_max_concurrent: int = 4
     return SimulationEngine.load_or_create(conn, cfg)
 
 
+def refresh_machine_profile(eng: SimulationEngine, events: list[str]) -> None:
+    """Roadmap Phase 3, H1 "per-domain budgets": `_maybe_refresh_
+    machine_profile` now only SUBMITS its own real bid into `self.
+    _machine_workspace` once its own real gate (month_end + a genuinely
+    quiet backlog window) clears -- the actual storage-benchmark work
+    only runs once `_maybe_resolve_machine_domain` arbitrates the
+    cycle, same shared resolution point `_maybe_advance_escalation_
+    ladder`'s own bid now goes through too. A real production month_end
+    tick always ALSO crosses a real day boundary (confirmed elsewhere
+    in this codebase -- a month boundary is a day boundary), so `events`
+    must carry BOTH for this helper to reproduce a genuine production
+    cycle, not just `["month_end"]` alone."""
+    eng._maybe_refresh_machine_profile(events)
+    eng._maybe_resolve_machine_domain(events)
+
+
 def fill_latency(eng: SimulationEngine, ms: float, count: int = 30) -> None:
     eng._cognition_runner._latencies_ms.clear()
     for _ in range(count):
@@ -124,7 +140,7 @@ async def main() -> None:
         for _ in range(40):
             eng_a._recent_llm_backlog_samples.append(0.0)  # a quiet history
         with mock.patch.object(HostProbe, "sample", return_value=BENCHMARK_PROBE):
-            eng_a._maybe_refresh_machine_profile(["month_end"])
+            refresh_machine_profile(eng_a, ["month_end", "day_end"])
         check(
             "a real quiet-window refresh records the real storage benchmark",
             eng_a._machine_profile.storage_write_mb_s == BENCHMARK_PROBE.storage_write_mb_s,
@@ -148,7 +164,7 @@ async def main() -> None:
         for _ in range(40):
             eng_mem._recent_llm_backlog_samples.append(0.0)
         with mock.patch.object(HostProbe, "sample", return_value=BENCHMARK_PROBE):
-            eng_mem._maybe_refresh_machine_profile(["month_end"])  # must not raise
+            refresh_machine_profile(eng_mem, ["month_end", "day_end"])  # must not raise
         check(
             "an in-memory world still refines its in-RAM profile from a real benchmark",
             eng_mem._machine_profile.storage_write_mb_s == BENCHMARK_PROBE.storage_write_mb_s,
@@ -263,7 +279,7 @@ async def main() -> None:
         for _ in range(40):
             eng_gate._recent_llm_backlog_samples.append(0.0)  # now genuinely quiet
         with mock.patch.object(HostProbe, "sample", side_effect=_tracking_sample):
-            eng_gate._maybe_refresh_machine_profile(["month_end"])
+            refresh_machine_profile(eng_gate, ["month_end", "day_end"])
         check("a quiet-window month_end tick runs exactly one real storage benchmark", len(bench_calls) == 1)
         check(
             "that real benchmark call asked for the actual storage micro-benchmark, not a cheap probe",

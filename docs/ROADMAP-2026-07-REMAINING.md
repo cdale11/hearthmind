@@ -402,9 +402,24 @@ gap) closed the same way in v1.34.266 — zero open items remain here.
   arbitrating candidate goals — `llm/cognition.py`'s `fallback_goal` is
   still a flat if-chain, not a scored competition. Real new mechanism,
   not a rendering pass.
-- **H1, per-domain budgets.** Write-scope enforcement (WORLD/MACHINE/
-  OBSERVER) is real; real per-domain budget contention needs a second
-  real bidder in the MACHINE or OBSERVER domain, which doesn't exist yet.
+- **H1, per-domain budgets — SHIPPED, v1.34.268.** Write-scope
+  enforcement (WORLD/MACHINE/OBSERVER) was already real; this ships the
+  real second MACHINE-domain bidder the item itself named as missing.
+  `propose_machine_profile_refresh_bid` gives B7.2's monthly `Machine
+  Profile` disk refresh a real `Bid`, submitted to the SAME `_machine_
+  workspace` `propose_escalation_bid` already uses, on a different
+  subject (`escalation_ladder` vs. `machine_profile_refresh`) —
+  `arbitrate()` still resolves ONE winner per cycle across all pending
+  bids regardless of subject, so this is genuine domain-level
+  contention. Both submitters (`_maybe_advance_escalation_ladder`/
+  `_maybe_refresh_machine_profile`) now only SUBMIT; a new shared
+  `_maybe_resolve_machine_domain` runs the real `arbitrate()` call once
+  per day_end, after both have had a chance to bid. The escalation
+  bid's own score now depends on `pressured` (1.0 pressured, 0.3 calm)
+  against the profile refresh's flat 0.5 — a pressured cycle always
+  wins for the ladder (never starved of its safety-relevant response),
+  a calm cycle lets real periodic maintenance spend the domain's one
+  action instead.
 - **A real chunk-expiry mechanism for C2's `ChunkStore` — SHIPPED,
   v1.34.267.** `ChunkStore.compile()` gained an optional `ttl_ticks`
   (`None` = never expires, byte-for-byte the original behavior);

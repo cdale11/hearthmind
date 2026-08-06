@@ -5139,18 +5139,38 @@ class SimulationEngine:
         just doesn't persist; a real write failure (disk full, a
         permissions change mid-run) is likewise swallowed rather than
         taking down the tick loop over what is, at most, a missed
-        refinement."""
+        refinement.
+
+        Roadmap Phase 3, H1 "per-domain budgets" (explicit user
+        instruction "continue with phase 3's remaining items" -> "H1
+        per-domain budgets"): this method's own real work (the actual
+        `HostProbe.sample`/`record_storage_benchmark`/save sequence)
+        now only runs as the `resolver` behind a real second MACHINE-
+        domain `Bid` (`runtime_specialist.propose_machine_profile_
+        refresh_bid`) — submitted to the SAME `self._machine_workspace`
+        `_maybe_advance_escalation_ladder` submits to, genuinely
+        competing for the domain's one real per-cycle action instead
+        of always running unconditionally the instant this method's
+        own gate clears. See `_maybe_resolve_machine_domain` for the
+        real shared arbitration point, and `propose_machine_profile_
+        refresh_bid`'s own docstring for why this can only ever win on
+        a genuinely calm cycle, never a pressured one."""
         if "month_end" not in events:
             return
         if not is_quiet_window(list(self._recent_llm_backlog_samples), float(self._backpressure_limit)):
             return
-        probe = HostProbe.sample(run_storage_bench=True)
-        self._machine_profile.record_storage_benchmark(probe)
-        if self._machine_profile_path is not None:
-            try:
-                self._machine_profile.save(self._machine_profile_path)
-            except OSError:
-                pass
+
+        def resolver() -> None:
+            probe = HostProbe.sample(run_storage_bench=True)
+            self._machine_profile.record_storage_benchmark(probe)
+            if self._machine_profile_path is not None:
+                try:
+                    self._machine_profile.save(self._machine_profile_path)
+                except OSError:
+                    pass
+
+        bid = runtime_specialist.propose_machine_profile_refresh_bid(resolver)
+        self._machine_workspace.submit(bid)
 
     def _maybe_evolve_workload_genomes(self, events: list[str]) -> None:
         """Tier 6 L6 (roadmap Phase 2, explicit user instruction:
@@ -5454,15 +5474,27 @@ class SimulationEngine:
         (`hearthmind.cognition.runtime_specialist.propose_escalation_
         bid`), submitted to `self._machine_workspace` (a dedicated
         MACHINE-domain workspace, never shared with a WORLD-domain
-        one) and only invoked once `arbitrate()` names it the winner.
-        Since nothing else bids into this workspace today, this is a
-        real coalition-of-one — `arbitrate()`'s own `max()` always
-        returns this sole bid, so the resolver fires on every call
-        exactly as before; a future second MACHINE specialist naming
-        this same subject would now genuinely compete for it instead
-        of racing an inline write. Provably behavior-preserving by
-        construction, same reasoning every W1-W4/H1 site in this
-        codebase already established."""
+        one).
+
+        Roadmap Phase 3, H1 "per-domain budgets" (explicit user
+        instruction "continue with phase 3's remaining items" -> "H1
+        per-domain budgets"): this method now only SUBMITS — the
+        actual `arbitrate()` call moved to `_maybe_resolve_machine_
+        domain`, a new shared per-tick resolution point that runs
+        AFTER every MACHINE-domain job has had a chance to submit this
+        cycle (see that method's own docstring for why: real
+        contention needs more than one bid pending before the ONE real
+        arbitration call, which a submit-then-immediately-arbitrate
+        pattern structurally can't produce). `propose_escalation_bid`
+        now also takes the real `pressured` reading directly — see its
+        own docstring for why the bid's SCORE, not just its existence,
+        now depends on it. On a day nothing else bids (still the
+        common case — `_maybe_refresh_machine_profile`'s own bid only
+        exists on a real month_end + quiet-window match), this is
+        still a real coalition of one and the resolver still fires
+        every single day_end exactly as before, byte-for-byte —
+        provably behavior-preserving by construction, same reasoning
+        every W1-W4/H1 site in this codebase already established."""
         if "day_end" not in events:
             return
         pressured = self.llm_pressure_ratio() >= self._pacing_tunable(
@@ -5476,8 +5508,38 @@ class SimulationEngine:
                 ESCALATION_COGNITION_BASE_BUDGET, ESCALATION_COGNITION_REDUCED_BUDGET,
             )
 
-        bid = runtime_specialist.propose_escalation_bid(tick, resolver)
+        bid = runtime_specialist.propose_escalation_bid(tick, resolver, pressured)
         self._machine_workspace.submit(bid)
+
+    def _maybe_resolve_machine_domain(self, events: list[str]) -> None:
+        """Roadmap Phase 3, H1 "per-domain budgets": the MACHINE
+        domain's own real per-cycle arbitration point — collects
+        whatever `self._machine_workspace` accumulated this tick (from
+        `_maybe_advance_escalation_ladder`'s own submit, and, on a real
+        month_end + quiet-window match, `_maybe_refresh_machine_
+        profile`'s own submit too) and resolves it ONCE, invoking
+        exactly the winning bid's resolver — never both, even when
+        both happen to be pending the same real cycle. Must run AFTER
+        both of those in `_TICK_JOBS`' own fixed dispatch order (see
+        that table's entries) — arbitrating before either has had a
+        chance to submit would silently exclude it from the cycle it
+        was actually due in, the same real defect W1-W4's own "submit
+        then immediately arbitrate" shape would have if two real
+        sites ever shared one workspace without a step like this one.
+
+        Gated on `day_end`, not `month_end` — the escalation ladder's
+        own bid is unconditional on every real day_end (see its own
+        docstring), so the domain's pending queue is never genuinely
+        empty on a real day_end tick once that method has already run
+        this same tick; a `month_end` gate here would silently strand
+        every ordinary day's escalation bid unresolved until the next
+        month boundary. On the rare real day BOTH bids are pending, the
+        one that actually wins is decided purely by `propose_
+        escalation_bid`'s own `pressured`-scaled score against
+        `MACHINE_PROFILE_REFRESH_BID_SCORE` — never by which method
+        happened to submit first in `_TICK_JOBS`' own dispatch order."""
+        if "day_end" not in events:
+            return
         winner = self._machine_workspace.arbitrate()
         if winner is not None:
             winner.resolver()
@@ -6308,6 +6370,7 @@ class SimulationEngine:
         ("_schedule_voice_dialogue", _JOB_NO_ARGS),
         ("_maybe_refresh_machine_profile", _JOB_EVENTS),
         ("_maybe_advance_escalation_ladder", _JOB_EVENTS),
+        ("_maybe_resolve_machine_domain", _JOB_EVENTS),
         ("_maybe_auto_llm_concurrency_hypothesis", _JOB_EVENTS),
         ("_maybe_evolve_workload_genomes", _JOB_EVENTS),
         ("_maybe_tick_workload_forecaster", _JOB_EVENTS),
@@ -18102,11 +18165,17 @@ class SimulationEngine:
             # reaches here, never a settlement's own belief formation).
             # `cycles` is the workspace's own cycle counter (advances
             # once per real `arbitrate()` call, i.e. once per real
-            # `day_end`); `history_recent` names the real winner and
-            # every real loser per cycle — today always a coalition of
-            # one (`adaptive_runtime`/`escalation_ladder`), since no
-            # second MACHINE specialist bids yet, but the shape is
-            # already real arbitration, not a placeholder.
+            # `day_end` — see `_maybe_resolve_machine_domain`);
+            # `history_recent` names the real winner and every real
+            # loser per cycle. Roadmap Phase 3, H1 "per-domain
+            # budgets": a genuine SECOND real bidder now exists
+            # (`machine_profile_refresh`, alongside the escalation
+            # ladder's own `escalation_ladder`) — on most real days
+            # this is still a coalition of one (the profile refresh's
+            # own gate rarely clears), but on a real day both bids are
+            # pending, `history_recent`'s `losers` field genuinely
+            # names whichever candidate the domain's one real action
+            # this cycle did NOT go to.
             "machine_domain": {
                 "cycles": self._machine_workspace._cycle,
                 "history_recent": [

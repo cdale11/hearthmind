@@ -742,6 +742,61 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.268)
+
+Explicit user instruction: "continue with phase 3's remaining items,"
+resolved via `AskUserQuestion` to H1 "per-domain budgets" over E3's
+competing-goals half (bigger new mechanism, touches every agent's
+daily cognition fallback) and confirming B1's headline test live
+(impossible offline — no real production deployment).
+
+H1's write-scope enforcement (WORLD/MACHINE/OBSERVER) was already
+real; the flagged gap was real per-domain budget CONTENTION — only
+`propose_escalation_bid` ever submitted to `SimulationEngine.
+_machine_workspace`, a structural coalition of one every cycle. New
+`runtime_specialist.propose_machine_profile_refresh_bid`: gives B7.2's
+monthly `MachineProfile` disk refresh a real `Bid` on a DIFFERENT
+subject (`"machine_profile_refresh"` vs. `"escalation_ladder"`) —
+`arbitrate()` still resolves one winner per cycle across all pending
+bids, so this is genuine contention. `propose_escalation_bid` now
+scores `pressured`-dependent (1.0 pressured / 0.3 calm) against the
+profile refresh's flat 0.5 — a pressured cycle always wins for the
+ladder (never starved of its safety-relevant response), a calm cycle
+lets real periodic maintenance spend the domain's one action instead.
+
+Real architecture change needed: `_maybe_advance_escalation_ladder`/
+`_maybe_refresh_machine_profile` now only SUBMIT; a new shared
+`_maybe_resolve_machine_domain` runs the real `arbitrate()` once per
+day_end, after both have had a chance to bid — a submit-then-
+immediately-arbitrate pattern (every W1-W4 site's own shape) is
+structurally incapable of real multi-bid contention. The common case
+(nothing else bids) reproduces the exact prior behavior byte-for-byte.
+
+New `scripts/verify_h1_machine_domain_budget.py` (23 checks, all
+pass) — the real score ordering; a real `GlobalWorkspace` resolving to
+whichever bid `pressured` favors, both directions, loser recorded; a
+full production proof (calm cycle: profile refresh wins, ladder's
+resolver doesn't run; pressured cycle: reverse); the ordinary single-
+bidder case unchanged; the resolve step's own day_end gate; `_TICK_
+JOBS` ordering. One real test-harness bug caught and fixed before
+shipping: three "independent" test engines shared one tmpdir with
+different db filenames, but `_machine_profile_path_for` derives the
+real persisted profile's path from the directory alone (a fixed
+`machine_profile.json` filename) — the second/third engines silently
+loaded the first's already-saved profile. Fixed with per-engine
+subdirectories. Four pre-existing scripts (`verify_b15_escalation_
+ladder`/`verify_b8_predictive_scheduling`/`verify_e6_machine_surface`/
+`verify_h2_h3_runtime_domain`) updated to drive the new two-step
+submit/resolve shape and re-run clean.
+
+Verified: the new script (23 checks); all four updated scripts;
+`scripts/verify_runtime_invariant.py`; `pyflakes` clean (only the six
+known pre-existing forward-ref findings in `engine.py`); `scripts/
+verify_replay_hash.py` (800 ticks, seed 777, `--in-process`) — MATCH,
+byte-identical; `scripts/verify_native_soak.py` (seeds 1/55, 800
+ticks) — MATCH. Phase 3's other two items (E3's competing-goals half,
+confirming B1's headline test live) remain open.
+
 ## Current state (v1.34.267)
 
 Explicit user instruction: "fix the island-exploration water_capable
