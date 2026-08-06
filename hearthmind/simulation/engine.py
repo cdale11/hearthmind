@@ -127,6 +127,7 @@ from hearthmind.simulation.hardware_profile import GoodCitizenPolicy, HostProbe,
 from hearthmind.simulation.forecasting import (
     ForecastAccuracyTracker, WorkloadForecaster, is_quiet_window, make_training_example,
 )
+from hearthmind.ml.goal_policy import GoalPolicy
 from hearthmind.ml.specialist import LearningSpecialist
 from hearthmind.simulation.persistence_scheduling import SnapshotPolicy, SnapshotScheduler
 from hearthmind.simulation.escalation import CognitionBudget, EscalationLadder, Rung
@@ -1891,6 +1892,44 @@ def _load_or_create_machine_profile(path: str | None) -> MachineProfile:
         return MachineProfile(host_fingerprint=host_fingerprint())
 
 
+GOAL_POLICY_FILENAME = "goal_policy_weights.json"
+"""Tier 6 L2.2's real, wired control point (v1.34.258): unlike
+`MachineProfile` (auto-created fresh for any host), a `GoalPolicy` is
+NEVER auto-created — a random-init untrained policy would score worse
+than the deterministic `agent_id % 3`/trait-standout heuristic it
+would replace, and per `docs/ML-ARCHITECTURE-2026-08-01.md`'s
+guardrail #3 ("weights diverge... no reason to start from someone
+else's lived history"), no trained default is checked into this repo
+either — every world runs the exact prior deterministic fallback
+until an operator trains real weights (`scripts/train_goal_policy_
+from_archive.py`) from THAT world's own recorder archive and drops
+the file next to its `db_path`."""
+
+
+def _goal_policy_path_for(db_path: str) -> str | None:
+    """Same sibling-file-next-to-`db_path` convention as `_machine_
+    profile_path_for` — `None` for `:memory:` (no real directory to
+    place it next to)."""
+    if db_path == ":memory:":
+        return None
+    directory = os.path.dirname(os.path.abspath(db_path))
+    return os.path.join(directory, GOAL_POLICY_FILENAME)
+
+
+def _load_goal_policy(path: str | None) -> "GoalPolicy | None":
+    """`None` (the safe default) unless a real, readable, schema-valid
+    trained-weights file exists — a missing file is the overwhelmingly
+    common case (no operator has trained one yet) and a corrupted/
+    unsupported-schema file must never be able to crash startup, same
+    discipline `_load_or_create_machine_profile` already holds to."""
+    if path is None or not os.path.exists(path):
+        return None
+    try:
+        return GoalPolicy.load(path)
+    except (OSError, ValueError, KeyError, json.JSONDecodeError):
+        return None
+
+
 INSTITUTION_DORMANCY_IDLE_CHECKS_THRESHOLD = 3
 """Tier 5 B4.2 pilot ("idle institutions"): consecutive monthly
 `_update_institution_dormancy` checks with an unchanged fingerprint
@@ -2318,6 +2357,12 @@ class SimulationEngine:
         self._machine_profile = _load_or_create_machine_profile(self._machine_profile_path)
         self._machine_profile.record_session()
         self._last_strategy = None
+        self._goal_policy_path = _goal_policy_path_for(config.db_path)
+        self._goal_policy: "GoalPolicy | None" = _load_goal_policy(self._goal_policy_path)
+        """Tier 6 L2.2. `None` (the overwhelmingly common case — no
+        operator has trained one for this world yet) reproduces
+        `fallback_goal`'s exact prior deterministic `agent_id % 3`/
+        trait-standout behavior at every real call site below."""
         # B8.4's real control point: a bounded history of daily
         # `CognitionRunner.backlog` readings, sampled unconditionally in
         # `_maybe_tune_llm_concurrency` regardless of whether that
@@ -6001,7 +6046,7 @@ class SimulationEngine:
                     self.world.clock.tick_count,
                     fallback_goal(
                         agent.hunger, agent.energy, agent.id, dict(agent.traits), dict(agent.emotions), plan_intent,
-                        materials_critical,
+                        materials_critical, goal_policy=self._goal_policy,
                     ),
                     None,
                 )
@@ -6115,6 +6160,7 @@ class SimulationEngine:
         try:
             fallback_dict = fallback_goal(
                 hunger, energy, agent_id, traits, emotions, plan_intent, materials_critical,
+                goal_policy=self._goal_policy,
             )
             self._cognition_calls_today += 1  # Tier 7 G2's real workload-forecaster feature
             result, used_fallback, raw_completion, diag = await self._cognition_runner.run(
@@ -16774,6 +16820,16 @@ class SimulationEngine:
                 "recent_llm_backlog_is_quiet_window": is_quiet_window(
                     list(self._recent_llm_backlog_samples), float(self._backpressure_limit),
                 ),
+            },
+            # Tier 6 L2.2's real control point (v1.34.258): whether this
+            # world's `fallback_goal` is drawing content-agent choices
+            # from a real trained policy or the original deterministic
+            # `agent_id % 3`/trait-standout heuristic -- `loaded=False`
+            # means every real call site is byte-identical to before
+            # this pass, not merely inert.
+            "goal_policy": {
+                "loaded": self._goal_policy is not None,
+                "path": self._goal_policy_path,
             },
             # Tier 5 B15.3/B15.4's real control point: the ladder's real
             # current rung, its own logged transition history (bounded,

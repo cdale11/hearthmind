@@ -742,6 +742,77 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.258)
+
+Explicit user request: an uploaded real-deployment `review_pack.json`
+export (500 recorded examples, 420 real non-fallback `cognition`-task
+pairs) plus a pasted live `/diagnostics` payload, asking to wire the
+still-substrate-only Tier 6 items to production using this real data.
+
+**L2.2 (goal policy) is now wired.** `hearthmind/ml/goal_policy.py`'s
+`GoalPolicy` gained real persistence (`to_dict`/`from_dict`, schema-
+versioned; `save`/`load`) and a masking safeguard — `predict`/
+`sample_goal`'s new `allowed_goals` param restricts the softmax to a
+caller-chosen subset before the entropy floor, renormalized over just
+that subset (degrades to a safe uniform draw on a genuinely-zero-mass
+subset, never a crash). This is the real guard against the trained
+policy introducing a goal its target branch never produced — `explore`
+(reserved for the surveyor role, forced elsewhere) plus `forage`/
+`rest`/`seek_person` stay excluded from the one mask this pass wires
+in. `llm/cognition.py`'s `fallback_goal(..., goal_policy=None, rng=
+None)` now delegates ONLY its one genuinely-arbitrary branch (the
+`agent_id % 3` content-agent split, reached once every forced branch —
+critical hunger/energy, fear, grief, materials-critical — is already
+ruled out) to a real trained policy when one is supplied; `goal_
+policy=None` (every call site's default until real weights exist)
+reproduces the exact prior output byte-for-byte, verified across every
+`agent_id % 3` residue. `simulation/engine.py` gained `GOAL_POLICY_
+FILENAME`/`_goal_policy_path_for`/`_load_goal_policy`, mirroring B7.2's
+`MachineProfile` file-next-to-`db_path` pattern exactly — but
+deliberately **never auto-created**, since "weights are per-world/
+per-deployment state" (`docs/ML-ARCHITECTURE-2026-08-01.md` guardrail
+#3) forbids a shared checked-in default that would homogenize every
+future world. `SimulationEngine.__init__` loads it once, threaded into
+both real `fallback_goal(...)` call sites; `full_diagnostics()
+['goal_policy']` surfaces `{loaded, path}`.
+
+New `scripts/train_goal_policy_from_archive.py`: the real offline
+trainer, consuming either a `review_pack.json` export or a raw
+recorder archive directory, extracting only `fallback_used=False`
+`cognition` pairs (never trains on the fallback's own output), mapping
+`layer1_structured_input`'s nested traits/emotions onto the flat
+`GOAL_POLICY_SCHEMA` (honestly defaulting `materials_critical` to 0.0
+— never actually recorded in a live-LLM prompt), and saving weights to
+the exact path the engine auto-loads. Run against the user's real
+420-example archive: shadow gate ACCEPTED, holdout accuracy 28.6%
+(vs. an ~16.7% uniform floor across the six goals actually present).
+`lr=0.003`/`epochs=200` were settled from a real sweep against this
+archive — the module's own bare default and this script's first-draft
+`lr=0.05` both reliably diverged the candidate on this real data, the
+same plain-SGD instability class already fixed once for the workload
+forecaster (v1.34.257).
+
+Verified: new `scripts/verify_l2_2_production_wiring.py` (16 checks,
+all pass first run) — round-trip/schema-rejection, `allowed_goals`
+masking/renormalization/zero-mass-degrade, masked-sampling-only-draws-
+allowed-set (200 real draws), `fallback_goal` byte-for-byte parity at
+`goal_policy=None` across every residue, every forced branch confirmed
+untouched, a real trained policy's content-branch choice genuinely
+reflecting learned conditioning, the engine wiring's three real cases
+(no file/corrupted file/real file), and a full subprocess end-to-end
+training-script run. Also: a real live smoke test — a `Simulation
+Engine` constructed with the user's own real trained weights loads it
+(`full_diagnostics()['goal_policy'] == {'loaded': True, ...}`) and
+runs 30 real ticks under `asyncio.run` with zero crash; a sibling
+engine with no weights file correctly shows `{'loaded': False, ...}`.
+`scripts/verify_replay_hash.py` (800 ticks, seed 777, `--in-process`)
+— MATCH, byte-identical, confirming the default (`goal_policy=None`)
+tick-loop behavior is completely unaffected. `Agent.plan` absorption
+into the feature schema and a real L2.1 outcome-labeled Phase 2
+retrain both remain open, same discipline as every other Tier 6 item
+— `FeatureSchema` needs a text-vector slot first; Phase 2 needs a real
+outcome-influence label this archive doesn't carry yet.
+
 ## Current state (v1.34.257)
 
 Explicit live-deployment bug report: a real soak crashed the whole

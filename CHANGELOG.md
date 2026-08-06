@@ -4,6 +4,111 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.258] — Tier 6 L2.2 (goal policy) wired into real production
+
+Explicit user request: an uploaded `review_pack_20260806_083545.zip`
+(a real live-deployment training-recorder export, 500 examples, 420
+of them `cognition`-task with `fallback_used=False`) plus a pasted
+live `/diagnostics` payload, with the instruction to wire the still-
+substrate-only Tier 6 items to production using this real data.
+
+Every prior filing of `hearthmind/ml/goal_policy.py` (L2.2, the
+flagship replacement for `llm/cognition.py`'s `fallback_goal`
+if-ladder) named the same blocker: no live recorder archive existed
+in this offline environment to train real weights from. This closes
+that gap for real, using the user's own genuine archive rather than
+synthetic data.
+
+**`GoalPolicy` gained real persistence and a masking safeguard**
+(`hearthmind/ml/goal_policy.py`): `to_dict`/`from_dict` (schema-
+versioned JSON, rejects an unsupported version, same discipline as
+every other persisted weight blob in this codebase) and `save`/`load`
+convenience wrappers. `predict`/`sample_goal` gained an optional
+`allowed_goals` set — masks the softmax distribution to a caller-
+chosen subset BEFORE the entropy floor, renormalizing over just that
+subset, degrading to a safe uniform draw if the masked subset scores
+genuinely ~zero raw probability rather than crashing. This is the
+real guard against a trained policy introducing a goal its target
+branch was never meant to produce: `explore` is reserved for the
+surveyor role (forced elsewhere in the codebase, never a free
+per-agent choice), so it — along with `forage`/`rest`/`seek_person`,
+each carrying different downstream meaning — is deliberately excluded
+from the mask this pass wires in.
+
+**`llm/cognition.py`'s `fallback_goal` gained an optional `goal_
+policy`/`rng` pair**, touching only its one genuinely-arbitrary
+branch — the `agent_id % 3` content-agent split reached once every
+forced branch (critical hunger/energy, fear, grief, materials-
+critical) has already been ruled out. `goal_policy=None` (the default,
+and every call site's behavior until a real weights file exists)
+reproduces the exact prior output byte-for-byte, verified directly
+against all nine `agent_id % 3` residues; every forced branch is
+confirmed completely untouched by `goal_policy`'s presence.
+
+**`simulation/engine.py` wiring**, mirroring B7.2's `MachineProfile`
+precedent exactly: new `GOAL_POLICY_FILENAME = "goal_policy_weights.
+json"`, `_goal_policy_path_for(db_path)` (a real sibling path next to
+the world's own db file, `None` for `:memory:`), `_load_goal_policy
+(path)` (degrades to `None` on a missing or corrupted file, never
+crashes startup). Deliberately **never auto-created** — unlike
+`MachineProfile`, which builds a fresh profile for any host, a fresh
+world gets NO default weights: "weights are per-world/per-deployment
+state" (`docs/ML-ARCHITECTURE-2026-08-01.md`'s guardrail #3) is a real
+architectural rule against homogenizing every future world toward one
+specific world's lived history, not a convenience default to relax.
+`SimulationEngine.__init__` loads it once (`self._goal_policy`),
+threaded into both real `fallback_goal(...)` call sites (the
+synchronous LLM-disabled path and `_run_cognition`'s async fallback
+closure). `full_diagnostics()['goal_policy']` surfaces `{loaded, path}`.
+
+**New `scripts/train_goal_policy_from_archive.py`** — the real offline
+trainer completing the "ship the substrate, wire it once a real
+consumer/archive exists" discipline every other L-layer item has used.
+Consumes either a `review_pack.json` export or a raw recorder archive
+directory (`<dir>/cognition/*.jsonl`), extracts only `fallback_used=
+False` real `cognition` pairs (the standing anti-self-reinforcement
+guard — never trains on the fallback's own output), maps `layer1_
+structured_input`'s nested traits/emotions onto `GOAL_POLICY_SCHEMA`'s
+flat fields (honestly defaulting `materials_critical` to 0.0 — that
+signal was never actually recorded in a live-LLM `cognition` prompt,
+only reaches the deterministic fallback's own separate parameter),
+trains via a real held-out shadow-gate split, and saves weights to the
+exact path `SimulationEngine` auto-loads.
+
+Run against the user's real 420-example archive: `Shadow gate:
+ACCEPTED`, `Holdout accuracy: 28.6%` (vs. an ~16.7% uniform floor
+across the 6 goals actually present — `socialize`/`rest`/`wander`/
+`forage`/`seek_person`/`gather`, with `gather` badly underrepresented
+at only 7 examples). `lr=0.003`/`epochs=200` are the values a real
+sweep against this specific archive settled on — the module's own bare
+default (`lr=0.03`) and this script's first-draft `lr=0.05` both
+reliably diverged the candidate past the shadow gate on this real
+data, the same plain-SGD numeric-instability class already fixed once
+for the workload forecaster (v1.34.257); documented at the call site,
+re-tune from a live holdout-accuracy reading if a future archive's
+feature distribution proves different.
+
+**Verified**: new `scripts/verify_l2_2_production_wiring.py` (16
+checks, all pass first run) — round-trip/schema-rejection for `to_
+dict`/`from_dict`/`save`/`load`; `allowed_goals=None` exact parity
+with the unmasked distribution; masking/renormalization correctness
+incl. the genuinely-zero-mass degrade case; masked `sample_goal` only
+ever draws from the allowed set across 200 real draws; `fallback_goal`
+byte-for-byte parity with `goal_policy=None` across every `agent_id %
+3` residue; every forced branch confirmed untouched; a real trained
+policy's content-branch choice genuinely reflects learned personality
+conditioning; the engine wiring's `None`-file/corrupted-file/real-file
+three cases; and a full subprocess end-to-end run of the training
+script against a synthetic archive. Also: a real live smoke test — a
+`SimulationEngine` constructed with the user's own real trained
+weights file present loads it (`full_diagnostics()['goal_policy'] ==
+{'loaded': True, ...}`) and runs 30 real ticks under `asyncio.run`
+with zero crash; a sibling engine with no weights file present
+correctly shows `{'loaded': False, ...}`. `scripts/verify_replay_
+hash.py` (800 ticks, seed 777, `--in-process`) — MATCH, byte-
+identical, confirming the default (`goal_policy=None`) tick-loop
+behavior is completely unaffected by this change.
+
 ## [1.34.257] — Fix: OverflowError crash in the workload forecaster's shadow-gated retrain
 
 Explicit live-deployment report: a real soak crashed the whole

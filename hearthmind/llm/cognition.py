@@ -27,12 +27,18 @@ shares vocabulary with.
 """
 from __future__ import annotations
 
+import random
+
 from hearthmind.agents.agent import (
+    EMOTION_ANGER,
     EMOTION_FEAR,
     EMOTION_GRIEF,
+    EMOTION_JOY,
     EMOTION_NOTABLE_THRESHOLD,
     TRAIT_AMBITION,
     TRAIT_NOTABLE_THRESHOLD,
+    TRAIT_OPENNESS,
+    TRAIT_RESILIENCE,
     TRAIT_SOCIABILITY,
     Agent,
     AgentGoal,
@@ -42,6 +48,16 @@ from hearthmind.agents.agent import (
     just_now_text as _just_now_text,
     retrieve_relevant_memories,
 )
+
+_CONTENT_GOAL_REASON = {
+    AgentGoal.SOCIALIZE.value: "content, seeking company",
+    AgentGoal.GATHER.value: "content, gathering materials",
+    AgentGoal.WANDER.value: "content",
+}
+"""The exact three reason strings the old `agent_id % 3` split already
+used, one per goal `GoalPolicy`'s masked prediction (see `fallback_
+goal`) can actually return -- keeps the in-fiction text identical
+regardless of which mechanism picked the goal."""
 
 SYSTEM_PROMPT = (
     "You are the inner voice of a villager in a small simulated world. "
@@ -430,6 +446,7 @@ above, which is why this constant is only consulted after those."""
 def fallback_goal(
     hunger: float, energy: float, agent_id: int = 0, traits: dict | None = None,
     emotions: dict | None = None, plan_intent: str = "", materials_critical: bool = False,
+    goal_policy=None, rng=None,
 ) -> dict:
     """Deterministic rule-based stand-in for the LLM's choice, used when
     Ollama is disabled, unreachable, or misbehaves. Mirrors the kind of
@@ -450,7 +467,24 @@ def fallback_goal(
     live-LLM prompt already described that same personality in words.
     Neutral-personality agents (the common case) keep the exact old
     id%3 split unchanged. See docs/DECISIONS.md, "personality steers
-    profession.\""""
+    profession."
+
+    `goal_policy` (Tier 6 L2.2, `hearthmind.ml.goal_policy.GoalPolicy`,
+    wired v1.34.258 once a real recorder archive existed to train
+    from) is an optional trained model that REPLACES this same final
+    branch's `agent_id % 3`/trait-standout split with a real learned,
+    personality/emotion-conditioned choice among the identical three
+    goals (`socialize`/`gather`/`wander`) it was already restricted
+    to — every earlier forced branch above (survival hunger/energy,
+    fear/grief, materials-critical, plan-intent keyword match) is
+    completely untouched either way, matching L2.2's own stated
+    survival-override scope. `rng` supplies the real stochastic draw
+    `GoalPolicy.sample_goal` needs (never `argmax` — the entropy floor
+    guarantees genuine variety); `None` defaults to a per-agent
+    namespaced `random.Random(agent_id)`, reproducible but not shared
+    across agents. `goal_policy=None` (the default, and the only path
+    every call site used before this pass) reproduces the exact prior
+    id%3/trait-standout behavior byte-for-byte."""
     if hunger > SURVIVAL_HUNGER_THRESHOLD:
         reason = FORCED_HUNGER_REASON_POOL[agent_id % len(FORCED_HUNGER_REASON_POOL)]
         return {"goal": AgentGoal.FORAGE.value, "reason": reason}
@@ -495,6 +529,24 @@ def fallback_goal(
         return {"goal": AgentGoal.GATHER.value, "reason": "content, driven to make something of themself"}
     if sociability >= TRAIT_NOTABLE_THRESHOLD and sociability > ambition:
         return {"goal": AgentGoal.SOCIALIZE.value, "reason": "content, seeking company"}
+    if goal_policy is not None:
+        state = {
+            "hunger": hunger, "energy": energy,
+            "trait_resilience": traits.get(TRAIT_RESILIENCE, 0.0),
+            "trait_sociability": sociability, "trait_ambition": ambition,
+            "trait_openness": traits.get(TRAIT_OPENNESS, 0.0),
+            "emotion_fear": fear, "emotion_grief": grief,
+            "emotion_joy": emotions.get(EMOTION_JOY, 0.0),
+            "emotion_anger": emotions.get(EMOTION_ANGER, 0.0),
+            "materials_critical": 1.0 if materials_critical else 0.0,
+            "has_plan": 1.0 if plan_intent else 0.0,
+        }
+        goal = goal_policy.sample_goal(
+            state, rng or random.Random(agent_id),
+            allowed_goals={AgentGoal.SOCIALIZE.value, AgentGoal.GATHER.value, AgentGoal.WANDER.value},
+        )
+        reason = _CONTENT_GOAL_REASON.get(goal, "content")
+        return {"goal": goal, "reason": reason}
     branch = agent_id % 3
     if branch == 0:
         return {"goal": AgentGoal.SOCIALIZE.value, "reason": "content, seeking company"}

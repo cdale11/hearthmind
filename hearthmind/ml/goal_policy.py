@@ -35,14 +35,38 @@ continual learning) rather than a new training loop; `training.py`
 gained real `softmax`+cross-entropy backprop support for this module
 (previously forward-pass-only, no matching trainer existed).
 
-Not wired into `cognition.py`/`Population` this pass -- same "ship the
-substrate, wire it once a real consumer/archive exists" discipline
-every prior Tier 6 L-layer piece has shipped under. Phase 1 needs a
-real recorder archive (`layer1_structured_input -> layer4_parsed_
-output` pairs) this offline environment has no live run to source.
+**Wired (v1.34.258)**, once a real recorder archive existed to train
+from: `llm/cognition.py`'s `fallback_goal` gained an optional `goal_
+policy`/`rng` param pair -- when supplied, the ONLY branch replaced is
+the final "content agent, nothing forced" split (previously a flat
+`agent_id % 3`/trait-standout heuristic); every earlier forced branch
+(survival hunger/energy, fear/grief, materials-critical, plan-intent
+keyword match) stays completely untouched, matching this module's own
+stated survival-override scope. The policy's prediction is masked to
+exactly the three goals that branch could ever produce before
+(`socialize`/`gather`/`wander`, via `predict`'s new `allowed_goals`
+param) rather than opened up to the full 7-class set -- `forage`/
+`rest`/`seek_person`/`explore` all carry real, DIFFERENT downstream
+meaning this deterministic content-agent branch was never designed to
+trigger (in particular `explore` is reserved for the surveyor role,
+forced separately, never a free choice here). `goal_policy=None` (the
+default, and the only path any call site used before this pass)
+reproduces the exact prior behavior byte-for-byte.
+
+Weights are genuinely per-deployment state, per this doc's own
+guardrail #3 ("weights diverge... a per-world model has no reason to
+start from someone else's lived history") -- `SimulationEngine` loads
+them from an optional file next to `Config.db_path` (same "a file
+next to the db, absent means fall back cleanly" pattern `Machine
+Profile` already established for B7.2), never a checked-in shared
+default every future world would silently inherit. `scripts/train_
+goal_policy_from_archive.py` is the real offline trainer, consuming
+either a `review_pack.json` export or a raw recorder JSONL archive
+directory.
 """
 from __future__ import annotations
 
+import json
 import random
 from dataclasses import dataclass, field
 
@@ -80,6 +104,11 @@ categorical slots today, no vector-valued field; concatenating a real
 L1.1 `text_vector` needs a small schema extension, flagged as real,
 distinct follow-up work once L1.1 has a real corpus wired (see
 `docs/ROADMAP-2026-07-REMAINING.md`)."""
+
+GOAL_POLICY_SCHEMA_VERSION = 1
+"""Weight-blob schema version -- same "rejects an unsupported version
+rather than silently misreading it" discipline as every other L-layer
+model's `to_dict`/`from_dict` (`SkipGramEmbedding`, `MLP`)."""
 
 ENTROPY_FLOOR_DEFAULT = 0.05
 """Minimum probability mass reserved per class after mixing the
@@ -154,21 +183,43 @@ class GoalPolicy:
         self.specialist = specialist or LearningSpecialist(build_policy_model(seed=seed))
         self.entropy_floor = entropy_floor
 
-    def predict(self, agent_state: dict) -> GoalPrediction:
+    def predict(self, agent_state: dict, allowed_goals: "set[str] | None" = None) -> GoalPrediction:
+        """`allowed_goals` (optional) restricts the distribution to a
+        caller-chosen subset BEFORE the entropy floor is applied, then
+        renormalizes over just that subset -- for a consumer (like
+        `fallback_goal`'s content-agent branch) that can only ever act
+        on some of the 7 classes, this lets the policy's real learned
+        conditioning steer the choice among the goals that ARE valid
+        there, rather than either ignoring out-of-scope probability
+        mass or letting it leak into a class this caller can't
+        meaningfully use. `None` (the default) is the full 7-class
+        distribution, unchanged."""
         raw = self.specialist.predict(encode_agent_state(agent_state))
-        floored = _apply_entropy_floor(raw, self.entropy_floor)
+        raw_distribution = dict(zip(GOAL_VALUES, raw))
+        if allowed_goals is not None:
+            masked = {g: p for g, p in raw_distribution.items() if g in allowed_goals}
+            total = sum(masked.values())
+            if total > 0:
+                raw_distribution = {g: p / total for g, p in masked.items()}
+            else:
+                # every allowed goal happened to score exactly zero raw
+                # probability -- degrade to a uniform draw over the
+                # allowed set rather than a divide-by-zero or an empty
+                # distribution `sample_goal` couldn't draw from.
+                raw_distribution = {g: 1.0 / len(masked) for g in masked} if masked else {}
+        floored = _apply_entropy_floor(list(raw_distribution.values()), self.entropy_floor)
         return GoalPrediction(
-            distribution=dict(zip(GOAL_VALUES, floored)),
-            raw_distribution=dict(zip(GOAL_VALUES, raw)),
+            distribution=dict(zip(raw_distribution.keys(), floored)),
+            raw_distribution=raw_distribution,
         )
 
-    def sample_goal(self, agent_state: dict, rng: random.Random) -> str:
+    def sample_goal(self, agent_state: dict, rng: random.Random, allowed_goals: "set[str] | None" = None) -> str:
         """The real per-agent decision -- entropy-floored, genuinely
         stochastic, never `argmax`. Personality/emotion state entering
         via `agent_state` is what makes two differently-tempered
         agents in the identical situation draw different distributions
         from the SAME shared network."""
-        pred = self.predict(agent_state)
+        pred = self.predict(agent_state, allowed_goals=allowed_goals)
         goals = list(pred.distribution.keys())
         weights = list(pred.distribution.values())
         return rng.choices(goals, weights=weights, k=1)[0]
@@ -181,6 +232,30 @@ class GoalPolicy:
         loss for this module's `softmax` head (see `training.py`)."""
         kwargs.pop("loss", None)
         return self.specialist.learn(examples, holdout_examples, tick, loss="cross_entropy", **kwargs)
+
+    def to_dict(self) -> dict:
+        return {
+            "schema_version": GOAL_POLICY_SCHEMA_VERSION,
+            "kind": "goal_policy",
+            "model": self.specialist.model.to_dict(),
+            "entropy_floor": self.entropy_floor,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "GoalPolicy":
+        if d.get("schema_version") != GOAL_POLICY_SCHEMA_VERSION:
+            raise ValueError(f"unsupported goal_policy schema_version={d.get('schema_version')!r}")
+        model = MLP.from_dict(d["model"])
+        return cls(specialist=LearningSpecialist(model), entropy_floor=d.get("entropy_floor", ENTROPY_FLOOR_DEFAULT))
+
+    def save(self, path: str) -> None:
+        with open(path, "w") as f:
+            json.dump(self.to_dict(), f)
+
+    @classmethod
+    def load(cls, path: str) -> "GoalPolicy":
+        with open(path) as f:
+            return cls.from_dict(json.load(f))
 
 
 def build_distillation_examples(structured_inputs: list, goals: list) -> list:

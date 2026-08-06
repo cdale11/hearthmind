@@ -41,11 +41,16 @@ gates behind.
   Unblocks L2.3/HCA `F1` at the substrate level; both still need their
   own real wiring pass.
 - **L2.2 — Goal policy** (the flagship, the largest single remaining Tier
-  6 item) — **SHIPPED (substrate), not yet wired.** `hearthmind/ml/
-  goal_policy.py`: a closed-7-class softmax `AgentGoal` classifier,
-  meant to replace `llm/cognition.py`'s `fallback_goal` if-ladder (the
-  path that handles the majority of real goal decisions, since only
-  the core cast reaches a live LLM call). Real two-phase curriculum —
+  6 item) — **SHIPPED and WIRED into production (v1.34.258)**, once a
+  real user-uploaded `review_pack.json` export (420 real, non-fallback
+  `cognition`-task examples) gave this the live archive every prior
+  filing had flagged as the one missing prerequisite. `hearthmind/ml/
+  goal_policy.py`: a closed-7-class softmax `AgentGoal` classifier
+  replacing `llm/cognition.py`'s `fallback_goal` if-ladder's one
+  genuinely-arbitrary branch (the `agent_id % 3` content-agent split;
+  every forced branch — critical hunger/energy, fear, grief, materials-
+  critical — stays exactly as deterministic as before, `goal_policy`
+  never touches them). Real two-phase curriculum —
   `build_distillation_examples` (phase 1, teacher→student) and
   `reweight_by_outcome` (phase 2, deterministic oversampling by a
   real externally-measured outcome weight — never the policy's own
@@ -62,15 +67,55 @@ gates behind.
   output head at INFERENCE time only (`_sgd_step`'s backward pass
   never special-cased it) — added real, verified `loss="cross_entropy"`
   backprop (`train_mlp_sgd`/`continual_train_mlp`/`LearningSpecialist.
-  learn`, all backward-compatible, default stays `"mse"`). NOT wired
-  into `cognition.py`/`Population` — needs a real recorder archive
-  (`layer1_structured_input -> layer4_parsed_output`) this offline
-  environment has no live run to source, same discipline every other
-  Tier 6 substrate item shipped under. `Agent.plan` absorption (a real
-  L1.1 `text_vector` concatenated into the feature schema) is
-  deliberately NOT done yet — `FeatureSchema` only encodes flat
-  numeric/categorical slots today; a small schema extension is needed
-  first, flagged as real follow-up.
+  learn`, all backward-compatible, default stays `"mse"`).
+
+  **Real wiring (v1.34.258).** `GoalPolicy.predict`/`sample_goal`
+  gained an `allowed_goals` mask — restricts the softmax to a caller-
+  chosen subset before the entropy floor, renormalized over just that
+  subset — so the trained policy is structurally incapable of
+  introducing a goal the branch it replaces never produced (`explore`
+  in particular stays reserved for the surveyor role, forced
+  separately elsewhere; only `socialize`/`gather`/`wander` are ever
+  masked in). New `GoalPolicy.to_dict`/`from_dict`/`save`/`load`
+  (schema-versioned, same discipline as every other persisted weight
+  blob). `fallback_goal(..., goal_policy=None, rng=None)` — `None`
+  (still every call site's default until a real weights file exists)
+  reproduces the exact prior `agent_id % 3` output byte-for-byte,
+  verified directly. `simulation/engine.py` gained `_goal_policy_path_
+  for`/`_load_goal_policy` (same file-next-to-`db_path`, never-auto-
+  created pattern B7.2's `MachineProfile` established — a fresh host
+  gets no default weights, since "weights are per-world/per-deployment
+  state" is a real architectural guardrail, not a convenience);
+  `SimulationEngine.__init__` loads it once, threaded into both real
+  `fallback_goal(...)` call sites; `full_diagnostics()['goal_policy']`
+  surfaces `{loaded, path}`.
+
+  New `scripts/train_goal_policy_from_archive.py` — the real offline
+  trainer: consumes either a `review_pack.json` export or a raw
+  recorder archive directory, extracts only `fallback_used=False`
+  `cognition` pairs (the standing anti-self-reinforcement guard),
+  trains via a real held-out shadow-gate split, and saves weights to
+  the exact path `SimulationEngine` auto-loads. Run against the user's
+  own 420-example archive: shadow gate ACCEPTED, holdout accuracy
+  28.6% (vs. an ~16.7% uniform floor across the 6 goals actually
+  present in that archive) — a genuine, if modest, real above-baseline
+  fit, not a synthetic proof. `lr=0.003`/`epochs=200` were the values
+  a real sweep against this archive settled on — the same plain-SGD
+  divergence class already fixed once for the workload forecaster
+  (v1.34.257) reproduced here at the module's bare defaults
+  (`lr=0.03`-`0.05` reliably diverged the candidate past the shadow
+  gate on this real data); documented at the call site, re-tune from a
+  live holdout-accuracy reading if a future archive's feature
+  distribution proves different.
+
+  `Agent.plan` absorption (a real L1.1 `text_vector` concatenated into
+  the feature schema) remains deliberately NOT done — `FeatureSchema`
+  only encodes flat numeric/categorical slots today; a small schema
+  extension is needed first, flagged as real follow-up. L2.1's own
+  still-open outcome-influence labeling job remains the real blocker
+  for a future Phase 2 (outcome-reweighted) retrain — this pass only
+  ran Phase 1 distillation, honestly, since no real outcome label
+  exists in the archive yet.
 - **L2.3 — Semantic retrieval scorer** — **SHIPPED (substrate), partly
   wired.** Two real pieces. (1) A genuine, live L1.1 consumer:
   `agents/agent.py`'s `retrieve_relevant_memories` gained an optional
