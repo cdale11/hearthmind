@@ -289,9 +289,26 @@ live production call site — the recurring gap across Tier 6.
 - **L2.1** value/consequence model → a real `B2.4`/`L2.2` consumer (needs
   a real accumulated emergence-log/life-events archive from a live
   world).
-- **L3.1/L3.2** (LLM cost regressor, workload forecaster) → real call
-  sites; needs a real training archive. L3.2's own "true autoregression
-  over the `metrics` table" stays a further, distinct open piece.
+- **L3.1 SHIPPED, v1.34.262.** `LLMCostRegressor` gained real
+  persistence (schema-versioned/kind-tagged, same file-next-to-
+  `db_path`/never-auto-created discipline as every prior Tier 6 model)
+  and a real call site: `SimulationEngine._schedule_llm_job` consults
+  a loaded regressor right after the daily-budget check — a call
+  predicted unusually slow under an already-elevated queue resolves
+  synchronously to the deterministic fallback instead of ever being
+  dispatched, attacking `calls_dropped_backpressure` at its root. A
+  real numerical-stability bug (`LATENCY_SCALE_MS` too small for this
+  project's own documented deep_reasoning-outlier latency range,
+  reliably diverging training to NaN/inf) was found and fixed in the
+  same pass, via a direct sweep against realistic data. New `scripts/
+  train_llm_cost_regressor_from_archive.py` (honest gap: no per-
+  example backlog/concurrency reading exists in the recorder archive
+  today, both default to 0.0 for training). `scripts/verify_llm_cost_
+  regressor_wiring.py` (19 checks). **L3.2 was already shipped**
+  (`WorkloadForecaster`, wired under HCA's own G2, v1.34.217) — this
+  bullet's prior grouping was stale, corrected here. L3.2's own "true
+  autoregression over the `metrics` table" stays a further, distinct
+  open piece, unrelated to L3.1's own closure.
 - **L4.1** belief-confidence calibration → a real consumer; needs a real
   settled-hypothesis history from a live world.
 - **L5** the lifelong-learning loop → a real per-model retrain cadence

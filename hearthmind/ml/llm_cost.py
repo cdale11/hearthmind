@@ -1,9 +1,7 @@
 """Tier 6, L3.1 -- LLM cost regressor (docs/ML-ARCHITECTURE-2026-08-01.md,
 docs/ROADMAP-2026-07-REMAINING.md's Tier 6 section: "predict latency_ms
 before issuing a call; attacks calls_dropped_backpressure at its
-root"). Standalone infrastructure, same "never big-bang" discipline as
-every other Tier 6/Tier 5 module shipped so far -- not wired into
-`llm/jobs.py`/`simulation/engine.py`'s real scheduling path this pass.
+root").
 
 Distinct from L3.2 (`simulation/forecasting.py`'s `WorkloadForecaster`):
 that model predicts AGGREGATE near-term call VOLUME for the whole
@@ -12,16 +10,17 @@ This one predicts the LATENCY of one SPECIFIC about-to-be-issued call
 from that call's own shape (which task, how large a prompt/context,
 whether it's a `deep_reasoning` call, how loaded the queue already is)
 -- a genuinely different question with a genuinely different real
-consumer: `_schedule_llm_job` could, in principle, defer or skip a
-call predicted to take unusually long while the backlog is already
-elevated, attacking `calls_dropped_backpressure` before the call is
-even issued rather than reacting to it after the fact. That wiring is
-explicitly NOT done here -- it needs real weights trained against a
-real `llm/recorder.py` archive (`prompt_metadata`/`generation_config`/
-per-example latency, all real fields since v1.34.29 gained the review-
-diagnostics context work), which this offline environment has no live
-archive to source, same reasoning L0's own filing gave for shipping
-the substrate before any real consumer.
+consumer, wired (v1.34.262): `SimulationEngine._schedule_llm_job` now
+consults a loaded `LLMCostRegressor` right after the daily-budget
+check, before the call is ever dispatched -- a call predicted to be
+unusually slow AND already-elevated backlog defers to the fallback
+immediately (`should_preflight_defer`), attacking `calls_dropped_
+backpressure` before the call is even issued rather than reacting to
+it after the fact. `predict()`/`should_preflight_defer` were both
+already real, independently-tested pure functions before this pass;
+what was missing was persistence (`to_dict`/`from_dict`/`save`/
+`load`, added below, same schema-versioned/kind-tagged shape every
+other Tier 6 model uses) and the real call site.
 
 Reuses L0's `FeatureEncoder`/`MLP`/`train_mlp_sgd` directly -- this
 module owns feature encoding + the model, not a second training
@@ -29,12 +28,15 @@ implementation, same discipline `WorkloadForecaster` established.
 """
 from __future__ import annotations
 
+import json
 from collections import deque
 from dataclasses import dataclass, field
 
 from hearthmind.ml.encoder import FeatureEncoder, FeatureSchema
 from hearthmind.ml.primitives import MLP
 from hearthmind.ml.training import TrainingExample, mean_loss, train_mlp_sgd
+
+LLM_COST_SCHEMA_VERSION = 1
 
 # A closed, deliberately small task vocabulary -- the highest-volume
 # real `_schedule_llm_job` tasks (see llm/json_schemas.py's own
@@ -72,13 +74,27 @@ LLM_COST_SCHEMA = FeatureSchema(
 )
 
 # The other half of the same normalization discipline: a real call's
-# latency spans roughly 200ms-60000ms, another large-magnitude target
-# a linear regression head trained by plain SGD can't absorb safely at
-# a workable learning rate. `make_training_example`/`LLMCostRegressor.
+# latency spans roughly 200ms up to this project's own documented
+# reasoning-task p95 outliers (CLAUDE.md's own history: "personal_
+# belief p95 498s") -- another large-magnitude target a linear
+# regression head trained by plain SGD can't absorb safely at a
+# workable learning rate. `make_training_example`/`LLMCostRegressor.
 # predict` divide/multiply by this scale at the model boundary only --
 # every OTHER public surface (the class's own docstrings, a real future
 # caller) still deals exclusively in real milliseconds.
-LATENCY_SCALE_MS = 1000.0
+#
+# Raised 1000.0 -> 100000.0 (v1.34.262) after a direct sweep against
+# this module's own real, documented worst-case latency range
+# (deep_reasoning outliers up to ~500000ms) found the original scale
+# reliably diverged to NaN/inf at every learning rate tried, including
+# ones an order of magnitude below `train()`'s own default -- the
+# exact bug class CLAUDE.md's own v1.34.174/v1.34.257 entries already
+# document for this codebase's other regressors. 100000.0 was the
+# smallest scale in that sweep that stayed finite and kept genuinely
+# differentiating a cheap call from an expensive one across 6
+# independent seeds; a smaller scale (even 60000.0) occasionally still
+# diverged on a real-shaped data draw.
+LATENCY_SCALE_MS = 100000.0
 
 
 @dataclass
@@ -122,6 +138,26 @@ class LLMCostRegressor:
         features and compare to its real observed latency directly for
         a real-ms error reading."""
         return mean_loss(self.model, examples)
+
+    def to_dict(self) -> dict:
+        return {"schema_version": LLM_COST_SCHEMA_VERSION, "kind": "llm_cost_regressor", "model": self.model.to_dict()}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "LLMCostRegressor":
+        if d.get("schema_version") != LLM_COST_SCHEMA_VERSION:
+            raise ValueError(f"unsupported llm_cost_regressor schema_version={d.get('schema_version')!r}")
+        if d.get("kind") != "llm_cost_regressor":
+            raise ValueError(f"weights file is for {d.get('kind')!r}, not 'llm_cost_regressor'")
+        return cls(model=MLP.from_dict(d["model"]))
+
+    def save(self, path: str) -> None:
+        with open(path, "w") as f:
+            json.dump(self.to_dict(), f)
+
+    @classmethod
+    def load(cls, path: str) -> "LLMCostRegressor":
+        with open(path) as f:
+            return cls.from_dict(json.load(f))
 
 
 def make_training_example(features: dict, observed_latency_ms: float) -> TrainingExample:
@@ -192,18 +228,19 @@ def should_preflight_defer(
     predicted_latency_ms: float, current_backlog_fraction: float, reliability_weight: float,
     elevated_latency_ms: float, elevated_backlog_fraction: float = 0.8,
 ) -> bool:
-    """The real decision this model would inform, stated as a pure
-    function so it's independently testable before any real call site
-    ever consults it: defer a call ONLY when both a genuinely
-    trustworthy prediction (`reliability_weight` scaled in, same
-    "an untrustworthy model recommends nothing" discipline as B8.2's
-    `plan_reservation`) says this SPECIFIC call would be unusually
-    slow AND the queue is already meaningfully loaded -- a slow-but-
-    predicted call on an otherwise idle queue should still run; a
-    fast-predicted call never defers regardless of backlog. Never a
-    hard block by itself -- same "hint, not gate" framing as B8.2;
-    the actual call site (real future work, not built this pass) would
-    still own whether to honor it."""
+    """The real decision this model informs, stated as a pure function
+    so it stayed independently testable before any real call site
+    consulted it: defer a call ONLY when both a genuinely trustworthy
+    prediction (`reliability_weight` scaled in, same "an untrustworthy
+    model recommends nothing" discipline as B8.2's `plan_reservation`)
+    says this SPECIFIC call would be unusually slow AND the queue is
+    already meaningfully loaded -- a slow-but-predicted call on an
+    otherwise idle queue should still run; a fast-predicted call never
+    defers regardless of backlog. Never a hard block by itself -- same
+    "hint, not gate" framing as B8.2; `SimulationEngine._schedule_llm_
+    job` (the real call site, v1.34.262) still owns whether to honor
+    it, and only ever consults this when a trained regressor is
+    actually loaded."""
     if reliability_weight <= 0.0:
         return False
     if current_backlog_fraction < elevated_backlog_fraction:

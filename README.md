@@ -914,6 +914,7 @@ guardrail #3.
 | Semantic embedding (memory relevance) | `embedding_weights.json` | **No** — trains from your world's own saved text |
 | Dispute / fission / migration / founding | `dispute_policy_weights.json`, `fission_policy_weights.json`, `migration_policy_weights.json`, `founding_policy_weights.json` | **Yes** — real per-site recordings |
 | Law-candidate scorer (which pressured hardship gets asked about) | `law_scorer_weights.json` | **Yes** — real `laws` task recordings |
+| LLM cost regressor (predict a call's latency before issuing it) | `llm_cost_regressor_weights.json` | **Yes** — real recordings across many task types |
 
 Everything in the "Yes" column needs the **training recorder** turned
 on for a while first (it's off by default — see `docs/TRAINING_
@@ -952,6 +953,11 @@ python3 scripts/train_decision_policies_from_archive.py \
 # (see "What's genuinely NOT available locally" below for why):
 python3 scripts/train_law_scorer_from_archive.py \
     --archive-dir training_archive --out-dir .
+
+# The LLM cost regressor — trains across every recorded task at once,
+# not one task's own subdirectory:
+python3 scripts/train_llm_cost_regressor_from_archive.py \
+    --archive-dir training_archive --out-dir .
 ```
 
 Each command prints, per model: how many usable real examples it found,
@@ -968,8 +974,9 @@ directory, exact filename the trainer printed. `SimulationEngine` looks
 for it automatically on the next server start (or `python3 -m
 hearthmind.server` restart); nothing else needs configuring. To confirm
 it loaded, check `GET /diagnostics` → `goal_policy`/`embedding`/
-`decision_policies`/`law_scorer`, each reporting `{"loaded": true,
-"path": "..."}`. Delete or rename the file to fall back to the original
+`decision_policies`/`law_scorer`/`llm_cost_regressor`, each reporting
+`{"loaded": true, "path": "..."}`. Delete or rename the file to fall
+back to the original
 deterministic behavior instantly — no other change needed.
 
 ```
@@ -981,7 +988,8 @@ world/
 ├── fission_policy_weights.json     #   "
 ├── migration_policy_weights.json   #   "
 ├── founding_policy_weights.json    #   "
-└── law_scorer_weights.json         # optional — from train_law_scorer_from_archive.py
+├── law_scorer_weights.json         # optional — from train_law_scorer_from_archive.py
+└── llm_cost_regressor_weights.json # optional — from train_llm_cost_regressor_from_archive.py
 ```
 
 ### Automating it — deliberately *not* wired into `scripts/run.sh`
@@ -1019,6 +1027,26 @@ text is free prose only the LLM may author; `llm/laws.py`'s own
 fallback stays a genuine "not yet" no-op on every skipped call, exactly
 as before. Train it the same way as the four sites above, via
 `scripts/train_law_scorer_from_archive.py`.
+
+### A different shape: the LLM cost regressor
+
+`llm_cost_regressor_weights.json` doesn't sit on any decision site at
+all — it predicts one specific about-to-be-issued call's own
+`latency_ms` *before* it's dispatched, from generic call-shape signals
+(which task, prompt/context size, whether it's a `deep_reasoning`
+call, how loaded the queue already is). `SimulationEngine._schedule_
+llm_job` consults it right after the daily-budget check: a call
+predicted to be unusually slow while the queue is already elevated
+resolves synchronously to the same deterministic fallback every other
+skipped call already uses, rather than being dispatched only to be
+dropped later — a preflight decision, not a post-hoc one. It never
+changes what a call decides or says, only whether it's issued at all
+under load. Trains across every recorded task type at once (`scripts/
+train_llm_cost_regressor_from_archive.py`), not one task's own
+subdirectory — one honest gap: the archive doesn't record a live
+queue-backlog reading per example, so the trained model learns latency
+from task/prompt-size/deep_reasoning alone and only sees real backlog
+values for the first time at actual inference.
 
 ### What's genuinely NOT available locally
 

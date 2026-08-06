@@ -134,6 +134,7 @@ from hearthmind.ml.decision_policy import (
 from hearthmind.ml.embedding import SkipGramEmbedding
 from hearthmind.ml.goal_policy import GoalPolicy
 from hearthmind.ml.law_scorer import LawCandidateScorer
+from hearthmind.ml.llm_cost import CostPredictionAccuracyTracker, LLMCostRegressor, should_preflight_defer
 from hearthmind.ml.specialist import LearningSpecialist
 from hearthmind.simulation.persistence_scheduling import SnapshotPolicy, SnapshotScheduler
 from hearthmind.simulation.escalation import CognitionBudget, EscalationLadder, Rung
@@ -2047,6 +2048,29 @@ def _load_law_scorer(path: str | None) -> "LawCandidateScorer | None":
         return None
 
 
+LLM_COST_REGRESSOR_FILENAME = "llm_cost_regressor_weights.json"
+"""Tier 6 L3.1, wired (v1.34.262): `hearthmind.ml.llm_cost.
+LLMCostRegressor`'s own file-next-to-`db_path`, never-auto-created
+weights. `None` (no file present) means `_schedule_llm_job` never
+consults it at all -- every real call dispatches exactly as before."""
+
+
+def _llm_cost_regressor_path_for(db_path: str) -> str | None:
+    if db_path == ":memory:":
+        return None
+    directory = os.path.dirname(os.path.abspath(db_path))
+    return os.path.join(directory, LLM_COST_REGRESSOR_FILENAME)
+
+
+def _load_llm_cost_regressor(path: str | None) -> "LLMCostRegressor | None":
+    if path is None or not os.path.exists(path):
+        return None
+    try:
+        return LLMCostRegressor.load(path)
+    except (OSError, ValueError, KeyError, json.JSONDecodeError):
+        return None
+
+
 INSTITUTION_DORMANCY_IDLE_CHECKS_THRESHOLD = 3
 """Tier 5 B4.2 pilot ("idle institutions"): consecutive monthly
 `_update_institution_dormancy` checks with an unchanged fingerprint
@@ -2496,6 +2520,16 @@ class SimulationEngine:
         that module's own docstring. `None` reproduces `_maybe_
         schedule_laws`'s exact original two-key tiebreak byte-for-
         byte, verified directly."""
+        self._llm_cost_regressor_path = _llm_cost_regressor_path_for(config.db_path)
+        self._llm_cost_regressor: "LLMCostRegressor | None" = _load_llm_cost_regressor(self._llm_cost_regressor_path)
+        self._llm_cost_accuracy = CostPredictionAccuracyTracker()
+        """Tier 6 L3.1. `self._llm_cost_regressor is None` (no trained
+        weights for this world) means `_schedule_llm_job` never builds
+        a prediction or consults `should_preflight_defer` at all —
+        every real call dispatches exactly as before this feature
+        existed, verified directly. `_llm_cost_accuracy` is always
+        constructed (cheap, stays empty) so `full_diagnostics()` can
+        report a consistent shape either way."""
         # B8.4's real control point: a bounded history of daily
         # `CognitionRunner.backlog` readings, sampled unconditionally in
         # `_maybe_tune_llm_concurrency` regardless of whether that
@@ -5131,6 +5165,39 @@ class SimulationEngine:
 
     # --- the one scheduling path for settlement-level LLM jobs -----------------
 
+    def _resolve_llm_job_via_fallback(
+        self, name: str, prompt: str, fallback: dict, apply, critical: bool,
+        structured_input: dict | None, npc_ids: list | None, settlement: str | None, diag: dict,
+    ) -> None:
+        """Shared by `_schedule_llm_job`'s two real "resolve without
+        ever dispatching a call" paths — the daily-budget-exhausted
+        gate (v0.70.0) and the L3.1 cost-regressor preflight defer
+        (v1.34.262) — both need the exact same critical-vs-non-critical
+        resolution, only `diag['fallback_reason']` differs between
+        them. Same Constitution §3/§7 discipline as `_schedule_llm_
+        job`'s own docstring: a critical job DEFERS (state untouched,
+        re-attempts next cadence); a non-critical job applies its real
+        deterministic fallback inline."""
+        if critical:
+            self._cognition_runner.calls_deferred_critical += 1
+            self._record_llm_debug(
+                name, prompt, fallback, True,
+                structured_input=structured_input, npc_ids=npc_ids, settlement=settlement,
+                outcome={"status": "deferred_critical", "apply_failed": False}, diag=diag,
+            )
+            return
+        apply_failed = False
+        try:
+            apply(fallback, True)
+        except Exception:
+            logger.exception("Failed to apply %s fallback job result", name)
+            apply_failed = True
+        self._record_llm_debug(
+            name, prompt, fallback, True,
+            structured_input=structured_input, npc_ids=npc_ids, settlement=settlement,
+            outcome={"status": "fallback_used", "apply_failed": apply_failed}, diag=diag,
+        )
+
     def _schedule_llm_job(
         self, name: str, prompt: str, system: str, fallback: dict, apply, critical: bool = False,
         structured_input: dict | None = None, npc_ids: list | None = None, settlement: str | None = None,
@@ -5190,26 +5257,42 @@ class SimulationEngine:
                 "fallback_reason": "daily_llm_budget_exhausted", "raw_model_output": None,
                 "parsed_json": None, "validation_errors": [],
             }
-            if critical:
-                self._cognition_runner.calls_deferred_critical += 1
-                self._record_llm_debug(
-                    name, prompt, fallback, True,
-                    structured_input=structured_input, npc_ids=npc_ids, settlement=settlement,
-                    outcome={"status": "deferred_critical", "apply_failed": False}, diag=budget_diag,
-                )
-                return
-            apply_failed = False
-            try:
-                apply(fallback, True)
-            except Exception:
-                logger.exception("Failed to apply %s fallback job result", name)
-                apply_failed = True
-            self._record_llm_debug(
-                name, prompt, fallback, True,
-                structured_input=structured_input, npc_ids=npc_ids, settlement=settlement,
-                outcome={"status": "fallback_used", "apply_failed": apply_failed}, diag=budget_diag,
+            self._resolve_llm_job_via_fallback(
+                name, prompt, fallback, apply, critical, structured_input, npc_ids, settlement, budget_diag,
             )
             return
+
+        # Tier 6 L3.1, wired (v1.34.262): a loaded `LLMCostRegressor`
+        # gets one real, cheap consult right here — before the call is
+        # ever dispatched — for whether THIS specific call is predicted
+        # to be unusually slow while the queue is already meaningfully
+        # loaded. `self._llm_cost_regressor is None` (the overwhelming
+        # default) skips this block entirely; `predicted_ms` stays
+        # `None` and every line below behaves exactly as it always has.
+        predicted_ms = None
+        if self._llm_cost_regressor is not None:
+            backlog_fraction = self.llm_pressure_ratio()
+            features = {
+                "task": name,
+                "prompt_chars_k": len(prompt) / 1000.0,
+                "context_chars_k": len(system) / 1000.0,
+                "current_backlog_fraction": backlog_fraction,
+                "concurrency_limit": float(self.world.config.llm_max_concurrent),
+                "deep_reasoning": 1.0 if deep_reasoning else 0.0,
+            }
+            predicted_ms = self._llm_cost_regressor.predict(features)
+            if should_preflight_defer(
+                predicted_ms, backlog_fraction, self._llm_cost_accuracy.reliability_weight(),
+                elevated_latency_ms=ADAPTIVE_LATENCY_ELEVATED_MS,
+            ):
+                preflight_diag = {
+                    "fallback_reason": "preflight_cost_defer", "raw_model_output": None,
+                    "parsed_json": None, "validation_errors": [],
+                }
+                self._resolve_llm_job_via_fallback(
+                    name, prompt, fallback, apply, critical, structured_input, npc_ids, settlement, preflight_diag,
+                )
+                return
 
         async def _runner() -> None:
             call_start = time.perf_counter()
@@ -5261,6 +5344,12 @@ class SimulationEngine:
             if used_fallback:
                 diag = dict(diag, fallback_result=fallback)
             elapsed_ms = (time.perf_counter() - call_start) * 1000
+            if predicted_ms is not None and not used_fallback:
+                # Only a genuine real-LLM-answered call carries a real
+                # latency worth scoring the prediction against — a
+                # fallback resolves near-instantly and would corrupt
+                # the accuracy signal with a non-comparable number.
+                self._llm_cost_accuracy.record(predicted_ms, elapsed_ms)
             apply_failed = False
             if critical and used_fallback:
                 # Crucial cognition: the real call failed, so leave state
@@ -17059,6 +17148,17 @@ class SimulationEngine:
             # policies above -- `loaded=False` means `_maybe_schedule_
             # laws`'s real original two-key tiebreak, unchanged.
             "law_scorer": {"loaded": self._law_scorer is not None, "path": self._law_scorer_path},
+            # Tier 6 L3.1, wired (v1.34.262): `loaded=False` means
+            # `_schedule_llm_job` never consults a prediction at all —
+            # every real call dispatches unconditionally, same as
+            # before this model existed.
+            "llm_cost_regressor": {
+                "loaded": self._llm_cost_regressor is not None, "path": self._llm_cost_regressor_path,
+                "accuracy": {
+                    "mean_absolute_error_ms": self._llm_cost_accuracy.mean_absolute_error(),
+                    "reliability_weight": self._llm_cost_accuracy.reliability_weight(),
+                },
+            },
             # Tier 5 B15.3/B15.4's real control point: the ladder's real
             # current rung, its own logged transition history (bounded,
             # newest-last), and the cognition budget it's currently

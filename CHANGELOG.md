@@ -4,6 +4,101 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.262] — Roadmap Phase 2, L3.1: the LLM cost regressor wired
+
+Explicit user instruction: "continue with roadmap phase 2" — Phase 2
+("Wire the already-built ML substrate to real consumers") has six
+flagged items; L3.2 (`WorkloadForecaster`) was already fully wired
+under HCA's G2 (v1.34.217), leaving L3.1 (`hearthmind/ml/llm_cost.py`)
+as the real open item this pass closes.
+
+`LLMCostRegressor.predict()`/`should_preflight_defer` were both
+already real, independently-tested pure functions with no persistence
+and no real call site. Gained schema-versioned/kind-tagged `to_dict`/
+`from_dict`/`save`/`load` (same shape every other Tier 6 model uses).
+`SimulationEngine.__init__` loads an optional world-adjacent `llm_cost_
+regressor_weights.json` (same file-next-to-`db_path`, never-auto-
+created pattern as every prior Tier 6 wiring this session); `None`
+(no file) means `_schedule_llm_job` never builds a prediction or
+consults the regressor at all.
+
+Real wiring: `_schedule_llm_job` now consults the loaded regressor
+right after the daily-budget check, before a call is ever dispatched —
+a call predicted to be unusually slow AND the queue already elevated
+(`should_preflight_defer`) resolves synchronously to the deterministic
+fallback (critical jobs defer, non-critical jobs apply the fallback
+inline) instead of ever creating a background task or consuming a
+concurrency slot, attacking `calls_dropped_backpressure` at its root
+rather than reacting to it after dispatch. New shared `_resolve_llm_
+job_via_fallback` helper factors the critical-vs-non-critical
+resolution logic out of both this new gate and the pre-existing daily-
+budget-exhausted gate (previously duplicated inline). Every real,
+non-fallback call's actual elapsed time is scored against its own
+prediction via `CostPredictionAccuracyTracker`, feeding the
+reliability weight `should_preflight_defer` scales its decision by.
+`full_diagnostics()['llm_cost_regressor']` surfaces `{loaded, path,
+accuracy: {mean_absolute_error_ms, reliability_weight}}`.
+
+**Real numerical-stability bug found and fixed before shipping, not
+left for a live deployment to discover.** A direct sweep against data
+shaped like this project's own documented real-world latency range
+(deep_reasoning outliers up to ~500000ms, per CLAUDE.md's own prior
+diagnostic history) found the module's existing `LATENCY_SCALE_
+MS=1000.0` reliably diverged `MLP` training to NaN/inf at every
+learning rate tried — the same bug class CLAUDE.md's v1.34.174/
+v1.34.257 entries already document for this codebase's other
+regressors, here undiscovered until this pass's own wiring work
+actually exercised the model against realistic data instead of the
+existing verify script's narrower synthetic range. Raised to
+`100000.0` — the smallest value in a `{1000, 10000, 60000, 100000} x
+{0.001, 0.0005, 0.0001}` sweep that stayed finite and kept genuinely
+differentiating cheap vs. expensive calls across 6 independent seeds.
+`scripts/verify_llm_cost.py`'s own hardcoded assertion (written
+against the old scale) updated to match.
+
+New `scripts/train_llm_cost_regressor_from_archive.py`: the real
+offline trainer, scanning every one of `LLM_COST_TASKS`' archive
+subdirectories (not just one task, since this model's real consumer
+applies across all of them), extracting only `fallback_used=False`
+pairs with a real recorded `latency_ms`. Honest gap stated in the
+script's own docstring: `current_backlog_fraction`/`concurrency_limit`
+aren't recorded per-example anywhere in `llm/recorder.py`'s schema, so
+both default to `0.0` for every training example — the model learns
+latency from task/prompt-size/deep_reasoning alone, then sees real
+backlog/concurrency values for the first time at real inference;
+closing this needs a recorder schema change, flagged as distinct
+future work.
+
+New `scripts/verify_llm_cost_regressor_wiring.py` (19 checks, all
+pass, first run) — round-trip/schema-rejection/kind-rejection
+persistence; a real training-convergence proof; a dedicated
+regression-proof test training on realistic outlier-shaped data across
+6 seeds confirming no NaN/inf (the direct proof of the `LATENCY_
+SCALE_MS` fix); the three real engine-loading cases (no file/corrupted
+file/real file); `full_diagnostics()` shape; a 3000-tick no-regressor
+soak proving zero behavior change at the default (`llm_cost_regressor=
+None`); two live end-to-end proofs directly against a real `_schedule_
+llm_job` call — a constant-100000ms regressor under forced elevated
+backlog resolves synchronously via the fallback with zero background
+tasks created, and a constant-100ms regressor dispatches normally
+(one background task created); accuracy-tracker and `should_
+preflight_defer` sanity checks; two subprocess end-to-end training-
+script runs (a real success case, and a `fallback_used=True`-only
+archive correctly training nothing and exiting 1).
+
+Verified: the new script (19 checks); `scripts/verify_llm_cost.py` (16
+checks, updated) re-run clean; `scripts/verify_decision_policies_
+wiring.py`/`scripts/verify_law_scorer_wiring.py` re-run clean
+(confirming this pass's `engine.py` edits didn't disturb either
+prior session's wiring); `pyflakes` clean on all touched/new files
+(only the six known pre-existing forward-ref findings in `engine.py`);
+`scripts/verify_replay_hash.py` (800 ticks, seed 777, `--in-process`)
+— MATCH, byte-identical; `scripts/verify_native_soak.py` (seeds 1/55,
+800 ticks) — MATCH (both required — `simulation/engine.py`'s own
+`__init__` and `_schedule_llm_job` both changed). Phase 2's other five
+items (L2.1, L4.1, L5, L6, B13.5) remain open — resume only on future
+explicit direction naming one.
+
 ## [1.34.261] — The fifth site: a real scorer for laws.py's dynamic candidates
 
 Explicit user instruction: "start on laws.py's dynamic-candidate

@@ -10,6 +10,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from hearthmind.ml.llm_cost import (
+    LATENCY_SCALE_MS,
     LLM_COST_SCHEMA,
     LLM_COST_TASKS,
     CostPredictionAccuracyTracker,
@@ -44,7 +45,7 @@ def check_encoder_degrades_gracefully():
     check("unrecognized task never raises, produces a real vector",
           len(ex.x) == LLM_COST_SCHEMA.dim())
     check("training example y carries the real observed latency, LATENCY_SCALE_MS-scaled",
-          ex.y == [1.2])
+          ex.y == [1200.0 / LATENCY_SCALE_MS])
 
 
 def synthetic_dataset(rng, n):
