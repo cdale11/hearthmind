@@ -1,10 +1,15 @@
 """B13.5 -- Optional evolutionary search over multi-dimensional
 tunable sets (docs/HEARTHBENCH-RUNTIME-2026-07-23.md, Part B [Hard
-Rule 14]). Standalone infrastructure, same "never big-bang"
-discipline as every other Tier 5 module -- not wired into `simulation/
-engine.py` yet. Gated behind B13.1/B13.2 being solid first, per the
-item's own text -- both shipped this session (v1.34.180), so this
-closes B13 in full.
+Rule 14]). Gated behind B13.1/B13.2 being solid first, per the item's
+own text -- both shipped v1.34.180, so this closed B13 in full.
+
+**Wired (roadmap Phase 2, "phase 2 b13.5"):** `SimulationEngine.
+_maybe_evolve_pacing_genomes` runs a real yearly `TunableGenome
+Population` over the three `llm_pressure_*` pacing-ratio tunables —
+`evaluate_tunable_genome_fitness` below is consulted for real, not
+just tested in isolation. `llm_max_concurrent` (the fourth registered
+pacing tunable) is deliberately excluded from this population — it
+already has its own real single-tunable B13.1 `HypothesisLoop`.
 
 Mirrors Tier 6's L6 `ModelGenome`/`mutate_genome`/`crossover_genome`/
 `GenomePopulation` shape directly (`hearthmind/ml/evolution.py`) --

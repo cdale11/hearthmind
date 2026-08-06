@@ -4,6 +4,131 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.266] — Roadmap Phase 2, B13.5 wired: real yearly evolutionary pacing tuning
+
+Explicit user instruction: "phase 2 b13.5" — closes the one item the
+Phase 2 roadmap section left explicitly open after L2.1/L4.1 shipped:
+`hearthmind/simulation/tunable_evolution.py`'s B13.5 (evolutionary
+search over multi-dimensional tunable sets) had been built and
+verified in isolation (`scripts/verify_optimization_hypothesis.py`'s
+sibling coverage) but never wired into a real production cadence.
+
+New `SimulationEngine._maybe_evolve_pacing_genomes` (yearly,
+`_TICK_JOBS`): a real `TunableGenomePopulation` over the three
+`llm_pressure_*` PACING-RATIO tunables (`_slowdown_start_ratio`/
+`_speedup_start_ratio`/`_min_speedup_multiplier`) — deliberately
+excludes `llm_max_concurrent`, the fourth registered pacing tunable,
+since that one already has its own real single-tunable B13.1
+`HypothesisLoop` (`_run_llm_concurrency_hypothesis`); evolving it a
+second way here would risk two independent controllers fighting over
+one value, the exact hazard that loop's own docstring already flags
+for B6/B7's daily `BangBangController`.
+
+**A real, non-fabricated fitness function**, deliberately different in
+shape from every other Tier 6 genome population in this codebase (L6's
+workload forecaster, L2.2's goal policy, ...) — no live LLM traffic or
+async probe is needed, since a pacing-ratio genome's own quality is
+fully determined by the shape of curve it produces. New module-level
+`pacing_interval_multiplier(ratio, slowdown_start, speedup_start,
+min_speedup, ...)` extracts the exact pre-existing math out of `_llm_
+pressure_interval_multiplier` (that method is now a thin wrapper
+around it, byte-identical, verified directly) so a candidate genome's
+raw values can be scored via three fixed synthetic pressure-ratio
+samples (`PACING_GENOME_LOW/HEALTHY/HIGH_PRESSURE_SAMPLE`) against
+three reasoned ideal targets — negative sum-of-squared-error, a
+genuinely non-degenerate landscape (moving any one gene shifts more
+than one sample's reading, verified directly).
+
+**A real, generalized semantic-safety gate.** New async `_pacing_
+genome_equivalence_check`, mirroring B13.2's own `_concurrency_
+equivalence_check` — two forked engines from the same base snapshot
+(both LLM-disabled), one with the genome's proposed values applied to
+its own independent `TunableRegistry`, one left at fresh defaults,
+each ticked `PACING_GENOME_EQUIVALENCE_CHECK_TICKS` times and hashed;
+byte-identical output mechanically confirms these three tunables
+genuinely cannot affect Body-deterministic state (`_llm_pressure_
+interval_multiplier`/`_pacing_tunable` are read only from `run_
+forever`'s own real-time wall-clock loop, never from `_tick_once`/
+`World.tick()`) — verified, not assumed, per this project's own
+standing "never assumed, always checked" discipline. Unlike `llm_max_
+concurrent` (a real `Config` field), these three live only in the
+registry, so each fork gets its own registry rather than `dataclasses.
+replace`.
+
+**Real async plumbing found necessary mid-implementation, not
+assumed.** A first synchronous draft of the equivalence check crashed
+with `RuntimeError: no running event loop` — turned out to be a real,
+pre-existing (confirmed via `git stash`, reproduces on unmodified
+code too) structural fact: `_schedule_llm_job` calls `asyncio.create_
+task(...)` unconditionally regardless of a fork's own `llm_enabled`
+value (a reactive Nature trigger, `_maybe_react_to_predator_
+extinction`, can still attempt to schedule a call whose coroutine only
+resolves via the fallback once awaited — creating the task object
+itself needs a real loop regardless). Fixed by making the equivalence
+check genuinely `async` (same shape as B13.2's own) and spawning the
+whole yearly generation as a real fire-and-forget background task
+(`_maybe_evolve_pacing_genomes` mirrors `_spawn_llm_concurrency_
+hypothesis`'s exact shape) — gated on `self._cognition_runner.enabled`
+(mirroring `_maybe_auto_llm_concurrency_hypothesis`'s own identical
+gate), so this can never fire on an LLM-disabled world at all (nothing
+real to pace around there anyway) and therefore never risks the
+`asyncio.create_task` path outside a real running loop. Verified
+directly that every `scripts/verify_*.py` LLM-disabled soak already
+wraps its own ticking loop in `asyncio.run(...)` regardless.
+
+Only a genuine `population.best()` that beats the live baseline
+(scored by the identical fitness function, never added to the
+population itself) gets its three values adopted via `set_value` — a
+world that never adopts a fitter genome keeps byte-identical pacing
+behavior indefinitely, verified both via a forced-worse-population
+proof (registry provably untouched) and a real end-to-end multi-year
+soak. `full_diagnostics()['pacing_genome_population']` surfaces the
+live values + a bounded evolve log, same shape as `workload_
+forecaster.genome_population`.
+
+New `scripts/verify_b13_5_pacing_genome_evolution.py` (22 checks, all
+pass): the extracted pure function's byte-identical parity with the
+pre-extraction formula; population seeding scoped to exactly the three
+tunables (never `llm_max_concurrent`); the fitness function's real
+non-degenerate landscape; the equivalence check's real pass proof; the
+`evaluate_tunable_genome_fitness` wiring's pass/disqualify/never-
+mutates-live-registry cases; the async spawn's non-year_end no-op,
+LLM-disabled never-spawns, real single-generation firing, no-double-
+spawn, and a forced-worse-population never-adopted proof; `_TICK_JOBS`
+registration; `full_diagnostics()` shape before/after a real
+generation; and two real end-to-end soaks through the actual
+production tick path (a multi-year LLM-enabled run with a fake
+adapter producing at least one real generation, and a multi-year
+LLM-disabled run through the identical path never firing/crashing).
+
+Also updated: `hearthmind/simulation/tuning.py`'s own module
+docstring (previously stated the three pacing-ratio tunables "remain
+metadata-only... real future work, not attempted this pass" — now
+corrected) and `tunable_evolution.py`'s own module docstring
+(previously "not wired into `simulation/engine.py` yet").
+
+**This closes roadmap Phase 2 down to zero open items** — L2.1, L3.1,
+L3.2, L4.1, L5, L6, and now B13.5 are all shipped, wired, and (where
+applicable) locally trainable.
+
+Verified: the new script (22 checks); `scripts/verify_optimization_
+hypothesis.py` (22 checks)/`scripts/verify_tuning.py` (6 checks)/
+`scripts/verify_l6_workload_genome_evolution.py` (14 checks)/`scripts/
+verify_l2_1_l4_1_wiring.py` (23 checks)/`scripts/verify_b13_llm_
+concurrency_hypothesis.py` (8 checks)/`scripts/verify_auto_llm_
+concurrency_hypothesis.py` (12 checks)/`scripts/verify_b13_dev_
+console_endpoint.py` (9 checks) all re-run clean, confirming this
+pass's `engine.py`/`tuning.py` edits didn't disturb any prior B13/L6
+wiring; `pyflakes` clean on all touched/new files (only the six known
+pre-existing forward-ref findings in `engine.py`); `scripts/verify_
+replay_hash.py` (800 ticks, seed 777, `--in-process`) — MATCH, byte-
+identical; `scripts/verify_native_soak.py` (seeds 1/55, 800 ticks) —
+MATCH. No native module or persisted `World`/`Agent` schema touched —
+`_pacing_genome_population`/`_pacing_genome_evolve_log`/`_pacing_
+genome_evolution_running` are all runtime-only `SimulationEngine`
+state, never serialized, same "re-baselines on restart" discipline as
+every sibling genome-population field.
+
 ## [1.34.265] — Roadmap Phase 2, L2.1 + L4.1 wired; one-command local training + README overhaul
 
 Explicit user follow-up: "can you wire L2.1 and L4.1 like you did the

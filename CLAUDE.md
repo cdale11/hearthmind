@@ -742,6 +742,74 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.266)
+
+Explicit user instruction: "phase 2 b13.5" — wires `hearthmind/
+simulation/tunable_evolution.py`'s B13.5 (evolutionary search over
+multi-dimensional tunable sets, built and verified in isolation only)
+into a real production cadence. **This closes roadmap Phase 2 down to
+zero open items.**
+
+New `SimulationEngine._maybe_evolve_pacing_genomes` (yearly): a real
+`TunableGenomePopulation` over the three `llm_pressure_*` PACING-RATIO
+tunables (`_slowdown_start_ratio`/`_speedup_start_ratio`/`_min_
+speedup_multiplier`) — deliberately excludes `llm_max_concurrent`
+(already B13.1's own single-tunable `HypothesisLoop` territory, so the
+two mechanisms never fight over one value). New module-level
+`pacing_interval_multiplier(...)` extracts `_llm_pressure_interval_
+multiplier`'s exact real math into a pure function (byte-identical,
+verified) so a candidate genome can be scored without any live LLM
+traffic — three fixed synthetic pressure-ratio samples against
+reasoned ideal targets, a genuinely non-degenerate landscape (moving
+one gene shifts more than one sample's reading). New async `_pacing_
+genome_equivalence_check`, generalizing B13.2's own `_concurrency_
+equivalence_check` to registry-only tunables (each fork gets its own
+independent `TunableRegistry`, since these three are never real
+`Config` fields) — mechanically confirms (never assumed) these
+tunables can't affect Body-deterministic state.
+
+**Real async plumbing found necessary mid-implementation**: a first
+synchronous draft crashed with a genuine pre-existing (confirmed via
+`git stash` on unmodified code) structural fact — `_schedule_llm_job`
+calls `asyncio.create_task(...)` unconditionally regardless of a
+fork's own `llm_enabled`, so the equivalence check must be async and
+run inside a real event loop. Fixed by spawning the whole yearly
+generation as a real fire-and-forget background task (mirrors
+`_spawn_llm_concurrency_hypothesis`'s exact shape), gated on `self.
+_cognition_runner.enabled` (mirroring `_maybe_auto_llm_concurrency_
+hypothesis`'s own identical gate) so this structurally can never fire
+on an LLM-disabled world.
+
+Only a genuine `population.best()` beating the live baseline (scored
+by the identical fitness function) gets adopted via `set_value` — a
+world that never adopts a fitter genome keeps byte-identical pacing
+behavior indefinitely. `full_diagnostics()['pacing_genome_population']`
+surfaces live values + a bounded evolve log, same shape as `workload_
+forecaster.genome_population`.
+
+New `scripts/verify_b13_5_pacing_genome_evolution.py` (22 checks, all
+pass) — pure-function parity, population scoping, the fitness
+function's non-degenerate landscape, the real equivalence-check pass
+proof, the `evaluate_tunable_genome_fitness` wiring's pass/disqualify/
+never-mutates-live-registry cases, the async spawn's no-op/never-
+spawns-when-disabled/real-firing/no-double-spawn/forced-worse-never-
+adopted cases, `_TICK_JOBS` registration, `full_diagnostics()` shape,
+and two real end-to-end multi-year soaks (LLM-enabled with a fake
+adapter producing a real generation; LLM-disabled through the
+identical production path never firing/crashing).
+
+Verified: the new script (22 checks); `scripts/verify_optimization_
+hypothesis.py`/`scripts/verify_tuning.py`/`scripts/verify_l6_
+workload_genome_evolution.py`/`scripts/verify_l2_1_l4_1_wiring.py`/
+`scripts/verify_b13_llm_concurrency_hypothesis.py`/`scripts/verify_
+auto_llm_concurrency_hypothesis.py`/`scripts/verify_b13_dev_console_
+endpoint.py` all re-run clean; `pyflakes` clean (only the six known
+pre-existing forward-ref findings in `engine.py`); `scripts/verify_
+replay_hash.py` (800 ticks, seed 777, `--in-process`) — MATCH, byte-
+identical; `scripts/verify_native_soak.py` (seeds 1/55, 800 ticks) —
+MATCH. No native module or persisted `World`/`Agent` schema touched —
+every new field is runtime-only `SimulationEngine` state.
+
 ## Current state (v1.34.265)
 
 Explicit user follow-up: "can you wire L2.1 and L4.1 like you did the

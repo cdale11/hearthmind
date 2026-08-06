@@ -127,6 +127,7 @@ from hearthmind.ml.value_model import ValueConsequenceModel
 from hearthmind.simulation.task_graph import PriorityClass, Task, TaskRegistry, TriggerKind
 from hearthmind.simulation.scheduler import Scheduler, SubsystemBudget
 from hearthmind.simulation.tuning import BangBangController, SafetyClass, TunableRegistry, register_llm_pacing_tunables
+from hearthmind.simulation.tunable_evolution import TunableGenomePopulation, evaluate_tunable_genome_fitness
 from hearthmind.simulation.runtime_diagnostics import runtime_diagnostics_report
 from hearthmind.simulation.hardware_profile import GoodCitizenPolicy, HostProbe, MachineProfile, host_fingerprint, select_strategy
 from hearthmind.simulation.forecasting import (
@@ -1623,6 +1624,100 @@ idle LLM queue (including `llm_enabled=False`, where `llm_pressure_
 ratio()` is always exactly 0.0) already reads as ratio 0 by
 construction."""
 
+PACING_GENOME_POPULATION_SIZE = 6
+PACING_GENOME_MU = 3
+"""Tier 5 B13.5 (roadmap Phase 2, "phase 2 b13.5"): a real (mu+lambda)
+evolutionary population (`hearthmind.simulation.tunable_evolution`'s
+`TunableGenomePopulation`, unbuilt-until-now — see that module's own
+"gated behind B13.1/B13.2... both shipped" note) over the three
+`llm_pressure_*` PACING-RATIO tunables (`_slowdown_start_ratio`/
+`_speedup_start_ratio`/`_min_speedup_multiplier`). `llm_max_
+concurrent`, the fourth registered pacing tunable, is deliberately
+excluded — it already has its own real single-tunable B13.1 `Hypothesis
+Loop` (`_run_llm_concurrency_hypothesis`, `self._llm_concurrency_
+hypothesis_loop`), and evolving it a second way here would be the
+exact "two independent controllers fighting over one value" hazard
+`self._llm_concurrency_hypothesis_loop`'s own docstring already
+flags for B6/B7's daily `BangBangController` — same reasoning, applied
+to keep this population's own gene space disjoint from every other
+live controller's. Same small size as `WORKLOAD_GENOME_POPULATION_
+SIZE` (L6) — cheap by construction here too (see `PACING_GENOME_
+EQUIVALENCE_CHECK_TICKS`), not a data-scarcity concession, since this
+population's fitness function needs no accumulated real-world evidence
+at all (see `_pacing_genome_fitness_score`)."""
+
+PACING_GENOME_LOW_PRESSURE_SAMPLE = 0.05
+PACING_GENOME_HEALTHY_PRESSURE_SAMPLE = 0.3
+PACING_GENOME_HIGH_PRESSURE_SAMPLE = 1.5
+"""Three fixed synthetic `llm_pressure_ratio()` readings `_pacing_
+genome_fitness_score` samples `pacing_interval_multiplier` at —
+deliberately NOT live-measured (no real LLM deployment exists in this
+offline environment to measure against), same "a real, reasoned
+floor, not a live-measured value" honesty every Tier 5 constant
+docstring in this file already states where true. Chosen relative to
+the real default thresholds (`LLM_PRESSURE_SPEEDUP_START_RATIO=0.15`,
+`_SLOWDOWN_START_RATIO=0.5`, `_PAUSE_RATIO=2.0`): comfortably inside
+the speedup band, comfortably inside the "just right" band, and
+comfortably inside the slowdown band without ever touching the pause
+ratio itself (never a genome parameter — see above)."""
+
+PACING_GENOME_IDEAL_LOW_MULTIPLIER = LLM_PRESSURE_MIN_SPEEDUP_MULTIPLIER
+PACING_GENOME_IDEAL_HEALTHY_MULTIPLIER = 1.0
+PACING_GENOME_IDEAL_HIGH_MULTIPLIER = 4.0
+"""The real trade-off `_pacing_genome_fitness_score` scores a genome
+against: fast at genuinely low pressure (reach the real speedup
+floor), exactly neutral in the healthy zone (never needlessly
+throttled OR sped up), and meaningfully throttled once pressure is
+genuinely high — 4.0, a reasoned middle target well short of `LLM_
+PRESSURE_MAX_SLOWDOWN`'s 6.0 ceiling (never a genome parameter
+either), so a genome isn't rewarded for maxing out prematurely. A
+genuinely non-degenerate landscape: moving any one of the three genes
+shifts more than one of these three samples' scores — e.g. raising
+`speedup_start` can push the 0.3 healthy sample INTO the speedup
+band, hurting that sample's score even though it does nothing for the
+0.05 sample, which already sits well under any legal `speedup_start`
+value."""
+
+PACING_GENOME_EQUIVALENCE_CHECK_TICKS = CONCURRENCY_EQUIVALENCE_CHECK_TICKS
+"""Reuses B13.2's own reasoned tick count directly, not re-derived —
+the same class of tunable (pacing-only, structurally never consulted
+by `World.tick()`/`_tick_once()` itself, only by `run_forever`'s own
+real-time wall-clock loop), same reasoning for why a short check
+suffices."""
+
+PACING_GENOME_EVOLVE_LOG_MAX = 24
+"""Bounded, newest-first-readable log of every real yearly evolutionary
+generation — same shape as `WORKLOAD_GENOME_EVOLVE_LOG_MAX`."""
+
+
+def pacing_interval_multiplier(
+    ratio: float, slowdown_start: float, speedup_start: float, min_speedup: float,
+    pause_ratio: float = LLM_PRESSURE_PAUSE_RATIO, max_slowdown: float = LLM_PRESSURE_MAX_SLOWDOWN,
+) -> float:
+    """The real pacing math `_llm_pressure_interval_multiplier` uses,
+    extracted to a pure module-level function (Tier 5 B13.5) so a
+    genome's own proposed `(slowdown_start, speedup_start, min_
+    speedup)` values can be scored directly — via `genome.values`,
+    never by mutating the live `self._tuning_registry` — without any
+    monkeypatching of `self.llm_pressure_ratio()` or a throwaway engine
+    instance. `_llm_pressure_interval_multiplier` itself is unchanged
+    in behavior, now a thin wrapper reading the three tunables via
+    `self._pacing_tunable(...)` and calling straight through to this
+    function — verified byte-identical."""
+    if ratio > slowdown_start:
+        span = pause_ratio - slowdown_start
+        if span <= 0:
+            return 1.0
+        progress = min(1.0, (ratio - slowdown_start) / span)
+        return 1.0 + progress * (max_slowdown - 1.0)
+    if ratio < speedup_start:
+        if speedup_start <= 0:
+            return 1.0
+        progress = min(1.0, 1.0 - ratio / speedup_start)
+        return 1.0 - progress * (1.0 - min_speedup)
+    return 1.0
+
+
 IDLE_BROADCAST_EVERY_TICKS = 10
 """With zero WebSocket clients connected, the full broadcast payload
 (a to_dict() of every agent/building/farm/resource/wildlife entity plus
@@ -2519,6 +2614,32 @@ class SimulationEngine:
         dict for `full_diagnostics()` to surface. `_running` prevents a
         second request from starting a fresh probe while one is already
         in flight — one at a time, never queued/stacked."""
+
+        # Tier 5 B13.5 (roadmap Phase 2, "phase 2 b13.5"): the real
+        # multi-tunable evolutionary population over the three llm_
+        # pressure_* pacing-ratio tunables, disjoint from B13.1's own
+        # llm_max_concurrent HypothesisLoop above (see PACING_GENOME_
+        # POPULATION_SIZE's own docstring for why). Seeded against the
+        # SAME real config.seed every other genome population in this
+        # file uses.
+        self._pacing_genome_population = TunableGenomePopulation.seed_random(
+            registry=self._tuning_registry,
+            tunable_names=frozenset({
+                "llm_pressure_slowdown_start_ratio",
+                "llm_pressure_speedup_start_ratio",
+                "llm_pressure_min_speedup_multiplier",
+            }),
+            size=PACING_GENOME_POPULATION_SIZE, mu=PACING_GENOME_MU, seed=config.seed,
+        )
+        self._pacing_genome_evolve_log: deque[dict] = deque(maxlen=PACING_GENOME_EVOLVE_LOG_MAX)
+        """Bounded, append-only record of every real yearly evolutionary
+        generation — dev-console-visible via `full_diagnostics()`, same
+        shape as `_workload_genome_evolve_log`."""
+        self._pacing_genome_evolution_running = False
+        """One real generation in flight at a time — same `_llm_
+        concurrency_hypothesis_running` guard shape, needed since
+        `_maybe_evolve_pacing_genomes` spawns a real background task."""
+
         # Tier 5 B7's real control point (explicit user directive: "B7"):
         # `GoodCitizenPolicy.should_back_off` is B7.4's own named input
         # signal for "a real scheduler would consult this" — B6's daily
@@ -4708,6 +4829,232 @@ class SimulationEngine:
             hashes[value] = _hash(forked_world)
         return hashes[before_value] == hashes[after_value]
 
+    def _pacing_genome_fitness_score(self, values: dict) -> float:
+        """Tier 5 B13.5's real "throughput" measurement — pure and
+        deterministic, no async probe/live LLM traffic needed (unlike
+        B13.1's `_probe_concurrency_wait_ms`), since a pacing-ratio
+        genome's own quality is fully determined by the shape of the
+        curve `pacing_interval_multiplier` produces, not by anything
+        that has to be measured live. Negative sum-of-squared-error
+        against `PACING_GENOME_IDEAL_*` at the three fixed `PACING_
+        GENOME_*_PRESSURE_SAMPLE` ratios — higher (closer to 0) is
+        better, matching `evaluate_tunable_genome_fitness`'s own
+        "higher is better" convention."""
+        samples = (
+            (PACING_GENOME_LOW_PRESSURE_SAMPLE, PACING_GENOME_IDEAL_LOW_MULTIPLIER),
+            (PACING_GENOME_HEALTHY_PRESSURE_SAMPLE, PACING_GENOME_IDEAL_HEALTHY_MULTIPLIER),
+            (PACING_GENOME_HIGH_PRESSURE_SAMPLE, PACING_GENOME_IDEAL_HIGH_MULTIPLIER),
+        )
+        error = 0.0
+        for ratio, ideal in samples:
+            actual = pacing_interval_multiplier(
+                ratio,
+                values["llm_pressure_slowdown_start_ratio"],
+                values["llm_pressure_speedup_start_ratio"],
+                values["llm_pressure_min_speedup_multiplier"],
+            )
+            error += (actual - ideal) ** 2
+        return -error
+
+    async def _pacing_genome_equivalence_check(self, values: dict) -> bool:
+        """B13.5's real semantic-safety gate, generalizing B13.2's
+        `_concurrency_equivalence_check` from a single `Config`-backed
+        tunable (`llm_max_concurrent`) to an arbitrary named subset of
+        REGISTRY-ONLY tunables — the three `llm_pressure_*` pacing
+        ratios are never real `Config` dataclass fields, so `dataclasses.
+        replace` doesn't apply here; each fork instead gets its own
+        independent `TunableRegistry` (seeded via `register_llm_pacing_
+        tunables`, same real bounds/safety-classes as the live one),
+        mutated directly via `set_value` after construction. Two forks
+        from the SAME base snapshot and SAME config (both LLM-disabled):
+        one with `values` applied, one left at the registry's own fresh
+        defaults — each ticked `PACING_GENOME_EQUIVALENCE_CHECK_TICKS`
+        times, hashed the same way `_concurrency_equivalence_check`
+        does.
+
+        `async`, same as `_concurrency_equivalence_check` — a fork's
+        OWN `llm_enabled=False` does NOT stop its own reactive triggers
+        (e.g. `_maybe_react_to_predator_extinction`) from calling
+        `asyncio.create_task(...)` (the coroutine itself resolves via
+        the deterministic fallback once awaited, but creating the task
+        object needs a real running loop regardless); this genuinely
+        requires the caller to already be inside one, same as B13.2's
+        own method, and for the identical reason — see this method's
+        own caller (`_run_pacing_genome_evolution`) for how the
+        surrounding job stays a fire-and-forget background task so
+        this never blocks (or crashes) a synchronous LLM-disabled soak.
+
+        Expected to ALWAYS pass for this specific tunable set —
+        `_llm_pressure_interval_multiplier`/`_pacing_tunable` are read
+        only from `run_forever`'s own real-time wall-clock pacing loop,
+        never from `_tick_once`/`World.tick()` — but per this project's
+        own "never assumed, always checked" discipline (the same
+        reasoning `_concurrency_equivalence_check`'s own docstring
+        states), that structural fact is verified mechanically here
+        rather than trusted, and this check would genuinely catch a
+        future accidental Body-path read of one of these tunables."""
+        import dataclasses
+
+        from hearthmind.persistence.database import connect
+
+        def _hash(world: World) -> str:
+            payload = json.dumps(world.to_dict(), sort_keys=True, default=str)
+            return hashlib.sha256(payload.encode()).hexdigest()
+
+        base_snapshot = self.world.to_dict()
+        fork_config = dataclasses.replace(self.world.config, llm_enabled=False)
+        hashes = []
+        for genome_values in (values, {}):
+            forked_world = World.from_dict(base_snapshot, fork_config)
+            conn = connect(":memory:")
+            fork_engine = SimulationEngine(conn, fork_config, forked_world)
+            try:
+                for name, value in genome_values.items():
+                    fork_engine._tuning_registry.set_value(name, value)
+                for _ in range(PACING_GENOME_EQUIVALENCE_CHECK_TICKS):
+                    fork_engine._tick_once()
+                    await asyncio.sleep(0)
+            finally:
+                if fork_engine._background_tasks:
+                    for task in fork_engine._background_tasks:
+                        task.cancel()
+                    await asyncio.gather(*fork_engine._background_tasks, return_exceptions=True)
+                conn.close()
+            hashes.append(_hash(forked_world))
+        return hashes[0] == hashes[1]
+
+    def _pacing_genome_fitness(self, genome, equivalence_passed: bool) -> float:
+        """B13.5's own `fitness_fn(genome) -> float` for `TunableGenome
+        Population.evaluate_and_select` — wires `_pacing_genome_
+        fitness_score`/an ALREADY-AWAITED `equivalence_passed` result
+        through `hearthmind.simulation.tunable_evolution.evaluate_
+        tunable_genome_fitness` exactly as documented there.
+        `equivalence_passed` is computed by the caller (`_run_pacing_
+        genome_evolution`) BEFORE this plain synchronous function ever
+        runs — `evaluate_and_select`'s own scoring loop is itself
+        synchronous, the same "compute the awaited result first, hand
+        a synchronous closure to the loop" shape `_run_llm_concurrency_
+        hypothesis` already established for the single-tunable case. A
+        throwaway `TunableRegistry` (never `self._tuning_registry`)
+        supplies only the SafetyClass lookup `evaluate_tunable_genome_
+        fitness` needs — `apply_tunable_genome` writes into whatever
+        registry it's given, and the live registry must never be
+        mutated as a side effect of merely SCORING a candidate genome
+        (the same discipline L6's `train_and_score_genome_via_specialist`
+        already holds for a throwaway model instead of the live one)."""
+        throwaway = TunableRegistry()
+        register_llm_pacing_tunables(throwaway)
+
+        def measure_fn() -> float:
+            return self._pacing_genome_fitness_score(genome.values)
+
+        def equivalence_check_fn() -> bool:
+            return equivalence_passed
+
+        return evaluate_tunable_genome_fitness(genome, throwaway, measure_fn, equivalence_check_fn)
+
+    async def _run_pacing_genome_evolution(self, tick: int) -> None:
+        """The real async body `_maybe_evolve_pacing_genomes` spawns as
+        a background task (mirrors `_spawn_llm_concurrency_hypothesis`'s
+        own fire-and-forget shape). Every genome CURRENTLY in the
+        population gets its own real, awaited `_pacing_genome_
+        equivalence_check` FIRST — `evaluate_and_select` itself stays
+        the same plain synchronous (mu+lambda) step L6's `_maybe_evolve_
+        workload_genomes` already uses, closed over the precomputed
+        results via `fitness_fn`."""
+        equivalence_results = {}
+        for genome in self._pacing_genome_population.genomes:
+            equivalence_results[genome.genome_id] = await self._pacing_genome_equivalence_check(genome.values)
+
+        def fitness_fn(genome) -> float:
+            return self._pacing_genome_fitness(genome, equivalence_results.get(genome.genome_id, False))
+
+        self._pacing_genome_population.evaluate_and_select(fitness_fn)
+        best = self._pacing_genome_population.best()
+        if best is None:
+            return
+        live_values = {
+            name: float(self._tuning_registry.get(name).value) for name in best.tunable_names
+        }
+        live_fitness = self._pacing_genome_fitness_score(live_values)
+        best_fitness = best.fitness_history[-1] if best.fitness_history else 0.0
+        # `best_fitness` is `DISQUALIFIED_FITNESS` (float("-inf")) for a
+        # genome that failed B13.2's own equivalence gate -- `-inf` can
+        # never exceed any real `live_fitness`, so the plain comparison
+        # below already refuses to adopt a disqualified genome with no
+        # further special-casing needed.
+        adopted = best_fitness > live_fitness
+        if adopted:
+            for name, value in best.values.items():
+                self._tuning_registry.set_value(name, value)
+                live_values[name] = value
+        self._pacing_genome_evolve_log.append({
+            "tick": tick, "adopted": adopted,
+            "best_genome_id": best.genome_id, "best_fitness": best_fitness, "live_fitness": live_fitness,
+            "values": dict(live_values), "population_size": len(self._pacing_genome_population.genomes),
+        })
+
+    def _maybe_evolve_pacing_genomes(self, events: list[str]) -> None:
+        """Tier 5 B13.5 (roadmap Phase 2, explicit user instruction:
+        "phase 2 b13.5"): a real yearly evolutionary cadence over the
+        three `llm_pressure_*` pacing-ratio tunables, using `hearthmind.
+        simulation.tunable_evolution`'s own `TunableGenomePopulation` —
+        built and verified in isolation (`scripts/verify_optimization_
+        hypothesis.py`'s sibling coverage plus tunable_evolution's own
+        module docstring) but never wired into a real cadence until now,
+        closing the last item the roadmap's Phase 2 section left open.
+
+        Same yearly cadence as `_maybe_evolve_workload_genomes` (L6) —
+        deliberately much rarer than any daily/monthly controller,
+        since this is a slower exploratory search over CONFIGURATIONS,
+        not a replacement for B6/B7's live daily `BangBangController`
+        or B13.1's manually-invoked `HypothesisLoop`. Every real
+        generation's currently-DEPLOYED tunable values are scored by
+        the exact same fitness function as every candidate genome
+        (never added to the population itself, so its configured size
+        never silently grows) as a fair apples-to-apples baseline; only
+        a genuine `population.best()` that beats this live baseline
+        gets its three values adopted into `self._tuning_registry` via
+        `set_value` — a world that never adopts a fitter genome keeps
+        byte-identical pacing behavior indefinitely, same guarantee
+        L6's own docstring makes for the workload forecaster.
+
+        Spawned as a real background task, same shape as `_spawn_llm_
+        concurrency_hypothesis` — the real equivalence checks below
+        need several real ticks/awaits per genome, too long to run
+        synchronously from this `_TICK_JOBS`-dispatched call. Gated on
+        `self._cognition_runner.enabled` (mirroring `_maybe_auto_llm_
+        concurrency_hypothesis`'s own identical gate) — directly
+        verified, not assumed: every `scripts/verify_*.py` LLM-disabled
+        soak already wraps its whole ticking loop in `asyncio.run(...)`
+        (so a running event loop genuinely exists there too), but a
+        world with the LLM disabled has no real backlog to pace around
+        anyway, so this gate costs nothing real while still matching
+        B13's own established precedent for exactly this class of
+        method. One generation in flight at a time, same `_pacing_
+        genome_evolution_running` guard shape as `_llm_concurrency_
+        hypothesis_running`."""
+        if "year_end" not in events:
+            return
+        if not self._cognition_runner.enabled:
+            return
+        if self._pacing_genome_evolution_running:
+            return
+        self._pacing_genome_evolution_running = True
+        tick = self.world.clock.tick_count
+
+        async def _runner() -> None:
+            try:
+                await self._run_pacing_genome_evolution(tick)
+            except Exception:
+                logger.exception("pacing genome evolution failed")
+            finally:
+                self._pacing_genome_evolution_running = False
+
+        task = asyncio.create_task(_runner())
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
     def _maybe_refresh_machine_profile(self, events: list[str]) -> None:
         """Tier 5 B7.2's real control point (explicit user directive:
         "B8 and MachineProfile persistence... still have no real call
@@ -5114,7 +5461,9 @@ class SimulationEngine:
         `LLM_PRESSURE_MIN_SPEEDUP_MULTIPLIER` as pressure approaches 0
         (a genuinely idle queue) — see that constant's docstring. Between
         the two thresholds (0.15-0.5 by default): exactly 1.0, the
-        normal healthy-load rate."""
+        normal healthy-load rate. The actual math is `pacing_interval_
+        multiplier` (module-level, Tier 5 B13.5) — this method's own
+        job is only resolving the three tunables' live values."""
         ratio = self.llm_pressure_ratio()
         slowdown_start = self._pacing_tunable(
             "llm_pressure_slowdown_start_ratio", LLM_PRESSURE_SLOWDOWN_START_RATIO,
@@ -5125,18 +5474,7 @@ class SimulationEngine:
         min_speedup = self._pacing_tunable(
             "llm_pressure_min_speedup_multiplier", LLM_PRESSURE_MIN_SPEEDUP_MULTIPLIER,
         )
-        if ratio > slowdown_start:
-            span = LLM_PRESSURE_PAUSE_RATIO - slowdown_start
-            if span <= 0:
-                return 1.0
-            progress = min(1.0, (ratio - slowdown_start) / span)
-            return 1.0 + progress * (LLM_PRESSURE_MAX_SLOWDOWN - 1.0)
-        if ratio < speedup_start:
-            if speedup_start <= 0:
-                return 1.0
-            progress = min(1.0, 1.0 - ratio / speedup_start)
-            return 1.0 - progress * (1.0 - min_speedup)
-        return 1.0
+        return pacing_interval_multiplier(ratio, slowdown_start, speedup_start, min_speedup)
 
     def _pacing_tunable(self, name: str, default: float) -> float:
         """Tier 5 B6.3 closed this gap, v1.34.214: `TunableRegistry`
@@ -5922,6 +6260,7 @@ class SimulationEngine:
         ("_maybe_tick_workload_forecaster", _JOB_EVENTS),
         ("_maybe_tick_goal_policy", _JOB_EVENTS),
         ("_maybe_sample_deliberation_emergence", _JOB_EVENTS),
+        ("_maybe_evolve_pacing_genomes", _JOB_EVENTS),
     )
 
     # B0.3's real migrations: `_TICK_JOBS` entries named here are NOT
@@ -17734,6 +18073,21 @@ class SimulationEngine:
                     }
                     for r in self._hypothesis_history.all()[-10:]
                 ],
+            },
+            # Tier 5 B13.5 (roadmap Phase 2, "phase 2 b13.5"): the real
+            # yearly evolutionary population's live state -- the
+            # currently-deployed three `llm_pressure_*` values the
+            # pacing formula above actually uses, and every real
+            # generation's outcome (adopted or not, never a no-op
+            # check). Same shape as `workload_forecaster.genome_
+            # population` above.
+            "pacing_genome_population": {
+                "size": len(self._pacing_genome_population.genomes),
+                "values": {
+                    name: round(float(self._tuning_registry.get(name).value), 4)
+                    for name in sorted(self._pacing_genome_population.tunable_names)
+                },
+                "evolve_log_recent": list(self._pacing_genome_evolve_log)[-10:],
             },
             "peak_memory_rss_mb": peak_rss_mb,
             "system_memory": system_memory_report(),

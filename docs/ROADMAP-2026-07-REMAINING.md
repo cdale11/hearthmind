@@ -281,13 +281,16 @@ gates behind.
   soak.py` — both MATCH. **This closes all five of Phase 1's flagged
   `fallback_goal`-shaped sites.**
 
-## Phase 2 — Wire the already-built ML substrate to real consumers — CLOSED IN FULL, v1.34.265
+## Phase 2 — Wire the already-built ML substrate to real consumers — CLOSED IN FULL, v1.34.266
 
 Every one of these shipped as a real, tested, standalone module with no
 live production call site — the recurring gap across Tier 6. All six
 named items (L2.1, L3.1, L3.2, L4.1, L5, L6) are now wired, verified,
 and locally trainable — see README's "Local ML training" section and
-`scripts/train_all.py` for how to actually train and use them.
+`scripts/train_all.py` for how to actually train and use them. B13.5
+(a related, Tier 5 Adaptive Runtime item flagged in this same section
+since it shared the identical "built and verified in isolation only"
+gap) closed the same way in v1.34.266 — zero open items remain here.
 
 - **L2.1 SHIPPED, v1.34.265.** `hearthmind/ml/value_model.py` gained
   real persistence and a real call site: `SimulationEngine._voice_
@@ -374,8 +377,23 @@ and locally trainable — see README's "Local ML training" section and
   test config (harmless — the check's claim depends only on elapsed
   calendar units, not tick-to-simulated-time fidelity; measured 8x
   fewer real ticks needed for the same 370 simulated days).
-- **B13.5** evolutionary tunable-set search (`tunable_evolution.py`) →
-  a real cadence (built and verified in isolation only).
+- **B13.5 SHIPPED, v1.34.266** (explicit user instruction: "phase 2
+  b13.5"). `hearthmind/ml`-sibling `tunable_evolution.py`'s
+  `TunableGenomePopulation`/`evaluate_tunable_genome_fitness` (built
+  and verified in isolation only) now has a real yearly cadence:
+  `SimulationEngine._maybe_evolve_pacing_genomes` evolves the three
+  `llm_pressure_*` pacing-ratio tunables (never `llm_max_concurrent`,
+  which stays B13.1's own single-tunable `HypothesisLoop` territory) —
+  a real, deterministic fitness function (`pacing_interval_multiplier`,
+  extracted pure from `_llm_pressure_interval_multiplier`) scored
+  against three fixed pressure-ratio samples, and a real generalized
+  async equivalence-check gate mirroring B13.2's own. Spawned as a
+  fire-and-forget background task (gated on `self._cognition_runner.
+  enabled`, so it structurally can never fire on an LLM-disabled
+  world) after a real pre-existing async-task-creation crash was found
+  and fixed mid-implementation. `scripts/verify_b13_5_pacing_genome_
+  evolution.py` (22 checks). **This closes Phase 2 down to zero open
+  items.**
 
 ## Phase 3 — Close the last Tier 7 (HCA) gaps
 

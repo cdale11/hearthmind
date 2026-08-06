@@ -41,8 +41,13 @@ it did.
 
 The other three registered tunables (`llm_pressure_slowdown_start_
 ratio`/`llm_pressure_speedup_start_ratio`/`llm_pressure_min_speedup_
-multiplier`) remain metadata-only, same as before — real future work,
-not attempted this pass.
+multiplier`) are no longer metadata-only either, closed by Tier 5
+B13.5 (roadmap Phase 2, "phase 2 b13.5"): `SimulationEngine._maybe_
+evolve_pacing_genomes` runs a real yearly `hearthmind.simulation.
+tunable_evolution.TunableGenomePopulation` over exactly these three —
+never `llm_max_concurrent`, which stays B13.1's own single-tunable
+`HypothesisLoop` territory so the two mechanisms never fight over the
+same value. See that method's own docstring for the full design.
 """
 from __future__ import annotations
 
