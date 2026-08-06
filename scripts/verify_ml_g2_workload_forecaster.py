@@ -23,6 +23,7 @@ from hearthmind.config import Config
 from hearthmind.ml.specialist import LearningSpecialist
 from hearthmind.persistence.database import connect
 from hearthmind.simulation.engine import (
+    WORKLOAD_FEATURE_SCALE,
     WORKLOAD_MIN_EXAMPLES_TO_RETRAIN,
     WORKLOAD_PENDING_SAMPLES_MAX,
     WORKLOAD_SAMPLE_HORIZON_DAYS,
@@ -108,10 +109,13 @@ def main() -> int:
         for _ in range(WORKLOAD_SAMPLE_HORIZON_DAYS):
             advance_to_day_end(eng, calls_this_day=7)
         check("a real training example forms once the horizon elapses", len(eng._workload_training_examples) == 1)
-        # the resolved example's y must equal the real observed delta
-        expected_delta = 7.0 * WORKLOAD_SAMPLE_HORIZON_DAYS
+        # the resolved example's y must equal the real observed delta,
+        # normalized by WORKLOAD_FEATURE_SCALE (the divergence-hardening
+        # fix, docs/DECISIONS.md -- the target is trained/compared in
+        # this SAME scale as the input features, never raw call counts).
+        expected_delta = (7.0 * WORKLOAD_SAMPLE_HORIZON_DAYS) / WORKLOAD_FEATURE_SCALE
         resolved_y = eng._workload_training_examples[0].y[0]
-        check(f"resolved example's target matches the real delta (got {resolved_y}, expected {expected_delta})", resolved_y == expected_delta)
+        check(f"resolved example's target matches the real scaled delta (got {resolved_y}, expected {expected_delta})", resolved_y == expected_delta)
         check("accuracy tracker recorded a real (predicted, actual) pair", eng._workload_accuracy_tracker.mean_absolute_error() is not None)
 
         # --- 5. real accuracy math against ForecastAccuracyTracker

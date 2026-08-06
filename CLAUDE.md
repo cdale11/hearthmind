@@ -742,6 +742,58 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.257)
+
+Explicit live-deployment bug report: a real soak crashed the whole
+process with `OverflowError: (34, 'Numerical result out of range')`
+from `mse_loss`'s `(p - t) ** 2`, reached via `_maybe_tick_workload_
+forecaster` -> `LearningSpecialist.learn` -> `mean_loss`. Root cause:
+Python's `float.__pow__` can raise `OverflowError` for a large-but-
+finite base whose square exceeds a double's range (confirmed directly
+— `(1e200)**2` raises it, `(1e200)*(1e200)` returns `inf` cleanly) —
+B8.1/G2's `WorkloadForecaster` had genuinely diverged over many real
+monthly retrain cycles until a holdout evaluation crossed that
+boundary, crashing instead of being correctly rejected as worse than
+the live baseline.
+
+**Two fixes.** (1) `hearthmind/ml/training.py`'s `mse_loss`/`cross_
+entropy_loss` now use plain multiplication (`diff * diff`, not
+`diff ** 2`) plus a NaN/inf guard, resolving a diverged model's loss
+to `float("inf")` instead of raising — `passes_shadow_gate` already
+treats `inf` as unambiguously worse than any finite baseline.
+Protects every current/future Tier 6 model, not just this caller.
+(2) Root cause fixed at the source: `WORKLOAD_FORECAST_SCHEMA`'s raw
+unbounded counts (backlog/dialogue-rate/cognition-rate/observed-
+volume) fed `MLP.random_init`'s near-unit-scale weight init directly
+— same bug class as `llm/llm_cost.py` (v1.34.174). New `WORKLOAD_
+FEATURE_SCALE = 20.0` normalizes all four. Measured, not assumed:
+scale alone (still at the shared `learning_rate=0.03`) was NOT
+sufficient — a realistic 20-example batch still diverged within one
+20-epoch cycle. New `WORKLOAD_LEARNING_RATE = 0.01` (this consumer's
+own override — `goal_policy`/`retrieval_scorer` stay on the shared
+default, both output-bounded and measurably more stable) is what
+actually closes it: verified stable across 60 simulated warm-started
+monthly retrains (~5 real years).
+
+New `scripts/verify_ml_loss_overflow_guard.py` (13 checks — loss
+parity on ordinary inputs, the literal crash reproduction now
+returning `inf`, NaN/inf guards, `passes_shadow_gate`'s correct
+rejection, a direct proof raw-scale/default-lr genuinely diverges, a
+direct proof the real fixed config stays stable both single-cycle and
+across 60 cycles, a direct proof scale alone is insufficient (the
+lowered LR is load-bearing), and an end-to-end `LearningSpecialist.
+learn()` proof that a sabotaged candidate diverging during its own
+holdout evaluation is rejected without crashing) — all pass. One
+stale pre-existing check in `verify_ml_g2_workload_forecaster.py`
+(hard-coded the raw unscaled delta) updated to the real scaled value.
+
+Verified: the new script (13 checks); `verify_ml_g2_workload_
+forecaster.py` (24 checks, updated) re-run clean; `pyflakes` clean;
+the full ML/Tier-6/7 suite re-run clean; `scripts/verify_replay_
+hash.py` (800 ticks, seed 777, `--in-process`) — MATCH (this job
+consumes no RNG and touches no persisted `World` state, confirmed
+rather than assumed).
+
 ## Current state (v1.34.256)
 
 Explicit user follow-up: "ship HCA F1 too" — Tier 7 HCA Stage F's

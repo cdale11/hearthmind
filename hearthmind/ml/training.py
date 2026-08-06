@@ -34,9 +34,38 @@ class TrainingExample:
     y: list
 
 
+def _squared_diff(p: float, t: float) -> float:
+    """`(p - t) ** 2`, hardened against a diverged model's own
+    prediction: a large-but-finite `p` (weights that have drifted far
+    enough for SGD to be genuinely unstable, not yet literal `inf`)
+    can make Python's `float.__pow__` raise `OverflowError` instead of
+    saturating to `inf` the way plain multiplication would -- a real
+    incident traced this exact exception through `mean_loss` all the
+    way up through a live `SimulationEngine._tick_once()` call,
+    crashing the whole process on an ordinary numeric divergence deep
+    inside a shadow-gated retrain that should have just been rejected.
+    Degrading to `float("inf")` here (never raising, never silently
+    returning a wrong finite number) is the correct outcome either
+    way: `passes_shadow_gate`'s `candidate_metric <= baseline_metric`
+    check already treats a genuinely worse metric as a rejection, and
+    `inf` is unambiguously worse than any real finite loss."""
+    diff = p - t
+    if diff != diff or diff in (float("inf"), float("-inf")):  # NaN or already-inf
+        return float("inf")
+    try:
+        return diff * diff  # equivalent to diff ** 2, but plain multiplication
+    except OverflowError:  # pragma: no cover -- multiplication of two finite
+        return float("inf")  # floats never raises; kept as a defensive backstop
+
+
 def mse_loss(pred: list, target: list) -> float:
     n = max(1, len(pred))
-    return sum((p - t) ** 2 for p, t in zip(pred, target)) / n
+    total = 0.0
+    for p, t in zip(pred, target):
+        total += _squared_diff(p, t)
+        if total == float("inf"):
+            return float("inf")
+    return total / n
 
 
 def cross_entropy_loss(pred: list, target: list) -> float:
@@ -45,9 +74,19 @@ def cross_entropy_loss(pred: list, target: list) -> float:
     (L2.2's closed-class goal policy), where MSE-through-softmax both
     trains slower and isn't the gradient a real classifier wants.
     Clamped away from 0.0 so a confidently-wrong prediction never
-    raises/produces `-inf` (`math.log(0)`)."""
+    raises/produces `-inf` (`math.log(0)`). `p` can't itself overflow
+    `math.log` the way `mse_loss`'s squared term can -- softmax always
+    bounds every output to `[0, 1]` -- but a NaN target/prediction
+    (upstream divergence reaching this loss via some future non-
+    softmax caller) still degrades to `float("inf")` rather than
+    silently propagating a NaN loss into the shadow gate."""
     eps = 1e-12
-    return -sum(t * math.log(max(p, eps)) for p, t in zip(pred, target))
+    total = 0.0
+    for p, t in zip(pred, target):
+        if p != p or t != t:  # NaN
+            return float("inf")
+        total += t * math.log(max(p, eps))
+    return -total
 
 
 def mean_loss(model: MLP, examples: list, loss: str = "mse") -> float:

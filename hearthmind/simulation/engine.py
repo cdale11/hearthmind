@@ -1224,6 +1224,47 @@ WORKLOAD_LEARN_LOG_MAX = 24
 retrain attempt (`SimulationEngine._workload_learn_log`) — dev-console/
 diagnostics visibility, same shape as `_adaptive_tuning_log`."""
 
+WORKLOAD_FEATURE_SCALE = 20.0
+"""Fixed, unlearned divisor bringing `current_backlog`/`recent_
+dialogue_rate`/`recent_cognition_rate`/`observed_call_volume`'s raw,
+unbounded real-valued counts down toward the near-unit input scale
+`MLP.random_init`'s weight init assumes (`(1/in_dim)**0.5`) — the
+identical bug class already fixed once for `llm/llm_cost.py`
+(v1.34.174, "normalizing... input scale... rather than lowering the
+learning rate, which alone did not fix it"). 20.0 is a reasoned
+starting point (roughly the core-cast size / a typical per-day call
+ceiling, matching `WORKLOAD_MIN_EXAMPLES_TO_RETRAIN`'s own order of
+magnitude), not a live-measured constant — same "reasoned starting
+point, size up/down from a live diagnostic" discipline as every other
+un-tuned constant in this codebase. Root cause of a real live crash
+(a long soak's `OverflowError: (34, 'Numerical result out of range')`
+inside `mse_loss`'s `(p - t) ** 2` — plain SGD at raw, un-normalized
+input/target scale genuinely diverged the model's weights over many
+real retrain cycles until a holdout prediction overflowed a Python
+float's `**` operator): un-normalized counts had never been an issue
+until a real multi-month soak gave `train_mlp_sgd` enough retrain
+cycles to actually reach it. `predicted`/`observed`/the accuracy
+tracker's MAE now all read in this SAME normalized scale — a purely
+internal, self-consistent comparison (nothing hardcodes an expected
+raw-call-count magnitude anywhere downstream), so this changes no
+observable behavior besides the diagnostic numbers themselves no
+longer being literal call counts."""
+
+WORKLOAD_LEARNING_RATE = 0.01
+"""`LearningSpecialist.learn`'s own default (0.03, shared by every
+Tier 6 consumer — goal_policy's softmax head, retrieval_scorer's
+sigmoid head, both output-bounded and comparatively stable) is too
+aggressive for this specific consumer's LINEAR, unbounded output head
+— live-measured directly (`scripts/verify_ml_loss_overflow_guard.py`):
+even at `WORKLOAD_FEATURE_SCALE`'s normalized input scale, a 20-epoch/
+`lr=0.03` cycle on a realistic 20-example training batch still
+diverges to `inf`, while `lr=0.01` on the identical data stays stable
+across 60 simulated warm-started retrain cycles (roughly 5 real
+years' worth of monthly retrains). Same "normalize scale AND lower the
+learning rate — lowering LR alone did not fix it the last time this
+bug class appeared" lesson as `llm/llm_cost.py` (v1.34.174), applied
+in the other order this time (scale alone wasn't sufficient either)."""
+
 DELIBERATION_EMERGENCE_HISTORY_MAX = 200
 """Tier 7 HCA E4's learning-chart history length — a daily-cadence
 sample, so 200 entries is a genuinely long trend window (~200 real
@@ -4356,9 +4397,9 @@ class SimulationEngine:
         tick = self.world.clock.tick_count
         disasters = self.world.disasters
         features = {
-            "current_backlog": float(self._effective_backlog()),
-            "recent_dialogue_rate": float(self._dialogue_calls_today),
-            "recent_cognition_rate": float(self._cognition_calls_today),
+            "current_backlog": self._effective_backlog() / WORKLOAD_FEATURE_SCALE,
+            "recent_dialogue_rate": self._dialogue_calls_today / WORKLOAD_FEATURE_SCALE,
+            "recent_cognition_rate": self._cognition_calls_today / WORKLOAD_FEATURE_SCALE,
             "active_disaster": 1.0 if (
                 disasters.flood_pressure >= FLOOD_PRESSURE_THRESHOLD
                 or disasters.heat_pressure >= HEATWAVE_PRESSURE_THRESHOLD
@@ -4382,7 +4423,7 @@ class SimulationEngine:
             if tick - sample_tick < horizon_ticks:
                 still_pending.append((sample_tick, sample_features, sample_predicted, sample_calls))
                 continue
-            observed = float(runner.calls_attempted - sample_calls)
+            observed = (runner.calls_attempted - sample_calls) / WORKLOAD_FEATURE_SCALE
             self._workload_accuracy_tracker.record(sample_predicted, observed)
             self._workload_training_examples.append(make_training_example(sample_features, observed))
         self._workload_pending_samples = still_pending
@@ -4398,7 +4439,7 @@ class SimulationEngine:
         holdout, new_examples = examples[-n_holdout:], examples[:-n_holdout]
         if not new_examples:
             return
-        result = self._workload_specialist.learn(new_examples, holdout, tick)
+        result = self._workload_specialist.learn(new_examples, holdout, tick, learning_rate=WORKLOAD_LEARNING_RATE)
         self._workload_forecaster.model = self._workload_specialist.model
         self._workload_learn_log.append({
             "tick": tick, "accepted": result.accepted,

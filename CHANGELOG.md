@@ -4,6 +4,119 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.257] — Fix: OverflowError crash in the workload forecaster's shadow-gated retrain
+
+Explicit live-deployment report: a real soak crashed the whole
+`uvicorn`/asyncio process with
+
+```
+OverflowError: (34, 'Numerical result out of range')
+```
+
+raised from `hearthmind/ml/training.py`'s `mse_loss`'s `(p - t) ** 2`,
+reached via `SimulationEngine._maybe_tick_workload_forecaster` ->
+`LearningSpecialist.learn` -> `mean_loss`. Root-caused directly, not
+patched blind: Python's `float.__pow__` can raise `OverflowError`
+for a large-but-finite base whose square exceeds a double's range
+(confirmed directly: `(1e200) ** 2` raises the identical error;
+`(1e200) * (1e200)` returns `inf` cleanly instead) — B8.1/Tier 7 G2's
+`WorkloadForecaster` had genuinely diverged over many real monthly
+retrain cycles until a holdout prediction crossed that boundary
+during its own shadow-gate evaluation, crashing the process instead
+of being correctly rejected as "worse than the live baseline."
+
+**Two independent fixes, one incident.**
+
+**(1) Defensive substrate hardening** (`hearthmind/ml/training.py`):
+`mse_loss`/`cross_entropy_loss` now use a new `_squared_diff` helper
+(plain multiplication, `diff * diff`, instead of `diff ** 2`) with an
+`OverflowError` backstop and an explicit NaN/inf guard — a diverged
+model's loss now always resolves to `float("inf")` instead of
+raising, which `passes_shadow_gate`'s existing `candidate_metric <=
+baseline_metric` check already treats as correctly, unambiguously
+worse than any finite baseline. Protects every current and future
+Tier 6 model (`goal_policy`/`retrieval_scorer`/`value_model`/
+`llm_cost`/`belief_calibration`/`workload_forecaster`), not just this
+one caller — a numeric divergence anywhere in the shared L0 substrate
+can no longer crash the tick loop. Verified parity: identical output
+to the old formula for every ordinary (non-diverged) input, confirmed
+directly.
+
+**(2) Root cause, fixed at the source** (`simulation/engine.py`):
+`WORKLOAD_FORECAST_SCHEMA`'s raw, unbounded real-valued counts
+(`current_backlog`/`recent_dialogue_rate`/`recent_cognition_rate`/
+`observed_call_volume`) were fed directly into `MLP.random_init`'s
+near-unit-input-scale weight init — the identical bug class already
+fixed once for `llm/llm_cost.py` (v1.34.174). New `WORKLOAD_FEATURE_
+SCALE = 20.0` divides every one of these by a fixed, reasoned
+constant before they reach the model (`predicted`/`observed`/the
+accuracy tracker's MAE now all read consistently in this SAME
+normalized scale — a purely internal comparison, no downstream
+consumer hardcodes an expected raw-call-count magnitude). Directly
+measured this pass, not assumed: scale normalization ALONE, at the
+shared default `learning_rate=0.03` every other Tier 6 consumer uses,
+was still NOT sufficient — a realistic 20-example training batch at
+that scale/rate still diverged to `inf` within one 20-epoch retrain
+cycle. New `WORKLOAD_LEARNING_RATE = 0.01` (this consumer's own
+override, passed explicitly at its one real `learn()` call site —
+`goal_policy`'s softmax head and `retrieval_scorer`'s sigmoid head
+stay on the shared default, since both are output-bounded and
+measurably more stable) is the piece that actually closes the gap:
+verified stable across 60 simulated warm-started monthly retrain
+cycles (roughly 5 real years) with the real, varied production-shaped
+dataset shape.
+
+New `scripts/verify_ml_loss_overflow_guard.py` (13 checks — `mse_loss`/
+`cross_entropy_loss` parity with the old formulas on ordinary inputs;
+the literal live-crash reproduction (`mse_loss` on a diverged
+prediction returns `inf`, never raises); NaN/already-inf guards;
+`passes_shadow_gate`'s correct inf-vs-finite rejection; a direct proof
+that raw-scale/default-lr training genuinely diverges (confirming the
+bug class is real and reachable, not hypothetical); a direct proof the
+real fixed configuration — scale + lowered learning rate together —
+stays numerically stable, both for one cycle and across 60 simulated
+warm-started cycles; a direct proof that scale ALONE (still at the
+shared default lr) is measurably insufficient, so the lowered learning
+rate is load-bearing, not redundant; and an end-to-end proof through
+the real `LearningSpecialist.learn` that a sabotaged candidate which
+diverges during its own holdout evaluation is correctly rejected
+without crashing, leaving the live model's weights untouched) — all
+pass, first run except two check redesigns caught and fixed before
+shipping (not bugs in the fix itself): an initial single-repeated-
+example synthetic dataset behaves like unstochastic full-batch descent
+and diverges almost regardless of scale/learning rate, not
+representative of the real accumulated `_workload_training_examples`
+(which span many different days/backlog states) — replaced with a
+varied 20-example dataset; and an initial "diverge the live baseline
+model, then retrain" scenario accidentally made BOTH baseline_metric
+AND candidate_metric read `inf`, which `passes_shadow_gate` correctly
+(if surprisingly, on reflection) accepts as "no worse than an already-
+broken baseline" — redesigned to diverge only the CANDIDATE via a
+sabotaged retrain from a real, finite, well-fit baseline, matching the
+live incident's actual shape.
+
+Also fixed a stale pre-existing check in `scripts/verify_ml_g2_
+workload_forecaster.py` that hard-coded the raw (unscaled) observed-
+delta value — updated to expect the real scaled target
+(`WORKLOAD_FEATURE_SCALE`-divided), the honest, disclosed side effect
+of this fix (every other assertion in that script — including its own
+synthetic feature dicts used to test the shadow gate in isolation —
+was already scale-agnostic and needed no change).
+
+Verified: the new script (13 checks); `scripts/verify_ml_g2_workload_
+forecaster.py` (24 checks, updated) re-run clean; `pyflakes` clean on
+all four touched/new files (only the six known pre-existing forward-
+ref findings in `engine.py`); the full ML/Tier-6/7 verify suite
+(`verify_ml_substrate.py`/`verify_ml_l1_embedding.py`/`verify_ml_l2_
+2_goal_policy.py`/`verify_ml_l2_3_retrieval_scorer.py`/`verify_ml_
+specialist.py`/`verify_ml_evolution.py`/`verify_hca_f1_semantic_
+pointers.py`/`verify_d1_activation.py`/`verify_runtime_invariant.py`)
+re-run clean; `scripts/verify_replay_hash.py` (800 ticks, seed 777,
+`--in-process`) — MATCH, byte-identical (this job consumes no RNG and
+touches no persisted `World`/`Settlement` state — purely `Simulation
+Engine`-level runtime-only learning state — so this was expected, and
+confirmed rather than assumed).
+
 ## [1.34.256] — Tier 7 HCA Stage F: F1 semantic pointers
 
 Explicit user instruction, following directly off L2.3 ("ship HCA F1
