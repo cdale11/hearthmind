@@ -329,8 +329,24 @@ live production call site — the recurring gap across Tier 6.
   substrate (`hearthmind/ml/lifelong.py`) is otherwise already fully
   real and consumed (`LearningSpecialist`, wired for both `Workload
   Forecaster` and now `GoalPolicy`).
-- **L6** evolutionary model-genome participation → a real evolutionary
-  cadence / `simulation/engine.py` call site.
+- **L6 SHIPPED, v1.34.264.** The workload forecaster's own real
+  evolutionary cadence — `hearthmind/ml/evolution.py`'s `GenomePopulation`/
+  G4's `train_and_score_genome_via_specialist` (proven since v1.34.176)
+  finally has a real live consumer. New `SimulationEngine._maybe_
+  evolve_workload_genomes` (yearly, placed before `_maybe_tick_workload_
+  forecaster` in `_TICK_JOBS`) evolves a real small population (6, mu=3)
+  against the same accumulated examples the monthly retrain already
+  uses; a genuinely fitter best genome, compared against a throwaway
+  "live" stand-in never appended to the population, updates the
+  monthly retrain's own `learning_rate`/`epochs` overrides — L6's
+  phylogeny (population variation/selection over hyperparameter
+  configs) made real and distinct from L5's already-wired ontogeny
+  (one lineage's continual retrain). `scripts/verify_l6_workload_
+  genome_evolution.py` (14 checks), including a real end-to-end
+  multi-year soak via a deliberately coarser `sim_minutes_per_tick=120`
+  test config (harmless — the check's claim depends only on elapsed
+  calendar units, not tick-to-simulated-time fidelity; measured 8x
+  fewer real ticks needed for the same 370 simulated days).
 - **B13.5** evolutionary tunable-set search (`tunable_evolution.py`) →
   a real cadence (built and verified in isolation only).
 

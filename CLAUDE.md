@@ -742,6 +742,85 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.264)
+
+Explicit user instruction: "continue with roadmap phase 2" — closes
+L6 (`hearthmind/ml/evolution.py`'s population-level evolutionary
+substrate, G4-proven since v1.34.176 but never given a real live
+consumer). Wired to the same `WorkloadForecaster` G2/L5 already
+retrain monthly.
+
+New `SimulationEngine._maybe_evolve_workload_genomes` (yearly,
+`_TICK_JOBS`, placed BEFORE `_maybe_tick_workload_forecaster` — a
+real year_end tick always also fires month_end/season_end/day_end the
+same tick, confirmed against `time_system.py`'s own boundary logic, so
+this safely reads `_workload_training_examples` first). Scores a real,
+small (`WORKLOAD_GENOME_POPULATION_SIZE=6`, `_MU=3`) `GenomePopulation`
+via `evaluate_and_select` against the same examples the monthly
+retrain already consumes; the population's best genome is compared —
+same cycle, same `fitness_fn` — against a throwaway `ModelGenome(
+genome_id="__live__", ...)` built from whatever's currently live,
+never appended to the population itself (its configured size never
+changes across generations). Only a genuine improvement updates
+`self._workload_learning_rate_override`/`_workload_epochs_override`;
+`_maybe_tick_workload_forecaster`'s `learn()` call now reads both
+instead of the flat `WORKLOAD_LEARNING_RATE` constant + an implicit
+`epochs=20` — a world that never adopts a fitter genome keeps
+byte-identical monthly-retrain behavior indefinitely. Every real
+generation (adopted or not) logs to a new bounded `_workload_genome_
+evolve_log` (`WORKLOAD_GENOME_EVOLVE_LOG_MAX=24`), surfaced via
+`full_diagnostics()['workload_forecaster']['genome_population']`.
+
+This is L6's own real distinction from L5 made concrete: L5 is one
+lineage continually learning (ontogeny — warm-start + replay,
+already wired for both `WorkloadForecaster` and `GoalPolicy`); L6 is
+variation/inheritance/selection across candidate hyperparameter
+CONFIGURATIONS (phylogeny) — the same `fitness_history`/`generation`/
+mutate-and-select shape `world/ontology.py`'s `InventedConcept` and
+`agents/population.py`'s diploid inheritance already use, applied to a
+learned model's own hyperparameters for the first time.
+
+New `scripts/verify_l6_workload_genome_evolution.py` (14 checks, all
+pass — population seeding, no-op below threshold/off year_end, a real
+generation firing and logging exactly once, training examples staying
+uncleared (only the monthly retrain owns that), population size
+invariant across many real generations, a genuinely fitter evolved
+genome adopted over a deliberately-worse live baseline and a genuinely
+worse one correctly NOT adopted — both via a deterministic monkeypatch
+of `train_and_score_genome_via_specialist` at the `hearthmind.
+simulation.engine` module level, isolating the adoption LOGIC from
+real SGD training-dynamics noise (the first draft of both checks
+relied on real training producing a large-enough gap on trivial
+synthetic data and flaked); the monthly retrain genuinely reading the
+live overrides (a real test-design bug caught and fixed: the first
+attempt called `_maybe_tick_workload_forecaster(["month_end"])` alone,
+missing that its own first line is `if "day_end" not in events:
+return` — a real month boundary always also crosses a day boundary);
+`_TICK_JOBS` ordering; `full_diagnostics()` shape; a short no-evolution
+soak; a real end-to-end multi-year soak genuinely producing at least
+one real evolutionary generation). The soak check drives a real
+`Config(sim_minutes_per_tick=120)` engine instead of the default 15 —
+confirmed harmless by direct measurement, since the check's own claim
+depends only on how many CALENDAR units have elapsed (a pure function
+of `sim_minutes_per_tick` against each unit's fixed real-minute
+length), never on tick-to-simulated-time fidelity, and 120 needs 8x
+fewer real `_tick_once()` calls to cross the same 370 simulated days
+(4,440 vs. 35,520 — measured ~21s vs. 10+ minutes at the default).
+
+Verified: the new script (14 checks); `scripts/verify_l5_goal_policy_
+retrain.py` (15 checks)/`scripts/verify_llm_cost_regressor_wiring.py`
+(19 checks) re-run clean, confirming this pass's `engine.py` edits
+didn't disturb either prior L5 or L3.1 wiring; `pyflakes` clean on
+`simulation/engine.py` (only the six known pre-existing forward-ref
+findings) and the new script; `scripts/verify_replay_hash.py` (800
+ticks, seed 777, `--in-process`) — MATCH, byte-identical; `scripts/
+verify_native_soak.py` (seeds 1/55, 800 ticks) — MATCH (both required
+this pass — `simulation/engine.py`'s own `__init__`/`_TICK_JOBS`/a
+tick-dispatched method all changed). Phase 2's other two items (L2.1,
+L4.1) remain open — both genuinely need a live-deployment recorder
+archive this offline environment has no way to produce — resume only
+on future explicit direction.
+
 ## Current state (v1.34.263)
 
 Explicit user instruction: "continue with roadmap phase 2" — closes

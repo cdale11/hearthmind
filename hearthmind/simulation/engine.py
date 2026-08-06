@@ -128,13 +128,14 @@ from hearthmind.simulation.tuning import BangBangController, SafetyClass, Tunabl
 from hearthmind.simulation.runtime_diagnostics import runtime_diagnostics_report
 from hearthmind.simulation.hardware_profile import GoodCitizenPolicy, HostProbe, MachineProfile, host_fingerprint, select_strategy
 from hearthmind.simulation.forecasting import (
-    ForecastAccuracyTracker, WorkloadForecaster, is_quiet_window, make_training_example,
+    WORKLOAD_FORECAST_SCHEMA, ForecastAccuracyTracker, WorkloadForecaster, is_quiet_window, make_training_example,
 )
 from hearthmind.ml.decision_policy import (
     DISPUTE_POLICY_CONFIG, FISSION_POLICY_CONFIG, FOUNDING_POLICY_CONFIG, MIGRATION_POLICY_CONFIG,
     DecisionPolicy,
 )
 from hearthmind.ml.embedding import SkipGramEmbedding
+from hearthmind.ml.evolution import GenomePopulation, ModelGenome, train_and_score_genome_via_specialist
 from hearthmind.ml.goal_policy import GoalPolicy, build_distillation_examples
 from hearthmind.ml.law_scorer import LawCandidateScorer
 from hearthmind.ml.llm_cost import CostPredictionAccuracyTracker, LLMCostRegressor, should_preflight_defer
@@ -1275,6 +1276,30 @@ years' worth of monthly retrains). Same "normalize scale AND lower the
 learning rate — lowering LR alone did not fix it the last time this
 bug class appeared" lesson as `llm/llm_cost.py` (v1.34.174), applied
 in the other order this time (scale alone wasn't sufficient either)."""
+
+WORKLOAD_FORECASTER_HIDDEN_DIM = max(4, WORKLOAD_FORECAST_SCHEMA.dim())
+"""The real hidden-layer width `WorkloadForecaster.new` actually
+builds — mirrored here so a genome standing in for "the live deployed
+configuration" (see `_maybe_evolve_workload_genomes`) is scored
+against a network of the SAME real shape, not an arbitrary one."""
+
+WORKLOAD_GENOME_POPULATION_SIZE = 6
+WORKLOAD_GENOME_MU = 3
+"""Tier 6 L6 (roadmap Phase 2): a small, cheap (mu+lambda) population
+— each real generation trains `WORKLOAD_GENOME_POPULATION_SIZE`
+throwaway specialists on top of the SAME real accumulated examples
+`_maybe_tick_workload_forecaster`'s own monthly retrain already
+consumes, so keeping this small matters for real wall-clock cost on
+an already-slow yearly cadence."""
+
+WORKLOAD_GENOME_MIN_EXAMPLES = WORKLOAD_MIN_EXAMPLES_TO_RETRAIN
+"""Same real-evidence bar the monthly retrain already holds — reused,
+not re-derived, since this evaluates the identical accumulated
+examples."""
+
+WORKLOAD_GENOME_EVOLVE_LOG_MAX = 24
+"""Bounded, newest-first-readable log of every real yearly evolutionary
+generation — same shape as `WORKLOAD_LEARN_LOG_MAX`."""
 
 DELIBERATION_EMERGENCE_HISTORY_MAX = 200
 """Tier 7 HCA E4's learning-chart history length — a daily-cadence
@@ -2483,6 +2508,31 @@ class SimulationEngine:
         """Bounded, append-only record of every real monthly retrain
         attempt (accepted or rejected) — dev-console-visible via `full_
         diagnostics()`."""
+
+        # Tier 6 L6 (roadmap Phase 2, explicit user instruction:
+        # "continue with roadmap phase 2"): the workload forecaster's
+        # real evolutionary population, per `hearthmind.ml.evolution`'s
+        # own module docstring — variation/inheritance/selection across
+        # hyperparameter CONFIGURATIONS, distinct from L5's single-
+        # lineage continual retrain above. `_workload_learning_rate_
+        # override`/`_workload_epochs_override` start at exactly the
+        # constants the monthly retrain always used before this pass —
+        # a world with no genuinely fitter evolved genome ever adopted
+        # keeps byte-identical monthly-retrain behavior indefinitely.
+        self._workload_genome_population = GenomePopulation.seed_random(
+            "workload_forecaster", size=WORKLOAD_GENOME_POPULATION_SIZE, mu=WORKLOAD_GENOME_MU, seed=config.seed,
+        )
+        self._workload_learning_rate_override: float = WORKLOAD_LEARNING_RATE
+        self._workload_epochs_override: int = 20
+        """`LearningSpecialist.learn`'s own literal default (see its
+        signature) — made explicit here as an instance override target
+        rather than left implicit, since `_maybe_tick_workload_
+        forecaster`'s call site never used to pass `epochs` at all."""
+        self._workload_genome_evolve_log: deque[dict] = deque(maxlen=WORKLOAD_GENOME_EVOLVE_LOG_MAX)
+        """Bounded, append-only record of every real yearly evolutionary
+        generation — dev-console-visible via `full_diagnostics()`, same
+        shape as `_workload_learn_log`."""
+
         self._deliberation_emergence_history: deque[dict] = deque(maxlen=DELIBERATION_EMERGENCE_HISTORY_MAX)
         """Tier 7 HCA E4 (roadmap Phase 7): the real, live "learning
         chart" history — one real sample per real day, each the genuine
@@ -4625,6 +4675,88 @@ class SimulationEngine:
             except OSError:
                 pass
 
+    def _maybe_evolve_workload_genomes(self, events: list[str]) -> None:
+        """Tier 6 L6 (roadmap Phase 2, explicit user instruction:
+        "continue with roadmap phase 2"): a real evolutionary cadence
+        for the workload forecaster's own hyperparameters, using
+        `hearthmind.ml.evolution`'s already-shipped `GenomePopulation`/
+        G4 `train_and_score_genome_via_specialist` — no new evolution
+        mechanism built here, only real wiring. Yearly (deliberately
+        much rarer than G2's own monthly retrain — evolution is a
+        slower, exploratory search over CONFIGURATIONS, not a
+        replacement for the faster continual-learning loop that keeps
+        one lineage's weights current).
+
+        MUST run before `_maybe_tick_workload_forecaster` in `_TICK_
+        JOBS` order (see that entry) — both fire together on a real
+        year boundary (`SimClock.advance` always crosses month/season/
+        year together), and this reads `self._workload_training_
+        examples` BEFORE that job's own monthly retrain clears it, so
+        both consume the identical real accumulated evidence rather
+        than this job starving on an empty list every time it fires.
+
+        Every real generation: `evaluate_and_select` scores each
+        genome in the population by actually training it (via G4's
+        specialist-backed scorer, discarding the throwaway model
+        afterward — the live deployed model is never touched by this
+        step). The currently-DEPLOYED hyperparameters are then scored
+        by the exact same function, on the exact same held-out split,
+        as a fair apples-to-apples baseline (never added to the
+        population itself, so the population's own configured size
+        never silently grows) — only a genuine `population.best()`
+        that beats this baseline gets its `learning_rate`/`epochs`
+        genes adopted into `self._workload_learning_rate_override`/
+        `self._workload_epochs_override`, the two instance overrides
+        `_maybe_tick_workload_forecaster`'s own monthly retrain now
+        reads instead of the flat module constants. `hidden_dim`/
+        `replay_fraction` genes stay real (scored, bred, tracked in
+        `fitness_history`) but are deliberately NOT adopted live —
+        `hidden_dim` would mean reshaping the live model (a materially
+        larger change than swapping a scalar), and `replay_fraction`
+        isn't yet exposed as a per-call override on the monthly
+        retrain's own call site; both flagged as real, distinct
+        follow-up scope."""
+        if "year_end" not in events:
+            return
+        if len(self._workload_training_examples) < WORKLOAD_GENOME_MIN_EXAMPLES:
+            return
+        examples = list(self._workload_training_examples)
+        n_holdout = max(1, int(len(examples) * WORKLOAD_HOLDOUT_FRACTION))
+        holdout, train_examples = examples[-n_holdout:], examples[:-n_holdout]
+        if not train_examples:
+            return
+        tick = self.world.clock.tick_count
+
+        def fitness_fn(genome: ModelGenome) -> float:
+            _, fitness = train_and_score_genome_via_specialist(genome, train_examples, holdout, seed=tick)
+            return fitness
+
+        self._workload_genome_population.evaluate_and_select(fitness_fn)
+        best = self._workload_genome_population.best()
+        if best is None:
+            return
+        live_genome = ModelGenome(
+            genome_id="__live__", species="workload_forecaster",
+            hyperparameters={
+                "learning_rate": self._workload_learning_rate_override,
+                "hidden_dim": WORKLOAD_FORECASTER_HIDDEN_DIM,
+                "epochs": self._workload_epochs_override,
+                "replay_fraction": 0.5,
+            },
+        )
+        live_fitness = fitness_fn(live_genome)
+        best_fitness = best.fitness_history[-1] if best.fitness_history else 0.0
+        adopted = best_fitness > live_fitness
+        if adopted:
+            self._workload_learning_rate_override = best.hyperparameters["learning_rate"]
+            self._workload_epochs_override = int(best.hyperparameters["epochs"])
+        self._workload_genome_evolve_log.append({
+            "tick": tick, "adopted": adopted,
+            "best_genome_id": best.genome_id, "best_fitness": best_fitness, "live_fitness": live_fitness,
+            "learning_rate": self._workload_learning_rate_override, "epochs": self._workload_epochs_override,
+            "population_size": len(self._workload_genome_population.genomes),
+        })
+
     def _maybe_tick_workload_forecaster(self, events: list[str]) -> None:
         """Tier 7 HCA G2 (explicit user instruction: "Build G2"): gives
         B8.1/L3.2's `WorkloadForecaster` the real continual-retrain
@@ -4703,7 +4835,10 @@ class SimulationEngine:
         holdout, new_examples = examples[-n_holdout:], examples[:-n_holdout]
         if not new_examples:
             return
-        result = self._workload_specialist.learn(new_examples, holdout, tick, learning_rate=WORKLOAD_LEARNING_RATE)
+        result = self._workload_specialist.learn(
+            new_examples, holdout, tick,
+            learning_rate=self._workload_learning_rate_override, epochs=self._workload_epochs_override,
+        )
         self._workload_forecaster.model = self._workload_specialist.model
         self._workload_learn_log.append({
             "tick": tick, "accepted": result.accepted,
@@ -5706,6 +5841,7 @@ class SimulationEngine:
         ("_maybe_refresh_machine_profile", _JOB_EVENTS),
         ("_maybe_advance_escalation_ladder", _JOB_EVENTS),
         ("_maybe_auto_llm_concurrency_hypothesis", _JOB_EVENTS),
+        ("_maybe_evolve_workload_genomes", _JOB_EVENTS),
         ("_maybe_tick_workload_forecaster", _JOB_EVENTS),
         ("_maybe_tick_goal_policy", _JOB_EVENTS),
         ("_maybe_sample_deliberation_emergence", _JOB_EVENTS),
@@ -16959,6 +17095,17 @@ class SimulationEngine:
                 # today. Bounded the same way learn_log_recent is; the
                 # full 200-entry deque stays in-memory, never persisted.
                 "error_history_recent": list(self._workload_specialist.error_history)[-40:],
+                # Tier 6 L6 (roadmap Phase 2): the real yearly
+                # evolutionary population's live state -- the currently-
+                # deployed (learning_rate, epochs) the monthly retrain
+                # above actually uses, and every real generation's
+                # outcome (adopted or not, never a no-op check).
+                "genome_population": {
+                    "size": len(self._workload_genome_population.genomes),
+                    "learning_rate": self._workload_learning_rate_override,
+                    "epochs": self._workload_epochs_override,
+                    "evolve_log_recent": list(self._workload_genome_evolve_log)[-10:],
+                },
             },
             # Tier 7 HCA E2 ("workspace contents and the losing
             # coalitions"), v1.34.243. `self._naming_workspace` is W1's
