@@ -742,6 +742,82 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.265)
+
+Explicit user follow-up: "can you wire L2.1 and L4.1 like you did the
+other ones... document this properly in the readme and make it easy
+for me to run the exporting, training etc with just one python
+script. Also how long to wait for recorder to start training, should
+I stop the world while training?" Closes Phase 2's last two items
+(L2.1, L4.1) using the "trains directly from a live world's own db,
+no recorder archive needed" pattern `train_embedding_from_world.py`
+already established — both real data sources already live inside a
+running world, not the LLM recorder archive.
+
+L2.1: `hearthmind/ml/value_model.py` gained real persistence (same
+schema-versioned/kind-tagged shape as every prior Tier 6 model) and a
+real call site — `_voice_narrative_extra_scores` (the weekly voice-
+pair "protagonist" score) folds in a loaded model's predicted
+consequence as a bounded additive bonus, alongside the existing hand-
+set inventor/council/Humans-pillar bonuses; `None` reproduces the
+exact prior behavior byte-for-byte. New `scripts/train_value_model_
+from_archive.py`: one example per living core-cast agent, features =
+current state, label = derived from that agent's own already-tracked
+`extreme_event_count`/`core_memories` — honestly one snapshot-in-time
+per agent, not a true series, since `Observation` carries no
+`agent_id` to reconstruct a real per-observation pair from.
+
+L4.1: `hearthmind/ml/belief_calibration.py` gained the same
+persistence shape. New shared `SimulationEngine._calibrated_
+confidence` helper wired at `_maybe_schedule_self_tuning`'s C2
+conviction gate — the one place a still-open hypothesis's raw stated
+confidence decides whether it's trustworthy enough to initiate a real
+sandboxed self-tuning attempt. New `scripts/train_belief_calibrator_
+from_archive.py`: trains directly from `World.reflection_notebook`'s
+own real settled outcomes, no recorder archive needed.
+
+New `scripts/train_all.py`: one command runs every local trainer this
+project ships (goal policy, embedding, value model, belief
+calibrator, the four decision policies, the law scorer, the LLM cost
+regressor) against one world's db + recorder archive, writes every
+weights file into the same directory, and reports what trained vs.
+what was honestly skipped for lack of data.
+
+README's "Local ML training" section substantially extended: both new
+models added to the model table; a new "Training everything in one
+command" section; a new "How long should I wait before training, and
+do I need to stop the world?" section (training is read-only/offline,
+safe against a live world; per-model wait times stated honestly and
+separately — embedding/value model minutes-to-an-hour, belief
+calibrator real days since Reflection settles slowly by design, the
+five archive-backed models hours-to-weeks depending on how often
+their real trigger fires); the "Automating it" section extended to
+note the workload forecaster's own L5+L6 (v1.34.264) already run
+automatically in-engine; new "A different shape" write-ups for both
+models.
+
+New `scripts/verify_l2_1_l4_1_wiring.py` (23 checks, all pass —
+persistence round-trip/schema/kind rejection, the real engine-loading
+cases, `full_diagnostics()` surfacing, `_calibrated_confidence`'s
+identity-vs-real-calibrator cases incl. a live proof it can flip the
+self-tuning conviction gate's own threshold check, no-op/live-bonus
+proofs for `_voice_narrative_extra_scores`).
+
+Verified: the new script (23 checks); `scripts/verify_l6_workload_
+genome_evolution.py`/`scripts/verify_l5_goal_policy_retrain.py`/
+`scripts/verify_llm_cost_regressor_wiring.py` re-run clean; `pyflakes`
+clean on all touched/new files (only the six known pre-existing
+forward-ref findings in `engine.py`); a real end-to-end smoke test of
+`train_all.py` against a genuine ticked world confirmed the value
+model trains and its weights load back through the engine, and the
+db-only-vs-archive-needed skip logic degrades correctly; `scripts/
+verify_replay_hash.py` (800 ticks, seed 777, `--in-process`) — MATCH,
+byte-identical; `scripts/verify_native_soak.py` (seeds 1/55, 800
+ticks) — MATCH.
+
+**This closes roadmap Phase 2 in full** — all six named items (L2.1,
+L3.1, L3.2, L4.1, L5, L6) now shipped, wired, and locally trainable.
+
 ## Current state (v1.34.264)
 
 Explicit user instruction: "continue with roadmap phase 2" — closes

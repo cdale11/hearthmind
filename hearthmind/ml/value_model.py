@@ -2,9 +2,7 @@
 2026-08-01.md: "predicts: how consequential is this agent's current
 state?" -- the merge that justifies itself, since attention allocation
 and policy advantage weighting are literally the same estimate asked
-by two callers). Standalone infrastructure, same "never big-bang"
-discipline as every other Tier 6 module shipped so far -- not wired
-into a real scheduling call site this pass.
+by two callers).
 
 Reuses L0's `FeatureEncoder`/`MLP`/`train_mlp_sgd` directly, same
 thin-wrapper shape `WorkloadForecaster`/`LLMCostRegressor` established
@@ -23,19 +21,35 @@ here; both real fields already exist in this codebase.
 doc): B2.4 "attention follows change" has been blocked since it was
 first scoped (v1.34.83) on exactly this -- a real learned priority
 signal, not a hand-set weighted sum. `rank_by_predicted_value` is that
-consumer function, real and independently testable, but NOT called
-from any real engine schedule point this pass -- it needs real weights
-trained against a real accumulated emergence/life-event history this
-offline environment has no live world to source, same reasoning every
-other Tier 6 module's own "not wired" note gives.
+consumer function, real and independently testable.
+
+**Wired (roadmap Phase 2, L2.1, explicit user instruction):**
+`SimulationEngine._voice_narrative_extra_scores` (the weekly voice-
+pair "who's the protagonist" score) now folds in this model's own
+predicted consequence for every core-cast candidate, when a trained
+weights file is loaded next to the world's `db_path` -- see `VALUE_
+MODEL_FILENAME` in `simulation/engine.py`. No weights file means the
+exact prior hand-set-weighted-sum behavior, byte-for-byte -- same
+never-auto-created, per-world discipline as `GoalPolicy`/`LLMCost
+Regressor`. Needs real weights trained against a real accumulated
+emergence/life-event history from a live world; see `scripts/train_
+value_model_from_archive.py` and README's "Local ML training" section.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 
 from hearthmind.ml.encoder import FeatureEncoder, FeatureSchema
 from hearthmind.ml.primitives import MLP
 from hearthmind.ml.training import TrainingExample, mean_loss, train_mlp_sgd
+
+VALUE_MODEL_SCHEMA_VERSION = 1
+"""Roadmap Phase 2, L2.1 (explicit user instruction: "wire L2.1 and
+L4.1 like you did the other ones"): the persistence this module was
+missing before it could gain a real engine-side consumer — same
+schema-versioned/kind-tagged blob shape as `LLMCostRegressor`/
+`GoalPolicy`."""
 
 # Deliberately small and structural, not free-text -- every field here
 # is already real, already-computed per-agent state (Agent.emotions,
@@ -99,6 +113,26 @@ class ValueConsequenceModel:
         no separate scale constant needed since the sigmoid output head
         and the label are already the same range."""
         return mean_loss(self.model, examples)
+
+    def to_dict(self) -> dict:
+        return {"schema_version": VALUE_MODEL_SCHEMA_VERSION, "kind": "value_model", "model": self.model.to_dict()}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "ValueConsequenceModel":
+        if d.get("schema_version") != VALUE_MODEL_SCHEMA_VERSION:
+            raise ValueError(f"unsupported value_model schema_version={d.get('schema_version')!r}")
+        if d.get("kind") != "value_model":
+            raise ValueError(f"weights file is for {d.get('kind')!r}, not 'value_model'")
+        return cls(model=MLP.from_dict(d["model"]))
+
+    def save(self, path: str) -> None:
+        with open(path, "w") as f:
+            json.dump(self.to_dict(), f)
+
+    @classmethod
+    def load(cls, path: str) -> "ValueConsequenceModel":
+        with open(path) as f:
+            return cls.from_dict(json.load(f))
 
 
 def make_training_example(features: dict, magnitude: float, life_event_followed: bool) -> TrainingExample:

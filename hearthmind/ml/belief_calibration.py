@@ -20,19 +20,38 @@ outcome, not an invented label. `"open"`/`"superseded"` entries carry
 no settled outcome yet and are correctly excluded from training, not
 treated as a negative.
 
-Standalone infrastructure, same "never big-bang" discipline as every
-other Tier 6 module shipped so far -- not wired into any real
-consumer this pass (`_maybe_schedule_self_tuning`/`town_brain`/etc.
-reading a RAW `reflection_pillar.subject_confidence()`/entry `
-confidence` today, uncalibrated). Needs real settled-hypothesis
-history from a live world this offline environment has no archive to
-source, same reasoning L0/L2.1/L3.1/L3.2 all shipped under.
+**Wired (roadmap Phase 2, L4.1, explicit user instruction):**
+`SimulationEngine._maybe_schedule_self_tuning`'s C2 "propose
+experiment" conviction gate (the one place a hypothesis's raw
+`confidence` is compared against a threshold to decide whether it's
+trustworthy enough to INITIATE a real sandboxed self-tuning
+experiment ahead of the normal "supported" promotion) now runs the
+stated confidence through this calibrator first, when a trained
+weights file is loaded next to the world's `db_path` -- see `BELIEF_
+CALIBRATOR_FILENAME` in `simulation/engine.py`. No weights file means
+the raw stated confidence is used directly, byte-for-byte identical to
+prior behavior -- same never-auto-created, per-world discipline as
+`GoalPolicy`/`LLMCostRegressor`. Every OTHER reader of `reflection_
+notebook`/`reflection_pillar` confidence stays uncalibrated this
+pass -- a single real, representative consumer, not a sweep. Needs
+real settled-hypothesis history from a live world; see `scripts/
+train_belief_calibrator_from_archive.py` and README's "Local ML
+training" section.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 
 from hearthmind.ml.primitives import PlattCalibrator
+
+BELIEF_CALIBRATOR_SCHEMA_VERSION = 1
+"""Roadmap Phase 2, L4.1 (explicit user instruction: "wire L2.1 and
+L4.1 like you did the other ones"): the persistence this module was
+missing before it could gain a real engine-side consumer — same
+schema-versioned/kind-tagged blob shape as `LLMCostRegressor`/
+`GoalPolicy`, wrapping `PlattCalibrator.to_dict()`/`from_dict()` (which
+itself carries no schema/kind check of its own)."""
 
 # The doc's own named outcomes: a hypothesis that settled to
 # "supported" really did hold up (label 1.0); one that settled to
@@ -91,6 +110,29 @@ class BeliefConfidenceCalibrator:
 
     def calibrate(self, asserted_confidence: float) -> float:
         return self.calibrator.calibrate(asserted_confidence)
+
+    def to_dict(self) -> dict:
+        return {
+            "schema_version": BELIEF_CALIBRATOR_SCHEMA_VERSION, "kind": "belief_calibrator",
+            "calibrator": self.calibrator.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "BeliefConfidenceCalibrator":
+        if d.get("schema_version") != BELIEF_CALIBRATOR_SCHEMA_VERSION:
+            raise ValueError(f"unsupported belief_calibrator schema_version={d.get('schema_version')!r}")
+        if d.get("kind") != "belief_calibrator":
+            raise ValueError(f"weights file is for {d.get('kind')!r}, not 'belief_calibrator'")
+        return cls(calibrator=PlattCalibrator.from_dict(d["calibrator"]))
+
+    def save(self, path: str) -> None:
+        with open(path, "w") as f:
+            json.dump(self.to_dict(), f)
+
+    @classmethod
+    def load(cls, path: str) -> "BeliefConfidenceCalibrator":
+        with open(path) as f:
+            return cls.from_dict(json.load(f))
 
 
 def calibration_gap(examples: list) -> float | None:

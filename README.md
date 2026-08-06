@@ -912,6 +912,8 @@ guardrail #3.
 |---|---|---|
 | Goal policy (per-agent "what should I do") | `goal_policy_weights.json` | **Yes** — real `cognition` recordings |
 | Semantic embedding (memory relevance) | `embedding_weights.json` | **No** — trains from your world's own saved text |
+| Value/consequence model (who's this week's "protagonist" for voice-pair dialogue) | `value_model_weights.json` | **No** — trains from your world's own living core cast |
+| Belief confidence calibrator (is Reflection's stated confidence trustworthy) | `belief_calibrator_weights.json` | **No** — trains from your world's own `reflection_notebook` |
 | Dispute / fission / migration / founding | `dispute_policy_weights.json`, `fission_policy_weights.json`, `migration_policy_weights.json`, `founding_policy_weights.json` | **Yes** — real per-site recordings |
 | Law-candidate scorer (which pressured hardship gets asked about) | `law_scorer_weights.json` | **Yes** — real `laws` task recordings |
 | LLM cost regressor (predict a call's latency before issuing it) | `llm_cost_regressor_weights.json` | **Yes** — real recordings across many task types |
@@ -925,12 +927,40 @@ it via the dev console's recorder panel, `POST /recorder/start`, or
 days, LLM enabled) so enough real examples accumulate — `scripts/
 recorder_tools.py stats` shows you the count per task.
 
-The embedding needs none of that — it trains straight from a world's
-own already-saved text (event descriptions, agent memories, settlement
-beliefs), which exists even with the LLM disabled, since this codebase's
-deterministic-fallback text templates write real sentences too.
+Everything in the "No" column needs neither the recorder nor the LLM
+enabled — the embedding trains from event/memory/belief text your
+world's deterministic fallback templates already write; the value
+model trains from your world's living core cast's own current
+emotional/relationship state; the belief calibrator trains from
+`World.reflection_notebook`'s own real "did this stated belief hold
+up" outcomes (Reflection settles these slowly, over many cycles, by
+design — see "How long should I wait?" below).
 
-### Training a model
+### Training everything in one command
+
+`scripts/train_all.py` runs every trainer below for you, in the right
+order, against one world's db + recorder archive, and writes every
+resulting weights file into the same directory — the entire "wire it
+live" step is then just restarting (or resuming) that world.
+
+```bash
+python3 scripts/train_all.py --db-path world/hearthmind.db
+#   (weights land next to hearthmind.db by default; pass --out-dir to
+#   redirect them, or --archive-dir if your recorder archive isn't at
+#   the default ./training_archive)
+```
+
+It prints each model's own real output as it runs, then a final
+summary of what trained and what was skipped for lack of data — a
+model reporting "not enough data yet" is never treated as a failure of
+the whole run; every other model still trains. Re-run it any time (a
+fresher/larger archive, or a world that's aged further) to refresh
+every weights file at once — safe to run against a *live* world (see
+"Do I need to stop the world?" below).
+
+### Training one model at a time
+
+If you'd rather run (or debug) a single trainer directly:
 
 ```bash
 # Goal policy — needs a real recorder archive:
@@ -943,6 +973,14 @@ python3 scripts/train_goal_policy_from_archive.py \
 # Semantic embedding — needs only your world's own db, no archive:
 python3 scripts/train_embedding_from_world.py \
     --db-path world.sqlite3 --out embedding_weights.json
+
+# Value/consequence model — needs only your world's own db:
+python3 scripts/train_value_model_from_archive.py \
+    --db-path world.sqlite3 --out-dir .
+
+# Belief confidence calibrator — needs only your world's own db:
+python3 scripts/train_belief_calibrator_from_archive.py \
+    --db-path world.sqlite3 --out-dir .
 
 # The four decision-policy sites — trains whichever of the four have
 # enough real recorded examples, skips the rest honestly:
@@ -965,32 +1003,86 @@ whether the shadow-gated safety check accepted or rejected the trained
 weights (a candidate that would score *worse* than an untrained/uniform
 baseline on held-out data is rejected, never silently shipped), and the
 real holdout accuracy achieved. If a model reports too few examples,
-that's the honest answer — let the recorder run longer.
+that's the honest answer — let the world run (and, for archive-backed
+models, the recorder) longer.
 
 ### Using the trained weights
 
 Drop the output file **next to your world's `db_path`** — same
-directory, exact filename the trainer printed. `SimulationEngine` looks
-for it automatically on the next server start (or `python3 -m
-hearthmind.server` restart); nothing else needs configuring. To confirm
-it loaded, check `GET /diagnostics` → `goal_policy`/`embedding`/
-`decision_policies`/`law_scorer`/`llm_cost_regressor`, each reporting
-`{"loaded": true, "path": "..."}`. Delete or rename the file to fall
-back to the original
-deterministic behavior instantly — no other change needed.
+directory, exact filename the trainer printed (`train_all.py` already
+does this for you). `SimulationEngine` looks for it automatically on
+the next server start (or `python3 -m hearthmind.server` restart);
+nothing else needs configuring. To confirm it loaded, check `GET
+/diagnostics` → `goal_policy`/`embedding`/`value_model`/`belief_
+calibrator`/`decision_policies`/`law_scorer`/`llm_cost_regressor`, each
+reporting `{"loaded": true, "path": "..."}`. Delete or rename the file
+to fall back to the original deterministic behavior instantly — no
+other change needed.
 
 ```
 world/
 ├── hearthmind.db
-├── goal_policy_weights.json        # optional — from train_goal_policy_from_archive.py
-├── embedding_weights.json          # optional — from train_embedding_from_world.py
-├── dispute_policy_weights.json     # optional — from train_decision_policies_from_archive.py
-├── fission_policy_weights.json     #   "
-├── migration_policy_weights.json   #   "
-├── founding_policy_weights.json    #   "
-├── law_scorer_weights.json         # optional — from train_law_scorer_from_archive.py
-└── llm_cost_regressor_weights.json # optional — from train_llm_cost_regressor_from_archive.py
+├── goal_policy_weights.json         # optional — from train_goal_policy_from_archive.py
+├── embedding_weights.json           # optional — from train_embedding_from_world.py
+├── value_model_weights.json         # optional — from train_value_model_from_archive.py
+├── belief_calibrator_weights.json   # optional — from train_belief_calibrator_from_archive.py
+├── dispute_policy_weights.json      # optional — from train_decision_policies_from_archive.py
+├── fission_policy_weights.json      #   "
+├── migration_policy_weights.json    #   "
+├── founding_policy_weights.json     #   "
+├── law_scorer_weights.json          # optional — from train_law_scorer_from_archive.py
+└── llm_cost_regressor_weights.json  # optional — from train_llm_cost_regressor_from_archive.py
 ```
+
+### How long should I wait before training, and do I need to stop the world?
+
+**Do I need to stop the world? No.** Training is a completely separate,
+offline, read-only process — every trainer only ever *reads* your
+world's db (via `load_latest_snapshot`, the same read path `/state`
+uses) or the recorder archive's `.jsonl` files (append-only while the
+recorder is running). Neither is locked exclusively, and a trainer
+never writes into either. You can run `train_all.py` while the server
+keeps ticking in the background; the only thing it produces is a new
+`*_weights.json` file the *next* server start (or a manual reload) will
+pick up — the currently-running process doesn't notice until then.
+
+**How long to wait varies a lot by model** — there's no single answer,
+because each one's real data source fills at a different rate:
+
+- **Embedding, value model**: as soon as your world has a *little*
+  real history — a handful of settlements/agents and a few dozen
+  events/memories is already enough (`MIN_EXAMPLES_REQUIRED`/`MIN_
+  SENTENCES_REQUIRED` are both small, deliberately). Minutes to an hour
+  of simulated ticks, even LLM-disabled.
+- **Belief calibrator**: much slower, by design — `Reflection`'s own
+  multi-cycle evidence loop (`_reevaluate_reflection_hypotheses`)
+  settles a hypothesis to `"supported"`/`"rejected"` only after
+  several real cycles of fresh evidence, and `reflection`'s own job
+  only fires once a year (`season_end`/`year_end` cadence). Expect
+  this to need real *days* of continuous LLM-enabled runtime before
+  `scripts/recorder_tools.py stats`-style volume exists — the trainer
+  will just say "not enough settled hypotheses yet" until then, which
+  is the honest state, not a bug.
+- **Goal policy, the four decision policies, the law scorer, the LLM
+  cost regressor**: these need the **recorder** turned on (off by
+  default) AND the LLM enabled, accumulating real non-fallback call
+  examples. Goal policy/cognition fires often (daily, core-cast-gated)
+  so it fills fastest — hours is plausible. The four decision sites
+  (dispute/fission/migration/founding) and `laws.py` fire far more
+  rarely (each is its own significant, infrequent life event), so
+  expect these to need the longest — real days-to-weeks of runtime for
+  a meaningfully-sized archive, especially on a small population.
+
+**The practical loop**: start the recorder, let the world run normally
+(no need to babysit it), periodically check `scripts/recorder_tools.py
+stats` or just try `scripts/train_all.py` — every trainer honestly
+reports "not enough yet" rather than training on too little, so
+running it early and often costs nothing but a few seconds. Re-run it
+again later as more accumulates; each run's weights fully replace the
+previous ones (no incremental/online update from repeated runs of
+these offline trainers — the goal policy and workload forecaster are
+the two exceptions, see below, since those retrain *live* inside the
+running engine instead).
 
 ### Automating it — deliberately *not* wired into `scripts/run.sh`
 
@@ -1002,20 +1094,27 @@ shell timer bolted onto the launch script — a real automatic retrain
 cadence belongs there instead, not as an external cron job racing the
 running server for the same file.
 
-**The goal policy already does this, once loaded.** If a `goal_
-policy_weights.json` is present, `SimulationEngine` captures a real
-`(agent_state, goal)` pair from every genuine LLM cognition answer as
-the world runs and, once enough have banked, retrains it monthly
-in-engine (the exact same shadow-gated `LearningSpecialist.learn`
-loop the workload forecaster already used) — no script, no restart
-needed. This keeps the *in-memory* policy improving across a long
-session; it deliberately does NOT write the improved weights back to
-`goal_policy_weights.json` on disk, so re-running `train_goal_policy_
-from_archive.py` by hand against a fresher exported archive remains
-the supported path to a durable, restart-surviving weights update.
-Every other model above still needs a hand-run script for a fresher
-retrain — building the same in-engine cadence for them is real,
-distinct future work.
+**The goal policy and the internal workload forecaster already do
+this, once loaded.** If a `goal_policy_weights.json` is present,
+`SimulationEngine` captures a real `(agent_state, goal)` pair from
+every genuine LLM cognition answer as the world runs and, once enough
+have banked, retrains it monthly in-engine (the exact same
+shadow-gated `LearningSpecialist.learn` loop the workload forecaster
+already used) — no script, no restart needed. The workload forecaster
+(an internal model, no weights file/trainer of its own to run — it
+predicts near-term LLM call volume to help the scheduler) goes one
+step further: alongside its own monthly retrain, once a year it also
+runs a small real *evolutionary* search (Tier 6 L6) over its own
+`learning_rate`/`epochs` hyperparameters — a population of candidate
+configurations competes, and a genuinely fitter one is adopted into
+the next monthly retrain, all automatically. Both retrains keep the
+*in-memory* model improving across a long session; neither writes
+improved weights back to disk (the goal policy has a file to write
+back to, the forecaster has none), so re-running the relevant trainer
+by hand against a fresher exported archive remains the supported path
+to a durable, restart-surviving update. Every other model above still
+needs a hand-run script for a fresher retrain — building the same
+in-engine cadence for them is real, distinct future work.
 
 ### A different shape: the `laws.py` candidate scorer
 
@@ -1057,6 +1156,41 @@ subdirectory — one honest gap: the archive doesn't record a live
 queue-backlog reading per example, so the trained model learns latency
 from task/prompt-size/deep_reasoning alone and only sees real backlog
 values for the first time at actual inference.
+
+### A different shape: the value/consequence model
+
+`value_model_weights.json` predicts one living core-cast agent's
+"consequence score" (0..1) from their current emotional intensity,
+recent-notable-event count, relationship extremity, and core-cast
+status. `SimulationEngine._voice_narrative_extra_scores` adds it as a
+real, bounded bonus alongside the existing hand-set inventor/council/
+Humans-pillar bonuses when picking each week's voice-pair
+"protagonist" — with no weights file, that pick is exactly the
+original hand-set weighted sum, unchanged. Trains directly from your
+world's own living core cast (`scripts/train_value_model_from_
+archive.py`), no recorder archive needed — a real, honest limitation
+of this approach is stated in that script's own docstring: each
+living agent supplies one snapshot-in-time example, not a true
+historical series, since `world/emergence.py`'s observations aren't
+tagged to a specific agent today. Re-running it as your world ages (or
+against several worlds) is the practical way to get real variety.
+
+### A different shape: the belief confidence calibrator
+
+`belief_calibrator_weights.json` maps a stated (asserted) confidence
+value to a real, empirically-calibrated one — a solved 1-D statistical
+problem (logistic/Platt calibration), not a network. `Simulation
+Engine._maybe_schedule_self_tuning`'s conviction gate (deciding
+whether a still-`"open"` Reflection hypothesis is trustworthy enough
+to INITIATE a real sandboxed self-tuning attempt, ahead of the normal
+"supported" promotion) runs the hypothesis's raw stated confidence
+through it first — with no weights file, the raw value is used
+exactly as before. Trains directly from `World.reflection_notebook`'s
+own real settled ("supported"/"rejected") outcomes (`scripts/train_
+belief_calibrator_from_archive.py`), no recorder archive needed — but
+see "How long should I wait?" above: this one genuinely needs the most
+patience of any locally-trainable model here, since Reflection settles
+hypotheses slowly by design.
 
 ### What's genuinely NOT available locally
 

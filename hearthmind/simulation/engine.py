@@ -122,6 +122,8 @@ from hearthmind.simulation.sandbox import evaluate_concept_dual_fork, run_counte
 from hearthmind.simulation.dormancy import DormancyManager
 from hearthmind.simulation.history_compression import CompressionLadder, CompressionStage, StageThreshold
 from hearthmind.ml.social_features import compute_social_features
+from hearthmind.ml.belief_calibration import BeliefConfidenceCalibrator
+from hearthmind.ml.value_model import ValueConsequenceModel
 from hearthmind.simulation.task_graph import PriorityClass, Task, TaskRegistry, TriggerKind
 from hearthmind.simulation.scheduler import Scheduler, SubsystemBudget
 from hearthmind.simulation.tuning import BangBangController, SafetyClass, TunableRegistry, register_llm_pacing_tunables
@@ -1101,6 +1103,15 @@ magnitude family as the inventor/council bonuses above, deliberately
 kept below both so a standing Humans theory nudges the weekly
 protagonist pick without ever outweighing a genuinely dramatic recent
 event."""
+
+VOICE_NARRATIVE_VALUE_MODEL_BONUS_MAX = 1500.0
+"""Tier 6 L2.1 (roadmap Phase 2, explicit user instruction: "wire L2.1
+and L4.1 like you did the other ones"): the ceiling `ValueConsequence
+Model.predict(features)` (0..1) can add to `_voice_narrative_extra_
+scores`'s per-agent bonus dict — same magnitude family as the sibling
+bonuses above, kept below the Humans-pillar lean since this is a real
+learned signal from a freshly-trained model that hasn't yet earned the
+same trust a settled pillar theory has."""
 
 GUILD_FOUNDER_HUMANS_LEAN_MAX = 0.2
 """Tier 0's sixteenth conversion (docs/ROADMAP-2026-07-REMAINING.md):
@@ -2112,6 +2123,60 @@ def _load_law_scorer(path: str | None) -> "LawCandidateScorer | None":
         return None
 
 
+VALUE_MODEL_FILENAME = "value_model_weights.json"
+"""Tier 6 L2.1, wired (roadmap Phase 2, explicit user instruction:
+"wire L2.1 and L4.1 like you did the other ones"): `hearthmind.ml.
+value_model.ValueConsequenceModel`'s own file-next-to-`db_path`,
+never-auto-created weights -- same discipline as `GOAL_POLICY_
+FILENAME`. `None` (no file present) reproduces `_voice_narrative_
+extra_scores`'s exact prior hand-set-weighted-sum behavior byte-for-
+byte -- see that method's own docstring for the additive bonus this
+model contributes once trained weights exist."""
+
+
+def _value_model_path_for(db_path: str) -> str | None:
+    if db_path == ":memory:":
+        return None
+    directory = os.path.dirname(os.path.abspath(db_path))
+    return os.path.join(directory, VALUE_MODEL_FILENAME)
+
+
+def _load_value_model(path: str | None) -> "ValueConsequenceModel | None":
+    if path is None or not os.path.exists(path):
+        return None
+    try:
+        return ValueConsequenceModel.load(path)
+    except (OSError, ValueError, KeyError, json.JSONDecodeError):
+        return None
+
+
+BELIEF_CALIBRATOR_FILENAME = "belief_calibrator_weights.json"
+"""Tier 6 L4.1, wired (roadmap Phase 2, explicit user instruction:
+"wire L2.1 and L4.1 like you did the other ones"): `hearthmind.ml.
+belief_calibration.BeliefConfidenceCalibrator`'s own file-next-to-
+`db_path`, never-auto-created weights -- same discipline as `GOAL_
+POLICY_FILENAME`. `None` (no file present) means the real consumer
+(`_maybe_schedule_self_tuning`'s conviction gate) reads the raw,
+uncalibrated stated confidence exactly as before -- see that method's
+own docstring."""
+
+
+def _belief_calibrator_path_for(db_path: str) -> str | None:
+    if db_path == ":memory:":
+        return None
+    directory = os.path.dirname(os.path.abspath(db_path))
+    return os.path.join(directory, BELIEF_CALIBRATOR_FILENAME)
+
+
+def _load_belief_calibrator(path: str | None) -> "BeliefConfidenceCalibrator | None":
+    if path is None or not os.path.exists(path):
+        return None
+    try:
+        return BeliefConfidenceCalibrator.load(path)
+    except (OSError, ValueError, KeyError, json.JSONDecodeError):
+        return None
+
+
 LLM_COST_REGRESSOR_FILENAME = "llm_cost_regressor_weights.json"
 """Tier 6 L3.1, wired (v1.34.262): `hearthmind.ml.llm_cost.
 LLMCostRegressor`'s own file-next-to-`db_path`, never-auto-created
@@ -2622,6 +2687,18 @@ class SimulationEngine:
         that module's own docstring. `None` reproduces `_maybe_
         schedule_laws`'s exact original two-key tiebreak byte-for-
         byte, verified directly."""
+        self._value_model_path = _value_model_path_for(config.db_path)
+        self._value_model: "ValueConsequenceModel | None" = _load_value_model(self._value_model_path)
+        """Tier 6 L2.1 (roadmap Phase 2). `None` reproduces `_voice_
+        narrative_extra_scores`'s exact prior hand-set-weighted-sum
+        behavior byte-for-byte — see that method's own docstring."""
+        self._belief_calibrator_path = _belief_calibrator_path_for(config.db_path)
+        self._belief_calibrator: "BeliefConfidenceCalibrator | None" = _load_belief_calibrator(
+            self._belief_calibrator_path,
+        )
+        """Tier 6 L4.1 (roadmap Phase 2). `None` means `_calibrated_
+        confidence` returns its input unchanged — see that method's
+        own docstring."""
         self._llm_cost_regressor_path = _llm_cost_regressor_path_for(config.db_path)
         self._llm_cost_regressor: "LLMCostRegressor | None" = _load_llm_cost_regressor(self._llm_cost_regressor_path)
         self._llm_cost_accuracy = CostPredictionAccuracyTracker()
@@ -7384,6 +7461,44 @@ class SimulationEngine:
             lean = self.world.humans_pillar.subject_confidence(agent.name) * VOICE_NARRATIVE_HUMANS_LEAN_MAX
             if lean > 0.0:
                 scores[agent_id] = scores.get(agent_id, 0.0) + lean
+        # Tier 6 L2.1 (roadmap Phase 2, explicit user instruction:
+        # "wire L2.1 and L4.1 like you did the other ones"): a real
+        # learned "how consequential is this agent's current state"
+        # signal, additive alongside (never replacing) every bonus
+        # above — the exact "attention follows change" unblock
+        # hearthmind.ml.value_model's own module docstring names.
+        # `self._value_model is None` (no trained weights for this
+        # world yet, the common case) means this block contributes
+        # nothing — byte-for-byte identical to before this pass.
+        if self._value_model is not None:
+            for agent_id in self.world.population.core_agent_ids:
+                if agent_id not in alive_ids:
+                    continue
+                agent = self.world.population.get(agent_id)
+                if agent is None:
+                    continue
+                emotion_intensity = max(agent.emotions.values()) if agent.emotions else 0.0
+                if agent.relationships:
+                    relationship_extremity = (
+                        sum(abs(v) for v in agent.relationships.values()) / len(agent.relationships)
+                    )
+                else:
+                    relationship_extremity = 0.0
+                features = {
+                    "emotion_intensity": emotion_intensity,
+                    # Already-tracked, already-consulted state (see
+                    # `_narrative_significance`'s own extreme_event_
+                    # count weighting) reused as the closest real proxy
+                    # for VALUE_MODEL_SCHEMA's "events touching this
+                    # agent in a recent window" — no new counter
+                    # invented for this model alone.
+                    "recent_event_count_k": min(1.0, agent.extreme_event_count / 10.0),
+                    "relationship_extremity": relationship_extremity,
+                    "is_core_cast": 1.0,
+                }
+                bonus = self._value_model.predict(features) * VOICE_NARRATIVE_VALUE_MODEL_BONUS_MAX
+                if bonus > 0.0:
+                    scores[agent_id] = scores.get(agent_id, 0.0) + bonus
         return scores
 
     def _schedule_due_dialogue(self) -> None:
@@ -11832,6 +11947,22 @@ class SimulationEngine:
             ),
         )
 
+    def _calibrated_confidence(self, raw_confidence: float) -> float:
+        """Tier 6 L4.1 (roadmap Phase 2, explicit user instruction:
+        "wire L2.1 and L4.1 like you did the other ones"): the one real
+        consumer of `hearthmind.ml.belief_calibration.
+        BeliefConfidenceCalibrator` — maps a stated (asserted)
+        confidence to a real, empirically-calibrated one when a trained
+        calibrator is loaded (see `BELIEF_CALIBRATOR_FILENAME`),
+        otherwise returns `raw_confidence` unchanged. Deliberately a
+        small shared helper rather than inlined at its one call site
+        (`_maybe_schedule_self_tuning`'s conviction gate) so a future
+        second consumer can reuse it without duplicating the `None`
+        check."""
+        if self._belief_calibrator is None:
+            return raw_confidence
+        return self._belief_calibrator.calibrate(raw_confidence)
+
     def _maybe_schedule_self_tuning(self, events: list[str]) -> None:
         """Vision doc items 1.4 + 2.4, docs/VISION-2026-07-22-
         LIVINGTERRARIUM.md: "self-tuning as bounded proposals" and "a
@@ -11895,11 +12026,18 @@ class SimulationEngine:
             # at all this cycle. Evidence still stays authoritative: an
             # open hypothesis already trending toward rejection can
             # never be force-tested purely on stale initial conviction.
+            # Tier 6 L4.1 (roadmap Phase 2): the raw, self-reported
+            # confidence gates a real decision here (whether to trust
+            # this hypothesis enough to spend a sandboxed self-tuning
+            # attempt on it) — exactly the "asserted -> empirically
+            # calibrated confidence" gap L4.1 exists to close.
+            # `_calibrated_confidence` is a no-op (returns the raw
+            # value) with no trained calibrator loaded.
             convicted = [
                 e for e in self.world.reflection_notebook
                 if e.get("kind") == "hypothesis" and e.get("status") == "open"
                 and e.get("id") not in acted_hypothesis_ids
-                and e.get("confidence", 0.0) > REFLECTION_REJECTED_THRESHOLD
+                and self._calibrated_confidence(e.get("confidence", 0.0)) > REFLECTION_REJECTED_THRESHOLD
                 and self.world.reflection_pillar.subject_confidence(e.get("subject", ""))
                 >= REFLECTION_PILLAR_CONVICTION_EXPERIMENT_THRESHOLD
             ]
@@ -17453,6 +17591,15 @@ class SimulationEngine:
             # policies above -- `loaded=False` means `_maybe_schedule_
             # laws`'s real original two-key tiebreak, unchanged.
             "law_scorer": {"loaded": self._law_scorer is not None, "path": self._law_scorer_path},
+            # Tier 6 L2.1, wired (roadmap Phase 2): `loaded=False` means
+            # `_voice_narrative_extra_scores`'s exact original hand-set
+            # weighted sum, unchanged.
+            "value_model": {"loaded": self._value_model is not None, "path": self._value_model_path},
+            # Tier 6 L4.1, wired (roadmap Phase 2): `loaded=False` means
+            # `_calibrated_confidence` is a no-op, unchanged.
+            "belief_calibrator": {
+                "loaded": self._belief_calibrator is not None, "path": self._belief_calibrator_path,
+            },
             # Tier 6 L3.1, wired (v1.34.262): `loaded=False` means
             # `_schedule_llm_job` never consults a prediction at all —
             # every real call dispatches unconditionally, same as

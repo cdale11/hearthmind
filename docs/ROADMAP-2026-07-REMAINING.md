@@ -281,14 +281,28 @@ gates behind.
   soak.py` — both MATCH. **This closes all five of Phase 1's flagged
   `fallback_goal`-shaped sites.**
 
-## Phase 2 — Wire the already-built ML substrate to real consumers
+## Phase 2 — Wire the already-built ML substrate to real consumers — CLOSED IN FULL, v1.34.265
 
 Every one of these shipped as a real, tested, standalone module with no
-live production call site — the recurring gap across Tier 6.
+live production call site — the recurring gap across Tier 6. All six
+named items (L2.1, L3.1, L3.2, L4.1, L5, L6) are now wired, verified,
+and locally trainable — see README's "Local ML training" section and
+`scripts/train_all.py` for how to actually train and use them.
 
-- **L2.1** value/consequence model → a real `B2.4`/`L2.2` consumer (needs
-  a real accumulated emergence-log/life-events archive from a live
-  world).
+- **L2.1 SHIPPED, v1.34.265.** `hearthmind/ml/value_model.py` gained
+  real persistence and a real call site: `SimulationEngine._voice_
+  narrative_extra_scores` (the weekly voice-pair "who's the
+  protagonist" score) folds in a loaded model's predicted consequence
+  as a bounded additive bonus alongside the existing hand-set
+  inventor/council/Humans-pillar bonuses — `None` reproduces the exact
+  prior behavior byte-for-byte. New `scripts/train_value_model_from_
+  archive.py`: trains directly from a live world's own db (no recorder
+  archive needed) — one example per living core-cast agent, features =
+  current state, label derived from that agent's own already-tracked
+  `extreme_event_count`/`core_memories` (honestly one snapshot-in-time
+  per agent, since `Observation` carries no `agent_id` to reconstruct a
+  true per-observation historical pair from). `scripts/verify_l2_1_l4_
+  1_wiring.py` (23 checks, shared with L4.1 below).
 - **L3.1 SHIPPED, v1.34.262.** `LLMCostRegressor` gained real
   persistence (schema-versioned/kind-tagged, same file-next-to-
   `db_path`/never-auto-created discipline as every prior Tier 6 model)
@@ -309,8 +323,21 @@ live production call site — the recurring gap across Tier 6.
   bullet's prior grouping was stale, corrected here. L3.2's own "true
   autoregression over the `metrics` table" stays a further, distinct
   open piece, unrelated to L3.1's own closure.
-- **L4.1** belief-confidence calibration → a real consumer; needs a real
-  settled-hypothesis history from a live world.
+- **L4.1 SHIPPED, v1.34.265.** `hearthmind/ml/belief_calibration.py`
+  gained real persistence and a real call site via a new shared
+  `SimulationEngine._calibrated_confidence` helper, wired at `_maybe_
+  schedule_self_tuning`'s C2 conviction gate (whether a still-`"open"`
+  hypothesis's raw stated confidence is trustworthy enough to initiate
+  a real sandboxed self-tuning experiment). New `scripts/train_belief_
+  calibrator_from_archive.py`: trains directly from `World.reflection_
+  notebook`'s own real settled outcomes — no recorder archive needed,
+  though real settled hypotheses accumulate slowly (Reflection's own
+  multi-cycle evidence loop). Also new `scripts/train_all.py`, a
+  one-command wrapper running every local trainer this project ships
+  against one world, and a substantially extended README "Local ML
+  training" section (a new "how long to wait, do I need to stop the
+  world" subsection, per direct user question — training is read-only/
+  offline and safe against a live world).
 - **L5 SHIPPED, v1.34.263.** The goal policy's own real per-model
   retrain cadence — the flagship's long-flagged gap: `GoalPolicy` was
   already built on G1's `LearningSpecialist` internally, but nothing
