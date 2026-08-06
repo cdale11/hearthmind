@@ -405,11 +405,20 @@ gap) closed the same way in v1.34.266 — zero open items remain here.
 - **H1, per-domain budgets.** Write-scope enforcement (WORLD/MACHINE/
   OBSERVER) is real; real per-domain budget contention needs a second
   real bidder in the MACHINE or OBSERVER domain, which doesn't exist yet.
-- **A real chunk-expiry mechanism for C2's `ChunkStore`.** Currently
-  keyed on subject text with no expiry — fine for texture-only musing,
-  but it's what blocks safely sweeping `_maybe_schedule_rule_proposal`
-  into Stage C's dispatch ladder (a stale cached "no rule" outcome could
-  suppress a genuinely-overdue law for a worsening problem indefinitely).
+- **A real chunk-expiry mechanism for C2's `ChunkStore` — SHIPPED,
+  v1.34.267.** `ChunkStore.compile()` gained an optional `ttl_ticks`
+  (`None` = never expires, byte-for-byte the original behavior);
+  `lookup()` gained an optional `tick` — a chunk found past its own
+  `expires_at_tick` is treated as a genuine miss and deleted outright.
+  `dispatch_impasse` threads both straight through. Real second
+  production consumer: `_maybe_schedule_rule_proposal` now sweeps its
+  own already-computed `stuck_institution` tiebreak into the dispatch
+  ladder — a real per-institution streak across consecutive seasonal
+  firings is the C1 `no_change` signal, and `RULE_PROPOSAL_CHUNK_TTL_
+  YEARS` (a real per-world tick count, derived from the live calendar
+  config) is what stops a cached "no rule yet" outcome from suppressing
+  a genuinely-overdue law forever — the exact limitation the musing
+  pilot's own docstring flagged as accepted-not-engineered-around.
 - **Confirm B1's own headline test** ("pillar-level call share rises from
   1.4% to >15%") against a real live production run — the wiring (W1-W4)
   shipped but the number itself was never re-measured live.

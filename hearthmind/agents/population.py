@@ -3586,7 +3586,10 @@ class Population:
             # (checked at the top of this function, highest priority)
             # carry the surveyor there over the following ticks.
             if agent.travel_target is None:
-                agent.travel_target = cls._choose_explore_target(agent, terrain, settlement.explored_tiles, rng)
+                agent.travel_target = cls._choose_explore_target(
+                    agent, terrain, settlement.explored_tiles, rng,
+                    mountain_unlocked=mountain_unlocked, bridge_tiles=bridge_tiles, water_capable=water_capable,
+                )
             if agent.travel_target is None:
                 pass  # fully explored (or unlucky sampling) — fall through to ordinary wander below
             else:
@@ -3738,7 +3741,8 @@ class Population:
     @staticmethod
     def _choose_explore_target(
         agent: Agent, terrain: list[list[Tile]], explored_tiles: set, rng: random.Random,
-        attempts: int = 40,
+        attempts: int = 40, mountain_unlocked: bool = False,
+        bridge_tiles: frozenset[tuple[int, int]] = frozenset(), water_capable: bool = False,
     ) -> tuple[int, int] | None:
         """v0.87.45: bounded random sampling for the nearest not-yet-
         explored walkable tile — deliberately NOT a full-map flood fill
@@ -3747,14 +3751,28 @@ class Population:
         target). `attempts` random in-bounds samples, keep the closest
         unexplored walkable hit; returns None once nothing new turns up
         (map effectively fully explored, or an unlucky sampling run —
-        the caller just retries next tick)."""
+        the caller just retries next tick).
+
+        `mountain_unlocked`/`bridge_tiles`/`water_capable` (fix, live
+        report: "why aren't npcs exploring other islands?") — this
+        target-picker previously called `_is_walkable(terrain, x, y)`
+        with every extra capability defaulted off, so even a SURVEYOR
+        genuinely mounted on a ready BOAT (`water_capable=True` at
+        every real `_step_toward` call in the caller) was never
+        actually OFFERED a tile across open water as an explore
+        target — the movement math supported the crossing, nothing
+        ever asked for it. Threading the caller's own already-computed
+        capability flags through here closes that gap without
+        widening what a landlocked surveyor can reach."""
         height = len(terrain)
         width = len(terrain[0]) if height else 0
         best: tuple[int, int] | None = None
         best_dist: int | None = None
         for _ in range(attempts):
             x, y = rng.randrange(width), rng.randrange(height)
-            if (x, y) in explored_tiles or not _is_walkable(terrain, x, y):
+            if (x, y) in explored_tiles or not _is_walkable(
+                terrain, x, y, mountain_unlocked, bridge_tiles, water_capable,
+            ):
                 continue
             dist = abs(x - agent.x) + abs(y - agent.y)
             if best_dist is None or dist < best_dist:

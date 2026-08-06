@@ -80,6 +80,7 @@ def dispatch_impasse(
     llm_resolver: Callable[[], object],
     model_resolver: Callable[[], object] | None = None,
     llm_artifact_kind: str = "cached_decision",
+    ttl_ticks: int | None = None,
 ) -> DispatchOutcome:
     """The real cheap-resolver ladder. `llm_resolver` is always
     required (there must always be a genuine fallback answer, per this
@@ -90,8 +91,19 @@ def dispatch_impasse(
     already cheap; nothing is gained by caching it again).
     `model_resolver` is optional -- most impasses have no trained model
     backing them yet, and skipping this tier when unavailable is
-    correct, not a fallback failure."""
-    chunk = store.lookup(impasse)
+    correct, not a fallback failure.
+
+    `ttl_ticks` (Phase 3): forwarded straight to `store.compile()` --
+    `None` (every pre-Phase-3 caller) compiles a chunk that never
+    expires; a real value bounds how long an LLM-tier resolution here
+    gets trusted before the identical impasse pays for a fresh
+    deliberation again. `tick` is always passed to `store.lookup()`
+    now (previously it wasn't accepted there at all), so any caller
+    supplying a real `ttl_ticks` gets real expiry enforcement for
+    free -- a caller that never sets `ttl_ticks` sees no behavior
+    change at all, since every one of its own compiled chunks still
+    has `expires_at_tick=None`."""
+    chunk = store.lookup(impasse, tick)
     if chunk is not None:
         store.record_hit(chunk, tick)
         return DispatchOutcome(impasse=impasse, resolved_via="chunk", resolution=chunk.resolution, chunk=chunk)
@@ -101,5 +113,5 @@ def dispatch_impasse(
         return DispatchOutcome(impasse=impasse, resolved_via="model", resolution=resolution)
 
     resolution = llm_resolver()
-    new_chunk = store.compile(impasse, llm_artifact_kind, resolution, tick)
+    new_chunk = store.compile(impasse, llm_artifact_kind, resolution, tick, ttl_ticks)
     return DispatchOutcome(impasse=impasse, resolved_via="llm", resolution=resolution, chunk=new_chunk)

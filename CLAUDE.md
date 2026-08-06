@@ -742,6 +742,81 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.267)
+
+Explicit user instruction: "fix the island-exploration water_capable
+gap and start phase 3" — two independent pieces, one batch.
+
+**Water-capable exploration fix.** Live report: "why aren't npcs
+exploring other islands?" `Population._choose_explore_target` never
+threaded `water_capable`/`mountain_unlocked`/`bridge_tiles` through to
+`_is_walkable` — every candidate draw defaulted every extra movement
+capability off, so even a SURVEYOR genuinely mounted on a ready BOAT
+was never OFFERED a tile across open water as an explore target, even
+though `_step_toward` already supported the actual crossing once one
+was chosen. Fixed by threading the caller's own already-computed
+capability flags through, same shape `_step_toward`/`_bfs_step`
+already use — zero behavior change for a landlocked agent.
+
+**Roadmap Phase 3: chunk-expiry mechanism, unblocking a safe second
+sweep of Stage C's dispatch ladder.** The one limitation Phase 8's
+musing pilot flagged in its own docstring as accepted-not-engineered-
+around: a chunk was keyed on subject text alone with no expiry — fine
+for ambient texture, but the real blocker for sweeping `_maybe_
+schedule_rule_proposal` (a genuine civic decision) into the ladder,
+since an unbounded cache could suppress a genuinely-overdue rule for a
+worsening problem indefinitely. `ChunkStore.compile()` gained an
+optional `ttl_ticks` (`None` — every pre-Phase-3 caller including
+musing's own — never expires, byte-for-byte unchanged); `lookup()`
+gained an optional `tick` — a chunk found at/past its own real
+`expires_at_tick` is a genuine miss AND is deleted outright.
+`dispatch_impasse` threads both straight through.
+
+New real second production consumer: `_maybe_schedule_rule_proposal`
+now sweeps its own already-computed `stuck_institution` tiebreak
+(Tier 0's 21st site) into the dispatch ladder — HCA's own worked
+example, "family lines dying out, 590 occurrences, no rule," made
+real again. New `RULE_PROPOSAL_NO_CHANGE_STREAK_THRESHOLD=2`: a real
+per-institution streak across CONSECUTIVE real seasonal firings
+(keyed by `f"{settlement.id}:{stuck_institution.id}"`) is the genuine
+C1 `no_change` signal. New `RULE_PROPOSAL_CHUNK_TTL_YEARS=3` +
+`_rule_proposal_chunk_ttl_ticks()` — a real per-world TTL derived from
+the LIVE calendar config, never a flat tick constant, so two worlds at
+different `sim_minutes_per_tick` cache for the same real simulated
+span rather than drifting apart. Below the streak threshold —
+including every world with no persistently stuck institution at all —
+this reproduces the exact prior unconditional-schedule behavior,
+byte-for-byte.
+
+New `scripts/verify_phase3_chunk_expiry.py` (31 checks, all pass first
+run) — the raw expiry mechanism (compile/lookup with and without
+`tick`/`ttl_ticks`, real deletion on expiry, `None`-default backward
+compatibility); the real TTL computation hand-checked against
+`Config`'s own calendar math; and a full real end-to-end production
+proof through `_maybe_schedule_rule_proposal` — seasons 1/2 (below
+threshold) schedule directly and never touch the chunk store; season 3
+(streak crosses threshold, no chunk yet) still schedules and compiles
+a real chunk with the real TTL; season 4 (same stuck institution,
+before expiry) hits the chunk and schedules nothing; a real clock jump
+to the chunk's own `expires_at_tick` re-triggers a fresh real
+deliberation and replaces the stale chunk; a genuinely different
+worst-stuck institution resets the streak and resumes direct
+scheduling immediately without touching the old institution's chunk.
+
+Verified: the new script (31 checks); `scripts/verify_c2_chunking.py`
+(19 checks)/`scripts/verify_c3_dispatch.py` (15 checks)/`scripts/
+verify_phase8_musing_pilot.py` (18 checks) all re-run clean — the
+backward-compatible expiry changes disturb neither the primitive's own
+pre-Phase-3 test suite nor the first production consumer; a direct
+smoke test of the water_capable fix; `pyflakes` clean on all touched
+files (only the six known pre-existing forward-ref findings in
+`engine.py`); `scripts/verify_replay_hash.py` (800 ticks, seed 777,
+`--in-process`) — MATCH, byte-identical; `scripts/verify_native_
+soak.py` (seeds 1/55, 800 ticks) — MATCH. Phase 3's other three items
+(E3 competing-goals half, H1 per-domain budgets, confirming B1's
+headline test live) remain open — resume only on future explicit
+direction naming one.
+
 ## Current state (v1.34.266)
 
 Explicit user instruction: "phase 2 b13.5" — wires `hearthmind/

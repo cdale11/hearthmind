@@ -673,6 +673,34 @@ two months of daily lines, plenty for a UI scrollback, capped so a
 years-long world doesn't accumulate thousands of short strings for no
 consumer that reads more than the last handful."""
 
+RULE_PROPOSAL_NO_CHANGE_STREAK_THRESHOLD = 2
+"""Phase 3 (docs/ROADMAP-2026-07-REMAINING.md, explicit user
+instruction "start phase 3"): the chunk-expiry-unblocked sweep of
+`_maybe_schedule_rule_proposal` into Stage C's dispatch ladder — HCA's
+own worked example made real ("family lines dying out... 590
+occurrences, no rule"). `_maybe_schedule_rule_proposal` only ever
+fires once per real season (`_season_year_gate`'s own cadence), so
+unlike `MUSING_NO_CHANGE_STREAK_THRESHOLD` (checked daily) each unit
+here is already a real season-scale opportunity — 2 means the SAME
+stuck institution has gone two consecutive seasons without a rule
+proposal changing that before this gates through C3's cheap-chunk-
+first ladder instead of scheduling directly every time."""
+
+RULE_PROPOSAL_CHUNK_TTL_YEARS = 3
+"""How long a chunked "no rule yet" outcome for one stuck institution
+is trusted before the identical impasse pays for one more real
+deliberation, closing the exact limitation `_maybe_schedule_musing`'s
+own docstring flags as accepted-not-engineered-around for ITS chunks
+(no expiry at all) — rule proposals are real civic decisions, not
+ambient texture, so an unbounded cache here risks silently suppressing
+a genuinely-overdue law for a worsening problem indefinitely, per this
+item's own roadmap framing. 3 years is a reasoned, not measured,
+starting point (no live archive exists yet to tune it against) — long
+enough that a chunk hit still saves real deliberation across several
+consecutive stuck seasons, short enough that "the council never revisits
+this" can't become a permanent structural blind spot. See
+`_rule_proposal_chunk_ttl_ticks`."""
+
 MUSING_NO_CHANGE_STREAK_THRESHOLD = 2
 """Tier 7 HCA Phase 8's pilot (docs/ROADMAP-2026-07-REMAINING.md,
 explicit user instruction "Start phase 8"): how many CONSECUTIVE real
@@ -2758,6 +2786,31 @@ class SimulationEngine:
         newest-last — the real per-cycle record E1's panel renders for
         this pilot job. Runtime-only, never persisted, same class as
         `_musing_chunk_store` above."""
+
+        self._rule_proposal_chunk_store: ChunkStore = ChunkStore()
+        """Phase 3's own sweep: `_maybe_schedule_rule_proposal`'s real
+        `ChunkStore` (C2), a second real production consumer of Stage
+        C's ladder alongside `_musing_chunk_store`. Runtime-only, never
+        persisted — same "re-baselines on restart" class as every
+        other bounded runtime registry in this codebase; a chunked
+        "no rule yet" outcome is cosmetic caching, not lost Body
+        state."""
+        self._rule_proposal_last_subject_key: str | None = None
+        """The real `f"{settlement.id}:{stuck_institution.id}"` key as
+        of the last real `_maybe_schedule_rule_proposal` firing that
+        found a stuck institution at all — a single scalar, same
+        "only one subject is ever current" shape `_musing_last_
+        subject_key` already established, since only one settlement's
+        one worst-stuck institution is ever examined per real firing
+        (`_job_target`'s own round-robin)."""
+        self._rule_proposal_no_change_streak: int = 0
+        """How many CONSECUTIVE real `_maybe_schedule_rule_proposal`
+        firings have named the exact same stuck institution as
+        `_rule_proposal_last_subject_key` — resets to 0 the instant a
+        different institution is examined (a different settlement's
+        turn, a different institution now the worst-stuck one, or no
+        institution stuck at all). See `RULE_PROPOSAL_NO_CHANGE_
+        STREAK_THRESHOLD`'s own docstring."""
 
         # Tier 5 B7.2 + B8's real control points (explicit user
         # directive: "B8 and MachineProfile persistence and select_
@@ -10321,6 +10374,23 @@ class SimulationEngine:
         elif reaction.hook_type:
             self._apply_trigger_rule_hook(reaction.hook_type, reaction.magnitude, settlement)
 
+    def _rule_proposal_chunk_ttl_ticks(self) -> int:
+        """Phase 3's real per-world TTL (in ticks) for a compiled
+        rule-proposal chunk — `RULE_PROPOSAL_CHUNK_TTL_YEARS` converted
+        through THIS world's own real calendar shape (`Config.days_
+        per_month`/`minutes_per_day`/`sim_minutes_per_tick`), never a
+        flat tick constant. A flat constant would silently cache a
+        stuck-institution outcome for very different real spans of
+        simulated time across two worlds configured with different
+        `sim_minutes_per_tick` values for the identical intended YEAR
+        count — this reads the live config every call, so the bound
+        stays honest even if a future world is ever created with a
+        non-default calendar."""
+        config = self.world.config
+        minutes_per_year = sum(config.days_per_month) * config.minutes_per_day
+        ticks_per_year = minutes_per_year // config.sim_minutes_per_tick
+        return ticks_per_year * RULE_PROPOSAL_CHUNK_TTL_YEARS
+
     def _maybe_schedule_rule_proposal(self, events: list[str]) -> None:
         """Vision doc item 1.2's origination half — one new trigger-
         rule proposal per season at most, world-scoped (`_job_target`
@@ -10329,7 +10399,28 @@ class SimulationEngine:
         imagination, same tier as the ontology/culture jobs it sits
         beside — the real safety gate is item 1.3's sandbox in `apply`,
         not the fallback/critical distinction (a fallback-authored rule
-        still goes through the same sandbox check as an LLM one)."""
+        still goes through the same sandbox check as an LLM one).
+
+        Phase 3 (docs/ROADMAP-2026-07-REMAINING.md, explicit user
+        instruction "start phase 3") sweeps this job's own already-
+        computed `stuck_institution` tiebreak (Tier 0's 21st site) into
+        Stage C's real cached-chunk -> learned-model -> LLM dispatch
+        ladder — HCA's own worked example, "family lines dying out,
+        590 occurrences, no rule," is this exact shape. A real
+        per-institution streak, tracked across CONSECUTIVE real
+        seasonal firings (`self._rule_proposal_no_change_streak`),
+        is the genuine C1 `no_change` signal: the SAME institution
+        stuck two straight seasons with no rule proposal changing
+        that. Below the streak threshold — and for every world that
+        never has a persistently stuck institution at all — this
+        reproduces the exact prior unconditional-schedule behavior,
+        byte-for-byte; `RULE_PROPOSAL_CHUNK_TTL_YEARS` is the real fix
+        for the one limitation `_maybe_schedule_musing`'s own pilot
+        docstring flagged as accepted-not-engineered-around (an
+        unbounded chunk could suppress a genuinely-overdue rule for a
+        worsening problem indefinitely) — a chunked "no rule yet"
+        outcome here genuinely expires and pays for one more real
+        deliberation instead of caching forever."""
         if not self._season_year_gate(events, "rule_propose", "season_end"):
             return
         if self._pillar_interpret_backpressured("village"):
@@ -10437,15 +10528,49 @@ class SimulationEngine:
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
 
+        tick = self.world.clock.tick_count
+
         # The game learning/improving itself: a self-modifying trigger
         # rule is exactly the kind of proposal that should be reasoned
-        # through, not narrated (v1.3.37).
-        self._submit_and_resolve(
-            'rule_propose', 'rule_propose',
-            lambda: self._schedule_llm_job(
-                "rule_propose", prompt, rule_propose.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True,
-                num_predict_mult=RULE_PROPOSE_NUM_PREDICT_MULT,
-            ),
+        # through, not narrated (v1.3.37). `propose_rule` is the ONLY
+        # place this real scheduling decision is made — both the
+        # direct-schedule path below and Stage C's dispatch ladder call
+        # through this one closure, so neither path can drift from the
+        # other's real behavior.
+        def propose_rule() -> dict:
+            self._submit_and_resolve(
+                'rule_propose', 'rule_propose',
+                lambda: self._schedule_llm_job(
+                    "rule_propose", prompt, rule_propose.SYSTEM_PROMPT, fallback, apply, deep_reasoning=True,
+                    num_predict_mult=RULE_PROPOSE_NUM_PREDICT_MULT,
+                ),
+            )
+            return {"scheduled": True, "tick": tick}
+
+        if stuck_institution is None:
+            # No real stuck-institution signal exists this firing —
+            # the same "nothing to track" case `_maybe_schedule_musing`
+            # resets its own streak state for — schedule directly,
+            # exactly as every pre-Phase-3 call did.
+            self._rule_proposal_last_subject_key = None
+            self._rule_proposal_no_change_streak = 0
+            propose_rule()
+            return
+        subject_key = f"{settlement.id}:{stuck_institution.id}"
+        if subject_key == self._rule_proposal_last_subject_key:
+            self._rule_proposal_no_change_streak += 1
+        else:
+            self._rule_proposal_last_subject_key = subject_key
+            self._rule_proposal_no_change_streak = 0
+        impasse = detect_no_change(
+            subject_key, self._rule_proposal_no_change_streak, RULE_PROPOSAL_NO_CHANGE_STREAK_THRESHOLD,
+        )
+        if impasse is None:
+            propose_rule()
+            return
+        dispatch_impasse(
+            impasse, self._rule_proposal_chunk_store, tick, propose_rule,
+            ttl_ticks=self._rule_proposal_chunk_ttl_ticks(),
         )
 
     def _maybe_schedule_composite_reaction_propose(self, events: list[str]) -> None:

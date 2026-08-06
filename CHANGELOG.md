@@ -4,6 +4,95 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.267] — Water-capable exploration fix + roadmap Phase 3's chunk-expiry mechanism
+
+Explicit user instruction: "fix the island-exploration water_capable
+gap and start phase 3." Two independent pieces, one batch.
+
+**Water-capable exploration fix.** Live report: "why aren't npcs
+exploring other islands?" Root cause: `Population._choose_explore_
+target` never threaded `water_capable`/`mountain_unlocked`/
+`bridge_tiles` through to `_is_walkable` — every candidate tile draw
+defaulted every extra movement capability off, so even a SURVEYOR
+genuinely mounted on a ready BOAT was never OFFERED a tile across open
+water as an explore target, even though the movement math (`_step_
+toward`) already supported making the crossing once one was chosen.
+`_choose_explore_target` gained the same three optional params every
+other real movement helper in this file already carries, threaded
+from its one real call site's already-computed capability flags —
+zero behavior change for a landlocked agent (every default stays
+`False`/empty, reproducing the exact prior candidate pool).
+
+**Roadmap Phase 3: a real chunk-expiry mechanism for Stage C's
+`ChunkStore`, unblocking a safe second production sweep.** The one
+limitation Phase 8's musing pilot (`_maybe_schedule_musing`) flagged
+in its own docstring as accepted-not-engineered-around: a chunk was
+keyed on subject text alone, with no expiry — fine for ambient
+texture, but the real blocker for sweeping `_maybe_schedule_rule_
+proposal` (a genuine civic decision, not texture) into the same
+"cached chunk → learned model → LLM" ladder, since an unbounded cache
+could suppress a genuinely-overdue rule for a worsening problem
+indefinitely.
+
+`hearthmind/cognition/chunk.py`'s `ChunkStore.compile()` gained an
+optional `ttl_ticks` (`None`, the default — every pre-Phase-3 caller,
+including musing's own — compiles a chunk that never expires,
+byte-for-byte unchanged); `Chunk` gained `expires_at_tick`.
+`lookup()` gained an optional `tick` — a chunk found at or past its
+own `expires_at_tick` is treated as a genuine miss AND deleted
+outright (not left for a future eviction pass), forcing the next
+occurrence of that signature to pay for one more real deliberation.
+`tick=None` (every pre-Phase-3 direct caller) skips expiry checking
+entirely. `hearthmind/cognition/dispatch.py`'s `dispatch_impasse`
+threads both straight through to `store.lookup()`/`store.compile()`.
+
+New real production consumer: `SimulationEngine._maybe_schedule_rule_
+proposal` now sweeps its own already-computed `stuck_institution`
+tiebreak (Tier 0's 21st site) into the dispatch ladder — HCA's own
+worked example, "family lines dying out, 590 occurrences, no rule,"
+made real for a second job. New `RULE_PROPOSAL_NO_CHANGE_STREAK_
+THRESHOLD=2`: a real per-institution streak tracked across
+CONSECUTIVE real seasonal firings (`self._rule_proposal_no_change_
+streak`, keyed by `f"{settlement.id}:{stuck_institution.id}"`) is the
+genuine C1 `no_change` signal. New `RULE_PROPOSAL_CHUNK_TTL_YEARS=3`
++ `_rule_proposal_chunk_ttl_ticks()`: a real per-world TTL derived
+from the LIVE calendar config (`days_per_month`/`minutes_per_day`/
+`sim_minutes_per_tick`), never a flat tick constant, so two worlds at
+different `sim_minutes_per_tick` settings cache for the same real
+simulated-time span rather than drifting apart. Below the streak
+threshold — including every world that never has a persistently stuck
+institution at all — this reproduces the exact prior unconditional-
+schedule behavior, byte-for-byte, verified directly.
+
+New `scripts/verify_phase3_chunk_expiry.py` (31 checks, all pass first
+run) — the raw `ChunkStore`/`dispatch_impasse` expiry mechanism
+(compile/lookup with and without `tick`/`ttl_ticks`, real deletion on
+expiry, the `None`-default backward-compatibility parity); the real
+per-world TTL computation hand-checked against `Config`'s own
+calendar math; and a full real end-to-end production proof through
+`_maybe_schedule_rule_proposal` — season 1/2 (streak below threshold)
+schedule directly and never touch the chunk store; season 3 (streak
+crosses threshold, no chunk yet) still schedules and compiles a real
+chunk with the real TTL; season 4 (same stuck institution, before
+expiry) hits the chunk and schedules nothing; a real clock jump to the
+chunk's own `expires_at_tick` correctly re-triggers a fresh real
+deliberation and replaces the stale chunk; a genuinely different
+worst-stuck institution resets the streak and resumes direct
+scheduling immediately without touching the old institution's own
+chunk.
+
+Verified: the new script (31 checks); `scripts/verify_c2_chunking.py`
+(19 checks)/`scripts/verify_c3_dispatch.py` (15 checks)/`scripts/
+verify_phase8_musing_pilot.py` (18 checks) all re-run clean, confirming
+the backward-compatible expiry changes disturb neither the primitive's
+own pre-Phase-3 test suite nor the first production consumer; a direct
+smoke test of the water_capable fix (an explore target across open
+water is offered only with `water_capable=True`, never without);
+`pyflakes` clean on all touched files (only the six known pre-existing
+forward-ref findings in `engine.py`); `scripts/verify_replay_hash.py`
+(800 ticks, seed 777, `--in-process`) — MATCH, byte-identical;
+`scripts/verify_native_soak.py` (seeds 1/55, 800 ticks) — MATCH.
+
 ## [1.34.266] — Roadmap Phase 2, B13.5 wired: real yearly evolutionary pacing tuning
 
 Explicit user instruction: "phase 2 b13.5" — closes the one item the
