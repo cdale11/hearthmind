@@ -4,6 +4,100 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.277] — Roadmap Phase 6 continues: HearthBench A3, the Prompt Library (and a real bug it found)
+
+Explicit user instruction: "continue phase 6" — A3, the second
+dependency-ordered Phase 6 item, following A2's model adapter layer
+(v1.34.276).
+
+A3.1: `hearthbench/prompts/fixtures.py`'s `export_fixture_pack` reads a
+real `hearthmind.llm.recorder` archive via `hearthmind.llm.review_
+pack.iter_examples` (real reuse, not a second archive walker) and
+writes `<output_dir>/<version>/<task>.json` fixture files plus a
+`manifest.json` naming every task's count and a content-addressed
+`pack_hash`. Fixtures dedupe by a real content hash (task+structured_
+input+prompt+system_prompt) so a re-recorded near-identical situation
+collapses to one entry instead of crowding out real variety, and
+selection is a deterministic per-task seeded sample — re-exporting the
+SAME archive with the SAME seed reproduces a byte-identical pack,
+verified directly. New `scripts/hearthbench_export.py` is the real
+`hearthbench export` command (`fixtures` and `fixtures-synthetic`
+subcommands).
+
+A3.2: `hearthbench/prompts/schema.py`'s `TestCase`/`Turn`, matching the
+checklist's own literal `id, category, fixture_ref, system_prompt,
+schema_ref, scorers[], weight, tags[], turns[], expected_invariants[],
+seed` shape. `test_case_from_fixture(fixture, category, scorers=[...])`
+is the real mechanism behind "adding a benchmark category = adding
+data + a scorer, never touching the runner" — a fixture (A3.1's data)
+plus a scorer-id list (a future A4 registry, referenced only by string
+id, no import) produces a complete, runnable `TestCase`.
+
+A3.3: no separate mechanism needed — `TestCase.turns: list[Turn]`,
+`Turn` carrying `injected_fact`/`expects_recall_of`/`offers_
+contradiction`; a single-shot case is simply `turns=[]`.
+`render_turn_sequence` is the one real piece of logic this adds: pure,
+sorts by index, accumulates every prior turn's `injected_fact` into
+each later turn's `context` — proven directly against the checklist's
+own worked example ("turn 1 establishes a fact... turn 7 tests
+recall... turn 12 offers a contradiction").
+
+A3.4: `hearthbench/prompts/perturbation.py`'s `synthesize_fixtures`
+wraps any `(count, seed) -> [...]` synthesizer as real `FixtureExample`s
+(`synthetic=True`, `fixture_id` prefixed `synthetic-` so a mixed pack
+can always tell organic vs. synthesized fixtures apart);
+`synthesize_town_brain_fixtures` reuses `hearthmind.llm.prompt_
+synthesis.synthesize_town_brain_batch` directly, per the checklist's
+own "reuse `prompt_synthesis.py`" text.
+
+**Exercising that reuse path for the first time found and fixed a
+real, previously-unnoticed production bug.** `synthesize_town_brain_
+situation` called `town_brain.build_prompt(settlement_name, recent_
+events, population_summary, settlement_summary, player_whispers=[],
+narrative_theme=...)` — but `build_prompt`'s real signature is
+`(settlement_name, priority, recent_events, population_summary,
+settlement_summary, player_whispers, ...)`, with `priority` a REQUIRED
+positional argument the synthesizer never supplied at all. Every
+argument after `settlement_name` landed one slot out of place (the
+event list bound to `priority`, the population summary bound to
+`recent_events`, and so on), raising `TypeError: build_prompt()
+missing 1 required positional argument: 'settlement_summary'` on the
+very first real call. The module's own `_VALID_PRIORITIES = town_
+brain._VALID_PRIORITIES` line had been imported for exactly this
+purpose (its own comment: "reused, not duplicated") but never actually
+wired into the `build_prompt` call — this function, and its only prior
+real call site (`scripts/recorder_tools.py synthesize-town-brain`, a
+subcommand that has existed since FT.4 shipped), had genuinely never
+worked end to end before this pass. Fixed by drawing `priority` from
+the real closed vocabulary and passing it in the correct position;
+confirmed via a direct CLI smoke test that `recorder_tools.py
+synthesize-town-brain` now produces real output.
+
+New `scripts/verify_a3_prompt_library.py` (40 checks, all pass first
+run) — drives a REAL `TrainingRecorder` through its full queue/writer-
+thread/JSONL pipeline to build a genuine archive (not a hand-built
+stand-in), then exports/loads/round-trips a real fixture pack from it
+incl. the dedup and reproducibility proofs; `TestCase`/`Turn` round-
+trip and `test_case_from_fixture` wiring; the multi-turn rendering
+logic against a direct hand-check of the checklist's own worked
+example; the synthetic-perturbation wrapper against both a fake and
+the real `prompt_synthesis` reuse path; a real CLI subprocess run of
+both `hearthbench_export.py` subcommands incl. a clean failure for an
+unregistered synthesizer task.
+
+Verified: the new script (40 checks); `scripts/verify_hearthbench_
+isolation.py`/`verify_hearthbench_adapter_isolation.py` both clean;
+`pyflakes` clean on all touched/new files; `scripts/verify_replay_
+hash.py` (800 ticks, seed 777, `--in-process`) — MATCH, byte-identical;
+`scripts/verify_native_soak.py` (seeds 1/55, 800 ticks) — MATCH (both
+re-run out of caution since `hearthmind/llm/prompt_synthesis.py`, a
+live production file, was fixed — though confirmed via direct grep
+that the module is never imported from `simulation/`, so it sits
+entirely off the tick path); a direct end-to-end CLI smoke test of
+`scripts/recorder_tools.py synthesize-town-brain` confirming the real
+fix. A4 (scoring/"the judge problem") is the next dependency-ordered
+Phase 6 item.
+
 ## [1.34.276] — Roadmap Phase 6 begins: HearthBench A2, the Model Adapter Layer
 
 Explicit user instruction: "continue phase 6" — Phase 6 is building

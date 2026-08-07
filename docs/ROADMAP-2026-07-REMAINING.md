@@ -750,17 +750,58 @@ through in one pass per this project's own "never big-bang" discipline.
 ## Phase 6 — HearthBench (build the benchmark itself)
 
 `A0` (confirmed reusable pieces), `A1.1`/`A1.2` (package skeleton +
-import-isolation firewall), and now `A2` (model adapter layer) are
-shipped. Remaining, in dependency order:
+import-isolation firewall), `A2` (model adapter layer), and now `A3`
+(prompt library/test definitions) are shipped. Remaining, in
+dependency order:
 
-`A3` prompt library/test definitions → `A4` scoring ("the judge
-problem," the doc's own central design fork) → `A5` the 9 benchmark
-categories → `A6` structured-output validator → `A7`/`A8`/`A9` metrics
-collector/diagnostics/reports → `A10` the HearthBench Score → `A11` run
-modes (unblocks **B15.5**'s `reference_mode`, currently built but unused
-for lack of this) → `A1.3` process isolation (gated on A2+A11, A2 now
-real) → `A12` web UI → `A13` CI prompt-regression guard (needs the
-whole pipeline first).
+`A4` scoring ("the judge problem," the doc's own central design fork)
+→ `A5` the 9 benchmark categories → `A6` structured-output validator →
+`A7`/`A8`/`A9` metrics collector/diagnostics/reports → `A10` the
+HearthBench Score → `A11` run modes (unblocks **B15.5**'s `reference_
+mode`, currently built but unused for lack of this) → `A1.3` process
+isolation (gated on A2+A11, A2 now real) → `A12` web UI → `A13` CI
+prompt-regression guard (needs the whole pipeline first).
+
+- **A3 — SHIPPED, v1.34.277.** A3.1 `hearthbench/prompts/fixtures.py`'s
+  `export_fixture_pack` — real reuse of `hearthmind.llm.review_pack.
+  iter_examples` to walk a real recorder archive, content-hash dedup,
+  deterministic per-task seeded sampling (re-exporting the same archive
+  with the same seed reproduces a byte-identical pack). `scripts/
+  hearthbench_export.py fixtures` is the real `hearthbench export`
+  command. A3.2 `schema.py`'s `TestCase`/`Turn`, matching the
+  checklist's literal shape; `test_case_from_fixture` is the real
+  "adding a category = data + a scorer, never touching the runner"
+  mechanism. A3.3 multi-turn/stateful cases: `Turn`'s `injected_fact`/
+  `expects_recall_of`/`offers_contradiction` fields + `render_turn_
+  sequence` (pure, accumulates prior turns' facts into each later
+  turn's context) — no separate mechanism needed, a single-shot case
+  is just `turns=[]`. A3.4 `perturbation.py`'s `synthesize_fixtures`
+  wraps any synthesizer as real, clearly-marked (`synthetic=True`)
+  fixtures; `synthesize_town_brain_fixtures` reuses `hearthmind.llm.
+  prompt_synthesis.synthesize_town_brain_batch` — **exercising this
+  reuse path for the first time found and fixed a real, previously-
+  unnoticed production bug**: `synthesize_town_brain_situation` never
+  supplied `town_brain.build_prompt`'s required `priority` argument
+  (shifting every later positional arg out of place, `TypeError` on
+  the very first real call) — this function, and its only prior real
+  call site (`scripts/recorder_tools.py synthesize-town-brain`), had
+  never actually worked end to end before this pass. Fixed by drawing
+  `priority` from the real closed vocabulary (`_VALID_PRIORITIES`,
+  already imported for exactly this purpose but never wired in) and
+  passing it correctly. New `scripts/verify_a3_prompt_library.py` (40
+  checks, all pass — drives a REAL `TrainingRecorder` through its full
+  queue/writer-thread/JSONL pipeline to build a genuine archive, then
+  exports/loads/round-trips a real fixture pack from it; the schema/
+  multi-turn/perturbation logic; a real CLI subprocess run of both
+  `hearthbench_export.py` subcommands). Verified: the new script;
+  `verify_hearthbench_isolation.py`/`verify_hearthbench_adapter_
+  isolation.py` both clean; `pyflakes` clean; `scripts/verify_replay_
+  hash.py`/`verify_native_soak.py` both MATCH (re-run since `hearthmind/
+  llm/prompt_synthesis.py`, a live production file, was fixed — though
+  confirmed via direct grep that it's never imported from `simulation/`,
+  so this was extra caution, not a strict requirement); a direct CLI
+  smoke test of `scripts/recorder_tools.py synthesize-town-brain`
+  confirming the real end-to-end fix.
 
 - **A2 — SHIPPED, v1.34.276.** A2.1 `hearthbench/adapters/protocol.py`'s
   `ModelAdapter` `typing.Protocol` + `AdapterResult`/`AdapterCapabilities`/

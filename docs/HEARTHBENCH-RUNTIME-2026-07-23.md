@@ -164,30 +164,68 @@ themselves.
   bails-out-on-a-dead-process all proven against genuine `subprocess.
   Popen` mechanics, not a fake.
 
-## A3 — Prompt Library & Test Definitions [MISSING]
+## A3 — Prompt Library & Test Definitions [SHIPPED, v1.34.277]
 
-- [ ] **A3.1 — Frozen prompt fixtures exported from the real sim.**
-  **[DECIDED: frozen export, as specced.]** A `hearthbench export`
-  command reads recorder archives + prompt builders and writes a
-  versioned fixture pack (`fixtures/v1.4.1/*.json`) containing real
-  `layer1_structured_input` + rendered prompts across every job type —
-  frozen, checked-in, hash-identified.
-- [ ] **A3.2 — Test definition schema (declarative, data not code):**
+- [x] **A3.1 — Frozen prompt fixtures exported from the real sim —
+  SHIPPED.** **[DECIDED: frozen export, as specced.]**
+  `hearthbench/prompts/fixtures.py`'s `export_fixture_pack` reads a
+  real `hearthmind.llm.recorder` archive (via `hearthmind.llm.review_
+  pack.iter_examples` — real reuse, not a second archive walker) and
+  writes `<output_dir>/<version>/<task>.json` + a `manifest.json`
+  naming every task's count and a content-addressed `pack_hash` —
+  frozen, checked-in, hash-identified. Deduplicates by a real content
+  hash (task+structured_input+prompt+system_prompt) so a re-recorded
+  near-identical situation collapses to one fixture rather than
+  crowding out real variety; a deterministic per-task seeded sample
+  (`select_fixtures_per_task`) means re-exporting the SAME archive with
+  the SAME seed reproduces a byte-identical pack — verified directly,
+  not assumed. `scripts/hearthbench_export.py fixtures` is the real
+  `hearthbench export` command.
+- [x] **A3.2 — Test definition schema — SHIPPED.**
+  `hearthbench/prompts/schema.py`'s `TestCase`/`Turn`, the literal
+  checklist shape:
   ```
   TestCase: id, category, fixture_ref, system_prompt, schema_ref,
             scorers[], weight, tags[], turns[] (multi-turn),
             expected_invariants[] (grounding facts that must hold),
             seed
   ```
-  Adding a benchmark category = adding data + a scorer, never touching
-  the runner.
-- [ ] **A3.3 — Multi-turn & stateful cases.** Personality-stability and
-  memory tests need conversation *sequences* with injected state between
-  turns (turn 1 establishes a fact; turn 7 tests recall; turn 12 offers
-  a contradiction).
-- [ ] **A3.4 — Synthetic perturbation.** Reuse `prompt_synthesis.py` to
-  generate fixture variants so a model can't be tuned to the exact
-  fixture set, and rare job types get enough cases for a stable score.
+  `test_case_from_fixture(fixture, category, scorers=[...])` is the
+  real "adding a benchmark category = adding data + a scorer, never
+  touching the runner" mechanism — a `FixtureExample` (A3.1's data) +
+  a scorer-id list (A4's future registry, referenced by string id
+  only, no import) produces a complete `TestCase` with zero runner
+  code touched.
+- [x] **A3.3 — Multi-turn & stateful cases — SHIPPED.** No separate
+  mechanism needed: `TestCase.turns: list[Turn]`, `Turn` carrying
+  `injected_fact`/`expects_recall_of`/`offers_contradiction` — a
+  single-shot case is simply `turns=[]`. `render_turn_sequence(test_
+  case)` is the one real piece of logic (pure, sorts by index,
+  accumulates every prior turn's `injected_fact` into each later
+  turn's `context`) turning declarative `turns` data into the ordered
+  sequence a future A11 runner would actually send — proven directly
+  against the checklist's own worked example ("turn 1 establishes a
+  fact... turn 7 tests recall... turn 12 offers a contradiction").
+- [x] **A3.4 — Synthetic perturbation — SHIPPED.**
+  `hearthbench/prompts/perturbation.py`'s `synthesize_fixtures`
+  wraps ANY `(count, seed) -> [...]` synthesizer as real
+  `FixtureExample`s (`synthetic=True`, `fixture_id` prefixed
+  `synthetic-` so a mixed pack can always tell organic vs. synthesized
+  fixtures apart); `synthesize_town_brain_fixtures` is the one real
+  wired instance, reusing `hearthmind.llm.prompt_synthesis.
+  synthesize_town_brain_batch` directly (real reuse, per the
+  checklist's own text). **Exercising this reuse path for the first
+  time found and fixed a real pre-existing bug**: `synthesize_town_
+  brain_situation` never actually supplied `town_brain.build_prompt`'s
+  required `priority` argument, shifting every following positional
+  argument one slot out of place and raising a `TypeError` on the
+  very first real call — `_VALID_PRIORITIES` had been imported into
+  `prompt_synthesis.py` for exactly this purpose but never wired in.
+  This function (and `scripts/recorder_tools.py synthesize-town-
+  brain`, its only prior real call site) had genuinely never worked
+  end to end before this pass; fixed by drawing `priority` from the
+  real closed vocabulary and passing it in the correct position. See
+  CHANGELOG.md's [1.34.277] entry for the full incident detail.
 
 ## A4 — Scoring & the judge problem [MISSING] — *the central design decision*
 

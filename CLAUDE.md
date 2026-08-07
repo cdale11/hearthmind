@@ -742,6 +742,59 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.277)
+
+Explicit user instruction: "continue phase 6" — A3 (Prompt Library &
+Test Definitions), following A2 (v1.34.276).
+
+A3.1: `hearthbench/prompts/fixtures.py`'s `export_fixture_pack` —
+real reuse of `hearthmind.llm.review_pack.iter_examples` to walk a
+real recorder archive, content-hash dedup, deterministic per-task
+seeded sampling (re-exporting the same archive with the same seed
+reproduces a byte-identical pack, verified directly). New `scripts/
+hearthbench_export.py` is the real `hearthbench export` command.
+A3.2: `schema.py`'s `TestCase`/`Turn`, matching the checklist's literal
+shape; `test_case_from_fixture` is the real "adding a category = data
++ a scorer, never touching the runner" mechanism. A3.3: no separate
+mechanism needed — `Turn`'s `injected_fact`/`expects_recall_of`/
+`offers_contradiction` fields + `render_turn_sequence` (pure,
+accumulates prior turns' facts into each later turn's context); a
+single-shot case is just `turns=[]`. A3.4: `perturbation.py`'s
+`synthesize_fixtures` wraps any synthesizer as real, clearly-marked
+(`synthetic=True`) fixtures; `synthesize_town_brain_fixtures` reuses
+`hearthmind.llm.prompt_synthesis.synthesize_town_brain_batch`.
+
+**Exercising that reuse path for the first time found and fixed a
+real, previously-unnoticed production bug**: `synthesize_town_brain_
+situation` never supplied `town_brain.build_prompt`'s required
+`priority` argument, shifting every later positional argument one slot
+out of place (`TypeError` on the very first real call) — this
+function, and its only prior real call site (`scripts/recorder_
+tools.py synthesize-town-brain`), had genuinely never worked end to
+end before this pass. Fixed by drawing `priority` from the real closed
+vocabulary (`_VALID_PRIORITIES`, already imported for exactly this
+purpose but never wired in) and passing it correctly; confirmed via a
+direct CLI smoke test.
+
+New `scripts/verify_a3_prompt_library.py` (40 checks, all pass first
+run — drives a REAL `TrainingRecorder` through its full queue/writer-
+thread/JSONL pipeline to build a genuine archive, then exports/loads/
+round-trips a real fixture pack from it; the schema/multi-turn/
+perturbation logic; a real CLI subprocess run of both `hearthbench_
+export.py` subcommands).
+
+Verified: the new script; `scripts/verify_hearthbench_isolation.py`/
+`verify_hearthbench_adapter_isolation.py` both clean; `pyflakes` clean
+on all touched/new files; `scripts/verify_replay_hash.py` (800 ticks,
+seed 777, `--in-process`) — MATCH, byte-identical; `scripts/verify_
+native_soak.py` (seeds 1/55, 800 ticks) — MATCH (both re-run since
+`hearthmind/llm/prompt_synthesis.py` was fixed, though confirmed via
+direct grep it's never imported from `simulation/`); a direct CLI
+smoke test of `scripts/recorder_tools.py synthesize-town-brain`
+confirming the real fix. A4 (scoring/"the judge problem") is the next
+dependency-ordered Phase 6 item — resume only on future explicit
+direction.
+
 ## Current state (v1.34.276)
 
 Explicit user instruction: "continue phase 6" — starts Phase 6

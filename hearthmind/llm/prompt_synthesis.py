@@ -94,6 +94,26 @@ def synthesize_town_brain_situation(rng: random.Random) -> dict:
     player_standing = round(rng.uniform(-1.0, 1.0), 2)
     narrative_theme = rng.choice(_NARRATIVE_THEMES)
     event_count = rng.randint(3, 30)
+    priority = rng.choice(_VALID_PRIORITIES)
+    """v1.34.277 fix: `town_brain.build_prompt`'s real signature is
+    `(settlement_name, priority, recent_events, population_summary,
+    settlement_summary, player_whispers, ...)` — `priority` is a
+    required positional param this function never supplied at all,
+    shifting every argument after `settlement_name` one slot out of
+    place (a list of event dicts landing in `priority`, a population
+    summary landing in `recent_events`, etc.) and raising a real
+    `TypeError` (missing `settlement_summary`) on the very first call.
+    `_VALID_PRIORITIES` was already imported for exactly this purpose
+    (see its own module-level docstring: "reused, not duplicated") but
+    never actually wired in — this function had genuinely never been
+    exercised end to end before HearthBench A3.4 became its first real
+    caller. v1.3.35's own note records `town_brain.compute_priority` as
+    THE deterministic decision fed to `build_prompt` for narration —
+    a synthesized situation needs the identical treatment, so `priority`
+    is drawn from the real closed vocabulary rather than re-deriving
+    the full `compute_priority` formula here (this module's own scope,
+    per its docstring, is "plausible input," not re-implementing
+    Body-side decision logic a second time)."""
 
     population_summary = {"total": population, "avg_hunger": avg_hunger, "sick_count": sick_count}
     settlement_summary = {
@@ -106,12 +126,13 @@ def synthesize_town_brain_situation(rng: random.Random) -> dict:
     recent_events = _sample_recent_events(rng, event_count)
 
     prompt = town_brain.build_prompt(
-        settlement_name, recent_events, population_summary, settlement_summary,
+        settlement_name, priority, recent_events, population_summary, settlement_summary,
         player_whispers=[], narrative_theme=narrative_theme,
     )
     return {
         "task": "town_brain",
         "structured_input": {
+            "priority": priority,
             "population_summary": population_summary,
             "settlement_summary": settlement_summary,
             "narrative_theme": narrative_theme,
