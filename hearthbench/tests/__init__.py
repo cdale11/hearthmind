@@ -18,6 +18,7 @@ own last item to build.
 """
 from __future__ import annotations
 
+from hearthbench.scoring import DEFAULT_REGISTRY
 from hearthbench.tests.category import Category, CategoryScoreSummary, percentile, summarize_scores
 from hearthbench.tests.grounding import (
     GROUNDING_CATEGORY,
@@ -36,6 +37,21 @@ CATEGORY_REGISTRY = {
     STRUCTURED_OUTPUTS_CATEGORY.id: STRUCTURED_OUTPUTS_CATEGORY,
     PERFORMANCE_CATEGORY.id: PERFORMANCE_CATEGORY,
 }
+
+# A5.10's own guide (step 4) says a new Tier 1 scorer should be
+# registered into `hearthbench.scoring.DEFAULT_REGISTRY` so a real
+# runner's `registry.resolve(case.scorers)` can find it by id — a
+# category module can't do this itself (it would make `hearthbench.
+# scoring` import from `hearthbench.tests`, a real circular import;
+# this package already imports FROM `hearthbench.scoring`, so
+# extending the shared registry HERE, one-directionally, is the
+# correct place). `no_unsupported_specifics` is grounding's own
+# category-specific Tier 1 scorer (A5.7) — registering it here is what
+# makes `run_case_against_adapter`/`run_cases_against_adapter`
+# (`hearthbench.runner.run`, A11's own real slice) actually score a
+# grounding case's full declared scorer set instead of silently
+# dropping the one id `DEFAULT_REGISTRY` didn't know about.
+DEFAULT_REGISTRY.register(NO_UNSUPPORTED_SPECIFICS_SCORER)
 
 __all__ = [
     "Category", "CategoryScoreSummary", "percentile", "summarize_scores",

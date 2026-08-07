@@ -752,20 +752,107 @@ through in one pass per this project's own "never big-bang" discipline.
 `A0` (confirmed reusable pieces), `A1.1`/`A1.2` (package skeleton +
 import-isolation firewall), `A2` (model adapter layer), `A3` (prompt
 library/test definitions), `A4` (scoring — "the judge problem," the
-doc's own central design fork), and now `A5`'s three OBJECTIVE
-categories (`A5.7`/`A5.8`/`A5.9`, needing no judge model, plus
-`A5.10`'s guide) are shipped. Remaining, in dependency order:
+doc's own central design fork), `A5`'s three OBJECTIVE categories
+(`A5.7`/`A5.8`/`A5.9`, needing no judge model, plus `A5.10`'s guide),
+and now `A13`'s CI regression guard (`A13.1`-`A13.4`, plus the A11
+execution-core slice it needed) are shipped. **Correction to this
+doc's own prior framing**: an earlier pass here placed A13 last
+("needs the whole pipeline first") — wrong; the checklist's own
+SEQUENCE explicitly places it right after A4.1+A5.7/A5.8 ("A13 CI
+regression guard — lands as soon as [that] works"), specifically
+*because* it only needs deterministic scoring, not the full A6-A12
+pipeline. Fixed this pass rather than left to compound. Remaining, in
+dependency order:
 
 `A5.1`-`A5.6` the six subjective categories (needs A4.2's judge tier +
-real content authoring, per the checklist's own SEQUENCE) → `A6`
-structured-output validator → `A7`/`A8`/`A9` metrics collector/
-diagnostics/reports (`A7.3` partially shipped already, see below) →
-`A10` the HearthBench Score → `A11` run modes (unblocks **B15.5**'s
+real content authoring — A4.2 itself is now real, only the content-
+authoring half remains) → `A6` structured-output validator → `A7`/
+`A8`/`A9` metrics collector/diagnostics/reports (`A7.3` partially
+shipped already, see below) → `A10` the HearthBench Score → the
+remaining `A11` run modes (`A11.1`-`A11.5`; unblocks **B15.5**'s
 `reference_mode`, currently built but unused for lack of this, and
 also `A5.11`, gated on B15.5) → `A1.3` process isolation (gated on
 A2+A11, A2 now real) → `A12` web UI (incl. A12.9, the human-rating page
-over A4.3's already-real data model) → `A13` CI prompt-regression
-guard (needs the whole pipeline first).
+over A4.3's already-real data model) → `A13.5`'s nightly deeper run
+(needs real CI infrastructure this repo doesn't have).
+
+- **A13 (+ A11 execution core) — SHIPPED, v1.34.280.** Corrects this
+  doc's own prior mis-ordering (see above) and ships exactly what the
+  checklist's SEQUENCE actually calls for at this point.
+
+  New `hearthbench/runner/run.py` — the one real slice of A11 (the
+  full run-mode abstraction: quick/full/custom/resume/strict-repro,
+  none built) that A13 genuinely needs today: `render_case_prompt`
+  resolves what a `TestCase` should actually send (a `turns`-carrying
+  case's last turn's content; a `fixture_ref`-carrying case resolved
+  against a caller-supplied fixture pack; a case with neither is
+  honestly skipped, never faked — this is exactly `structured_
+  outputs.py`'s own case shape, which carries no prompt text of its
+  own by design). `run_case_against_adapter`/`run_cases_against_
+  adapter` call a real A2 `ModelAdapter` and score through a real
+  `ScorerRegistry`; `aggregate_scores`/`summaries_to_metrics_dict`
+  chain into the same dotted-path metrics-dict shape A0.2's `eval_
+  harness.check_regressions` already knows how to walk.
+
+  New `hearthbench/reporting/ci_guard.py` (A9/A10's own reserved
+  module gets its first real content, scoped specifically to A13, not
+  A9/A10 themselves): `is_relevant_change` (A13.1, a real prefix check
+  over `hearthmind/llm/`/`hearthbench/prompts/`/`hearthbench/scoring/`
+  — no hand-maintained per-file list to go stale); `DEFAULT_CI_
+  THRESHOLDS` (A13.2, objective-category metrics only — grounding's
+  `no_unsupported_specifics`/`leak_freedom`, structured-outputs'
+  `schema_validity`/`length_compliance`/`fallback_free` pass rates,
+  nothing judge-scored); `run_ci_guard` (the real end-to-end path —
+  a genuine no-op with zero adapter calls on an irrelevant change,
+  otherwise runs the real grounding bait cases and gates via A0.2's
+  real `check_regressions`, A13.3); `save_baseline`/`load_baseline`
+  (A13.4, one explicit write path, a missing baseline degrading to
+  `{}` rather than raising).
+
+  **A real, previously-shipped gap found and fixed while building the
+  first thing to actually EXECUTE a grounding case end to end**:
+  A5.7's own `no_unsupported_specifics` scorer (grounding-category-
+  specific, shipped v1.34.279) was never registered into `hearthbench.
+  scoring.DEFAULT_REGISTRY` — A5's own verify script only ever invoked
+  it directly (`SCORER.score(...)`), never through `registry.
+  resolve(case.scorers)`, so the gap stayed invisible until this
+  pass's real runner actually resolved a grounding case's full scorer
+  list and silently dropped the one id the registry didn't know about
+  (`resolve()`'s own documented "silently drops an unknown id"
+  behavior, working exactly as designed against an incomplete
+  registration). Fixed in `hearthbench/tests/__init__.py` — the one
+  legal place to extend the shared registry from a category module
+  without a circular import (`hearthbench.tests` already imports FROM
+  `hearthbench.scoring`, never the reverse). A5.10's own guide already
+  documented this exact registration step; it just hadn't been
+  followed for grounding's own scorer.
+
+  New `scripts/verify_a13_ci_guard.py` (33 checks, all pass first run
+  once the registration fix above was in place) — real HTTP round-
+  trips throughout (same `_CapturingHandler` local-server technique
+  A2/A4's own verify scripts established), no mocked adapter: the real
+  trigger logic across relevant/irrelevant/mixed changesets;
+  `render_case_prompt`'s three real resolution paths incl. the honest
+  skip; a real case run against a real fake server producing real
+  `ScoreDetail`s and a real HTTP request count; a real skipped case
+  making zero HTTP calls; real aggregation into a real dotted-path
+  metrics dict; the full `run_ci_guard` path proven three ways — a
+  real no-op on an irrelevant change, a real pass against a genuinely
+  clean model, and a real caught violation against a genuinely
+  fabricating model, naming the real gated metric; real baseline
+  save/load round-trip incl. the missing-file degrade; a caller-
+  supplied threshold dict genuinely overriding the default.
+
+  Verified: the new script; `verify_hearthbench_isolation.py`/`verify_
+  hearthbench_adapter_isolation.py` both clean (33 hearthbench files);
+  `pyflakes` clean; `verify_a2_model_adapters.py`/`verify_a3_prompt_
+  library.py`/`verify_a4_scoring.py`/`verify_a5_categories.py` all
+  re-run clean (unaffected, including A5's own script — the fix landed
+  in `__init__.py`'s registration wiring, not in `grounding.py`'s own
+  scorer logic, so A5's direct-invocation checks were never wrong,
+  only incomplete coverage of the registry path). No native module or
+  `simulation/engine.py` code path touched — no replay-hash/native-
+  soak re-run needed.
 
 - **A5 (objective slice) — SHIPPED, v1.34.279.** Per the checklist's
   own SEQUENCE ("A4.1 deterministic scorers + A5.7/A5.8 [grounding +

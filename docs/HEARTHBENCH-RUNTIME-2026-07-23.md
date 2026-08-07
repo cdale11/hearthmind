@@ -400,8 +400,19 @@ REMAINING.md`'s Phase 6 entry for full detail.
 - [ ] **A10.4 — Confidence.** `Score: 82.4 ± 3.1 (Full run, N=420
   cases, judge=<model>)`.
 
-## A11 — Run modes [MISSING]
+## A11 — Run modes [PARTIAL, core execution slice shipped v1.34.280]
 
+- [~] **A11 core (unnamed in the checklist, real prerequisite for
+  A11.1-A11.5) — SHIPPED.** `hearthbench/runner/run.py`: given a
+  `TestCase` + a real A2 `ModelAdapter` + a `ScorerRegistry`, resolves
+  what to actually send (`render_case_prompt` — a `turns`-carrying
+  case's last turn, or a `fixture_ref` resolved against a caller-
+  supplied fixture pack; a case with neither is honestly skipped, never
+  faked), calls the adapter, and scores the result. `run_cases_against_
+  adapter`/`aggregate_scores`/`summaries_to_metrics_dict` chain into a
+  real `{category: {scorer: CategoryScoreSummary}}` → dotted-path
+  metrics dict. This is the one mechanism every A11.1-A11.5 mode below
+  would share — none of those modes themselves are built.
 - [ ] **A11.1 — Quick** (minutes): stratified subsample, deterministic
   scorers only, no judge — "is this model worth a full run?"
 - [ ] **A11.2 — Full** (long): complete fixture set, multi-turn cases,
@@ -428,24 +439,42 @@ REMAINING.md`'s Phase 6 entry for full detail.
 - [ ] **A12.8** — Download HTML/JSON/CSV.
 - [ ] **A12.9** — The human-rating page (A4.3).
 
-## A13 — Prompt-regression guard in CI [APPROVED]
+## A13 — Prompt-regression guard in CI [PARTIAL, A13.1-A13.4 shipped v1.34.280]
 
 Catches a prompt edit that silently degrades quality, discovered only
-weeks later in a review pack.
+weeks later in a review pack. Per the checklist's own SEQUENCE ("A13
+CI regression guard — lands as soon as [A4.1 deterministic scorers +
+A5.7/A5.8] works"), ships right after those, well ahead of A6-A12 —
+`hearthbench/reporting/ci_guard.py`, real and standalone (no CI
+pipeline is wired into this repo yet — same gap `scripts/verify_
+runtime_invariant.py`'s own docstring already names — ready to be
+invoked from a future CI workflow the moment one exists).
 
-- [ ] **A13.1 — Trigger:** any change under the prompt builders,
-  `json_schemas.py`, or the shared cognition contract runs a Quick
-  benchmark against a pinned model+quantization+fixture pack,
-  deterministic scorers only (`--no-judge`, so CI needs no judge infra).
-- [ ] **A13.2 — Gate on the objective categories only** (grounding,
-  structured-output validity, leak patterns, context-reflection, length
-  compliance) — never on subjective scores, too noisy for CI.
-- [ ] **A13.3 — Thresholds relative to a stored baseline**, not
-  absolute — reuse `eval_harness`'s regression-threshold checker (A0.2).
-- [ ] **A13.4 — Baseline refresh is an explicit, reviewed commit.**
-- [ ] **A13.5 — Nightly deeper run** on main (larger sample, optional
-  judge) posting a trend line, so slow drift is visible even when every
-  individual PR passes.
+- [x] **A13.1 — Trigger — SHIPPED.** `is_relevant_change(changed_
+  files)`: any change under `hearthmind/llm/` (every prompt builder +
+  `json_schemas.py` already live there) or `hearthbench/prompts/`/
+  `hearthbench/scoring/` (the shared cognition-contract surface)
+  triggers — a real glob-prefix check, not a hand-maintained per-file
+  list that goes stale. `run_ci_guard` runs the real objective-
+  category cases (deterministic scorers only — no judge adapter is
+  ever constructed) through the new `hearthbench/runner/run.py`
+  (A11's own real execution-core slice, built to unblock this item —
+  see A11's entry).
+- [x] **A13.2 — Objective-only gate — SHIPPED.** `DEFAULT_CI_
+  THRESHOLDS` names only grounding/structured-outputs metrics
+  (`no_unsupported_specifics`/`leak_freedom`/`schema_validity`/
+  `length_compliance`/`fallback_free` pass rates) — nothing from a
+  judge-scored category, mechanically checked by the new verify script.
+- [x] **A13.3 — Baseline-relative thresholds — SHIPPED.** Real reuse
+  of A0.2's `hearthmind.llm.eval_harness.check_regressions` — `run_ci_
+  guard` shapes its real metrics into the same dotted-path dict shape
+  that function already walks; no second regression-comparison
+  mechanism built.
+- [x] **A13.4 — Explicit baseline refresh — SHIPPED.** `save_
+  baseline`/`load_baseline` — a plain JSON file, one write path, never
+  called implicitly by a regular guard run.
+- [ ] **A13.5 — Nightly deeper run** — real, distinct, unstarted future
+  work; needs actual CI infrastructure this repo doesn't have.
 
 ---
 
