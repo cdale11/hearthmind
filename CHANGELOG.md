@@ -4,6 +4,98 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.281] — Roadmap Phase 6 continues: HearthBench A7.1/A8, the real run record, and A11.4 resume
+
+Explicit user instruction: "continue phase 6." Re-reading the
+checklist's own SEQUENCE section found a second self-authored ordering
+mistake, the same class as v1.34.280's own correction: this doc's
+`docs/ROADMAP-2026-07-REMAINING.md` restated the dependency order from
+memory as "A6 structured-output validator → A7/A8/A9 metrics/
+diagnostics/reports → A10 → A11 → A12," but SEQUENCE's own step 5
+("A7/A8 metrics + diagnostics; A11.4 resume") explicitly precedes step
+6 ("A9 reports + A10 score; A12 UI; C5 model passport") — and A6 is
+never named anywhere in SEQUENCE at all (a genuinely un-sequenced item,
+blocking nothing, since A5.8's structured-output category already
+scores both constrained/unconstrained modes using only A4.1's existing
+scorers). Corrected in `docs/ROADMAP-2026-07-REMAINING.md` rather than
+left to compound a second time; ships A7.1/A8/A11.4 now, ahead of A6/
+A9/A10/A12.
+
+New `hearthbench/diagnostics/run_record.py` (A8, that package's own
+reserved module gets its first real content): `RunRecordWriter`/
+`RunRecordReader` — one real directory per run, `cases.jsonl` (one
+`CaseRecord` line per case; `commit_case` writes, flushes, and
+`os.fsync`s IMMEDIATELY on every call, never batched in memory — the
+real mechanism A11.4 depends on) plus `manifest.json` (A8.2, written
+once at run creation, never silently overwritten by a later resume
+call). `build_environment_snapshot` reuses A2's own `AdapterDescribe`/
+`AdapterCapabilities` directly, duck-typed off `adapter.describe()`/
+`.capabilities()` — an adapter lacking either method still gets a
+real, honest, partially-empty snapshot rather than a crash. `BlobStore`
+(A8.3): sha256-keyed content-addressed storage under `<run_dir>/
+blobs/`, genuinely deduplicated (a re-stored identical blob is a
+verified real no-op write) — a `CaseRecord` references prompt/
+completion text by hash rather than inlining it twice. `prune_run`
+(A8.4) is the ONE explicit-only deletion path; nothing else in the
+module ever deletes a run directory on its own.
+
+New `hearthbench/metrics/aggregate.py` (A7, that package's own
+reserved module gets its first real content): `recompute_run_metrics
+(run_dir)` reads a run's raw per-case `ScoreDetail`s straight back off
+disk via `RunRecordReader` and re-derives real per-category/per-scorer
+statistics through A7.3's already-shipped `summarize_scores` — A7.1's
+literal claim ("aggregates can be recomputed without re-running")
+proven directly, zero adapter calls, zero re-scoring, pure
+re-aggregation of what A8.1 already committed.
+
+`hearthbench/runner/run.py` gained `run_cases_with_resume(cases,
+adapter, registry, run_dir, ...)` (A11.4): the existing `run_case_
+against_adapter`'s render→call→score sequence was factored into a
+shared `_execute_case` helper so both functions share one real
+implementation rather than diverging copies. Reads `RunRecordReader.
+completed_case_ids()` fresh off disk at call time and skips every case
+already committed there, running and immediately committing only
+what's left — a run interrupted mid-way (crash, Ctrl-C, a deliberately
+paused benchmark) and re-invoked against the SAME `run_dir` picks up
+exactly where it left off, per the checklist's own literal words
+("every completed case commits immediately; resume = skip completed
+IDs").
+
+New `scripts/verify_a7_a8_run_diagnostics.py` (34 checks, all pass
+first run, no bug found) — real HTTP round-trips throughout (the same
+`_CapturingHandler` local-server technique every sibling verify script
+already established), no mocked adapter: `BlobStore`'s real dedup/
+round-trip/missing-digest cases; `CaseRecord`'s round-trip; `build_
+environment_snapshot` against a real `OpenAICompatAdapter` incl. the
+no-`describe()`/`capabilities()` honest-degrade case; `RunRecordWriter`/
+`RunRecordReader`'s manifest write-once guarantee, real JSONL commits,
+and empty-directory degrade; `prune_run`'s real deletion plus its safe
+already-gone no-op; and the headline proof — a real 2-of-4-case partial
+"session" against a real fake server, followed by a real resume call
+with the full 4-case list against the SAME `run_dir`, confirming the
+resume call makes EXACTLY 2 new HTTP requests (never re-running the
+first 2, total 4 across both calls, never 6), all 4 cases land on
+disk, and a THIRD call against an already-complete run makes zero
+further requests; `recompute_run_metrics` recomputing the exact same
+category/scorer statistics from the committed run directory alone,
+incl. confirming v1.34.280's A5.7 scorer-registration fix reaches this
+path too.
+
+Verified: the new script; `scripts/verify_hearthbench_isolation.py`
+(now 35 hearthbench files, still zero forbidden imports either
+direction)/`verify_hearthbench_adapter_isolation.py` both clean;
+`pyflakes` clean; `verify_a2_model_adapters.py`/`verify_a3_prompt_
+library.py`/`verify_a4_scoring.py`/`verify_a5_categories.py`/`verify_
+a13_ci_guard.py` all re-run clean. No native module, `simulation/
+engine.py` code path, or other production file touched (confirmed via
+`git status` — only the two new modules, their `__init__.py`
+re-exports, `runner/run.py`'s additive extension, and the new verify
+script) — no replay-hash/native-soak re-run needed. Per the checklist's
+own SEQUENCE, `A9`/`A10`/`A12`/`C5` (step 6) are the next dependency-
+ordered items; `A6` (structured-output validator) remains open but
+un-sequenced, buildable whenever convenient — resume either only on
+future explicit direction.
+
 ## [1.34.280] — Roadmap Phase 6 continues: HearthBench A13, the CI prompt-regression guard (and its A11 execution core)
 
 Explicit user instruction: "continue phase 6." Re-reading `docs/

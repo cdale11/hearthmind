@@ -1,13 +1,18 @@
-"""HearthBench A11 (partial) — the minimal real slice A13 needs.
+"""HearthBench A11 (partial) — the minimal real slice A13 needed, plus
+A11.4 (resume), built directly on A8's real run record.
 
-A11's own checklist (quick/full/custom run modes, resume, strict-
-repro) is NOT built here — this ships only the one mechanism every
-later A11 mode would share: given a `TestCase`, resolve what to
-actually SEND to an adapter, call it, and score the result against a
-`ScorerRegistry`. A13 (the CI regression guard) genuinely needs this
-today; the fuller run-mode abstraction around it (progress tracking,
-resume-by-skipping-completed-ids, category subsetting) stays real,
-distinct, unstarted future work — see `hearthbench/runner/__init__.py`.
+A11's fuller run-mode abstraction (quick/full/custom, strict-repro) is
+still NOT built here — this ships the one mechanism every later A11
+mode would share: given a `TestCase`, resolve what to actually SEND to
+an adapter, call it, and score the result against a `ScorerRegistry`
+— plus, this pass, `run_cases_with_resume`, which threads that same
+mechanism through A8's `RunRecordWriter`/`RunRecordReader` so a run
+interrupted mid-way can be re-invoked against the same `run_dir` and
+pick up exactly where it left off, per the checklist's own literal
+words ("every completed case commits immediately; resume = skip
+completed IDs"). Progress tracking/category subsetting/strict-repro
+stay real, distinct, unstarted future work — see `hearthbench/
+runner/__init__.py`.
 
 `render_case_prompt` is honest about what it can and can't do: a
 `turns`-carrying case (A3.3's shape) sends only its LAST turn's
@@ -21,10 +26,12 @@ text of their own — see that module's own docstring) has nothing to
 send and is skipped, never crashed on or silently faked.
 
 Import isolation (A1.2): stdlib + `hearthbench.prompts`/`hearthbench.
-scoring` only — no `hearthmind.simulation`/`.agents`/`.world`.
+scoring`/`hearthbench.diagnostics` only — no `hearthmind.simulation`/
+`.agents`/`.world`.
 """
 from __future__ import annotations
 
+from hearthbench.diagnostics.run_record import CaseRecord, RunRecordReader, RunRecordWriter
 from hearthbench.prompts.schema import render_turn_sequence
 from hearthbench.scoring.types import CaseResult
 
@@ -45,6 +52,29 @@ def render_case_prompt(case, fixtures_by_id: dict | None = None) -> tuple:
     return None, case.system_prompt, {}
 
 
+def _execute_case(
+    case, adapter, registry, fixtures_by_id: dict | None, context: dict | None,
+    max_tokens: int | None, temperature: float | None,
+) -> "tuple | None":
+    """The one real render→call→score sequence, shared by `run_case_
+    against_adapter` and `run_cases_with_resume` (A11.4) so there is a
+    single source of truth for "what does running one case actually
+    do" — returns `None` (an honest skip) or `(prompt, adapter_result,
+    case_result, structured_input, scored)`, where `scored` is
+    `{scorer_id: ScoreDetail}`. Never raises for the same reasons `run_
+    case_against_adapter`'s own docstring already gives (an adapter
+    error still produces a real `CaseResult`; a scorer bug degrades to
+    an error `ScoreDetail`)."""
+    prompt, system_prompt, structured_input = render_case_prompt(case, fixtures_by_id)
+    if prompt is None:
+        return None
+    result = adapter.generate(prompt, system=system_prompt, schema=None, max_tokens=max_tokens, temperature=temperature)
+    case_result = CaseResult.from_adapter_result(case.task if hasattr(case, "task") else case.category, structured_input, result)
+    scorers = registry.resolve(case.scorers)
+    scored = {scorer.id: scorer.score(case, case_result, context) for scorer in scorers}
+    return prompt, result, case_result, structured_input, scored
+
+
 def run_case_against_adapter(
     case, adapter, registry, fixtures_by_id: dict | None = None, context: dict | None = None,
     max_tokens: int | None = 300, temperature: float | None = 0.0,
@@ -57,14 +87,11 @@ def run_case_against_adapter(
     produces a real `CaseResult` (`AdapterResult.error` is threaded
     through), and each scorer's own `Scorer.score()` already degrades
     to an error `ScoreDetail` rather than propagating an exception."""
-    prompt, system_prompt, structured_input = render_case_prompt(case, fixtures_by_id)
-    if prompt is None:
+    executed = _execute_case(case, adapter, registry, fixtures_by_id, context, max_tokens, temperature)
+    if executed is None:
         return None
-    schema = None
-    result = adapter.generate(prompt, system=system_prompt, schema=schema, max_tokens=max_tokens, temperature=temperature)
-    case_result = CaseResult.from_adapter_result(case.task if hasattr(case, "task") else case.category, structured_input, result)
-    scorers = registry.resolve(case.scorers)
-    return {scorer.id: scorer.score(case, case_result, context) for scorer in scorers}
+    _prompt, _result, _case_result, _structured_input, scored = executed
+    return scored
 
 
 def run_cases_against_adapter(
@@ -77,6 +104,58 @@ def run_cases_against_adapter(
     results = {}
     for case in cases:
         results[case.id] = run_case_against_adapter(case, adapter, registry, fixtures_by_id, context)
+    return results
+
+
+def run_cases_with_resume(
+    cases: list, adapter, registry, run_dir: str, fixtures_by_id: dict | None = None,
+    context: dict | None = None, environment: dict | None = None,
+    max_tokens: int | None = 300, temperature: float | None = 0.0,
+) -> dict:
+    """A11.4: resume, built directly on A8's real run record — "every
+    completed case commits immediately; resume = skip completed IDs,"
+    the checklist's own literal words. `run_dir` is a real directory: a
+    first call creates it (and writes `environment`'s snapshot into
+    `manifest.json`, once, if supplied); a SECOND call against the
+    SAME `run_dir` — after a crash, a Ctrl-C, or just picking a paused
+    benchmark back up — reads `RunRecordReader.completed_case_ids()`
+    fresh off disk and skips every case already committed there,
+    running only what's left. Each newly-run case's `CaseRecord` is
+    committed to disk the instant it completes (never batched until
+    the end), so a second interruption loses at most the one case that
+    was in flight, never the whole call. Returns `{case_id: {scorer_id:
+    ScoreDetail}}` for only the cases THIS call actually ran — a
+    caller wanting the full run's results (including ones skipped as
+    already-done) reads them back via `hearthbench.metrics.aggregate.
+    recompute_run_metrics(run_dir)` or `RunRecordReader(run_dir).
+    iter_case_records()` directly."""
+    writer = RunRecordWriter(run_dir, environment=environment)
+    already_done = RunRecordReader(run_dir).completed_case_ids()
+
+    results: dict = {}
+    for case in cases:
+        if case.id in already_done:
+            continue
+        executed = _execute_case(case, adapter, registry, fixtures_by_id, context, max_tokens, temperature)
+        if executed is None:
+            continue
+        prompt, result, case_result, structured_input, scored = executed
+        results[case.id] = scored
+
+        record = CaseRecord(
+            case_id=case.id, category=case.category,
+            prompt_hash=writer.blobs.put(prompt) if prompt else None,
+            completion_hash=writer.blobs.put(result.text) if getattr(result, "text", None) else None,
+            parsed_json=case_result.output or None,
+            structured_input=structured_input,
+            fallback_used=case_result.fallback_used, parse_repaired=case_result.parse_repaired,
+            retries=case_result.retries, latency_ms=case_result.latency_ms, ttft_ms=case_result.ttft_ms,
+            prompt_tokens=getattr(result, "prompt_tokens", None),
+            completion_tokens=getattr(result, "completion_tokens", None),
+            error=case_result.error,
+            scores={scorer_id: detail.to_dict() for scorer_id, detail in scored.items()},
+        )
+        writer.commit_case(record)
     return results
 
 

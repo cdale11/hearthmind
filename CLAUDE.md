@@ -742,6 +742,58 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.281)
+
+Explicit user instruction: "continue phase 6" — A7.1/A8 (the real run
+record + recomputable metrics)/A11.4 (resume). Re-reading the
+checklist's own SEQUENCE found a second self-correction needed, same
+class as v1.34.280's: this doc's roadmap had restated the dependency
+order from memory as "A6 → A7/A8/A9 → A10 → A11 → A12," but SEQUENCE's
+real step 5 ("A7/A8 metrics + diagnostics; A11.4 resume") precedes
+step 6 ("A9/A10/A12/C5"), and A6 is never named in SEQUENCE at all
+(genuinely un-sequenced, blocks nothing). Fixed; ships step 5 now.
+
+New `hearthbench/diagnostics/run_record.py` (A8): `RunRecordWriter`/
+`RunRecordReader` — one real directory per run, `cases.jsonl` (one
+`CaseRecord` per case, `commit_case` writes/flushes/`fsync`s
+IMMEDIATELY, never batched — the real mechanism A11.4 needs) +
+`manifest.json` (A8.2, write-once, never overwritten by a later
+resume). `build_environment_snapshot` reuses A2's `AdapterDescribe`/
+`AdapterCapabilities` directly. `BlobStore` (A8.3): sha256-keyed,
+genuinely deduplicated content-addressed storage. `prune_run` (A8.4)
+is the one explicit-only deletion path.
+
+New `hearthbench/metrics/aggregate.py` (A7): `recompute_run_metrics
+(run_dir)` reads a run's stored `ScoreDetail`s back off disk and
+re-derives category statistics via A7.3's `summarize_scores` — A7.1's
+"recomputable without re-running" claim proven directly, zero adapter
+calls.
+
+`hearthbench/runner/run.py` gained `run_cases_with_resume` (A11.4):
+factored the shared render→call→score sequence into `_execute_case`;
+skips every case `RunRecordReader.completed_case_ids()` already has
+on disk, committing each newly-run case immediately — a run resumed
+against the same `run_dir` picks up exactly where it left off.
+
+New `scripts/verify_a7_a8_run_diagnostics.py` (34 checks, all pass —
+real HTTP round-trips, no mocks): BlobStore dedup/round-trip; env
+snapshot incl. honest no-`describe()` degrade; writer/reader manifest
+write-once + JSONL commits; `prune_run`'s real deletion; the headline
+proof — a real 2-of-4 partial session then a resume call making
+exactly 2 new HTTP requests (never 6 total), all 4 cases land, a third
+call makes zero further requests; `recompute_run_metrics` matching
+live aggregation from disk alone.
+
+Verified: the new script; `verify_hearthbench_isolation.py` (35
+hearthbench files)/`verify_hearthbench_adapter_isolation.py` both
+clean; `pyflakes` clean; `verify_a2_model_adapters.py`/`verify_a3_
+prompt_library.py`/`verify_a4_scoring.py`/`verify_a5_categories.py`/
+`verify_a13_ci_guard.py` all re-run clean. No native module,
+`simulation/engine.py` code path, or other production file touched —
+no replay-hash/native-soak re-run needed. Per SEQUENCE, A9/A10/A12/C5
+(step 6) are next; A6 stays open but un-sequenced — resume only on
+future explicit direction.
+
 ## Current state (v1.34.280)
 
 Explicit user instruction: "continue phase 6" — A13 (CI prompt-

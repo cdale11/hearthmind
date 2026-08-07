@@ -345,34 +345,54 @@ REMAINING.md`'s Phase 6 entry for full detail.
 - [ ] **A6.3** — Score both constrained and unconstrained modes when
   supported, report the delta.
 
-## A7 — Metrics Collector [MISSING, A7.3 partial slice shipped v1.34.279]
+## A7 — Metrics Collector [PARTIAL, A7.1+A7.3 shipped v1.34.281]
 
-- [ ] **A7.1** — Per-case/per-category/per-run metric records, all raw
-  values retained (A8) so aggregates can be recomputed without
-  re-running.
+- [x] **A7.1 — SHIPPED.** `hearthbench.metrics.aggregate.recompute_
+  run_metrics(run_dir)`: reads a run's raw per-case `ScoreDetail`s
+  straight back off disk (A8's `RunRecordReader`) and re-derives real
+  per-category/per-scorer statistics via A7.3's own `summarize_scores`
+  — the literal claim ("aggregates can be recomputed without
+  re-running") proven directly: zero adapter calls, zero re-scoring,
+  only re-aggregation of what A8.1 already committed.
 - [ ] **A7.2** — System sampling thread (RSS, swap, CPU%, llama-server
-  `/metrics`), aligned to case boundaries.
-- [~] **A7.3 — PARTIAL.** N, mean, median, p95, stdev, and a confidence
-  interval per category — feeds A10/A11's score-confidence requirement.
-  `hearthbench.tests.category.summarize_scores`/`CategoryScoreSummary`
-  ship exactly this math, real and tested, as A5's own shared
-  category-aggregation infra (needed to give A5.7-A5.9 something to
-  report). NOT the full A7 metrics collector — no per-run record (A7.1),
-  no system-sampling thread (A7.2), no cross-category rollup; a future
-  A7 pass wires a real run's results into this same function rather
-  than replacing it.
+  `/metrics`), aligned to case boundaries. Real, distinct, unstarted —
+  needs a live long-running benchmark process to sample against.
+- [x] **A7.3 — SHIPPED (v1.34.279).** N, mean, median, p95, stdev, and
+  a confidence interval per category — feeds A10/A11's score-confidence
+  requirement. `hearthbench.tests.category.summarize_scores`/
+  `CategoryScoreSummary` ship exactly this math, real and tested, now
+  wired to a real stored run (A7.1) as well as a live one
+  (`hearthbench.runner.run.aggregate_scores`).
 
-## A8 — Diagnostics: lose nothing [MISSING]
+## A8 — Diagnostics: lose nothing [PARTIAL, A8.1/A8.2/A8.3/A8.4 shipped v1.34.281]
 
-- [ ] **A8.1 — Run record** (one directory per run): every raw prompt/
-  completion/parsed JSON/validation error/retry/fallback reason/timing/
-  token count/per-case score with scorer version.
-- [ ] **A8.2 — Environment capture:** backend+version, model file+hash+
-  quantization, context/sampler/server flags, adapter/fixture-pack/
-  scorer/benchmark version, seed, host summary.
-- [ ] **A8.3 — Content-addressed storage** for prompts/completions.
-- [ ] **A8.4 — Retention policy.** Permanent by default; explicit
-  `--prune` only, never auto-delete.
+New `hearthbench/diagnostics/run_record.py`.
+
+- [x] **A8.1 — Run record — SHIPPED.** `RunRecordWriter`/
+  `RunRecordReader`: one real directory per run, `cases.jsonl` (one
+  `CaseRecord` line per case — parsed JSON, structured input,
+  fallback/repair/retry flags, timing, token counts, per-scorer
+  `ScoreDetail`s with scorer version) + `manifest.json` (A8.2).
+  `commit_case` writes, flushes, and `os.fsync`s IMMEDIATELY on every
+  call — never batched in memory — which is the real mechanism A11.4
+  (resume) depends on.
+- [x] **A8.2 — Environment capture — SHIPPED.** `build_environment_
+  snapshot(adapter, run_id)` reuses A2's own `AdapterDescribe`/
+  `AdapterCapabilities` directly (duck-typed off `adapter.describe()`/
+  `.capabilities()`) — model/quantization/context/backend/build_id +
+  capability flags, written once into `manifest.json` at run creation,
+  never silently overwritten by a later resume call.
+- [x] **A8.3 — Content-addressed storage — SHIPPED.** `BlobStore`:
+  sha256-keyed files under `<run_dir>/blobs/`, genuinely deduplicated
+  (re-storing an identical prompt/completion is a real no-op write,
+  verified directly) — a `CaseRecord` references prompt/completion
+  text by hash, never inlines it twice.
+- [x] **A8.4 — Retention policy — SHIPPED.** Permanent by default —
+  nothing in `run_record.py` ever deletes a run directory on its own.
+  `prune_run(run_dir)` is the ONE explicit-only deletion path, never
+  called by `RunRecordWriter`/a normal run or resume call — the same
+  discipline A13.4's `save_baseline` already established for this
+  package.
 
 ## A9 — Reports [MISSING]
 
@@ -400,7 +420,7 @@ REMAINING.md`'s Phase 6 entry for full detail.
 - [ ] **A10.4 — Confidence.** `Score: 82.4 ± 3.1 (Full run, N=420
   cases, judge=<model>)`.
 
-## A11 — Run modes [PARTIAL, core execution slice shipped v1.34.280]
+## A11 — Run modes [PARTIAL, core execution slice v1.34.280 + A11.4 resume v1.34.281]
 
 - [~] **A11 core (unnamed in the checklist, real prerequisite for
   A11.1-A11.5) — SHIPPED.** `hearthbench/runner/run.py`: given a
@@ -418,8 +438,17 @@ REMAINING.md`'s Phase 6 entry for full detail.
 - [ ] **A11.2 — Full** (long): complete fixture set, multi-turn cases,
   judge scoring, repeated sampling for variance.
 - [ ] **A11.3 — Custom:** category subset / single category.
-- [ ] **A11.4 — Resume.** Every completed case commits immediately;
-  resume = skip completed IDs. Non-negotiable at these latencies.
+- [x] **A11.4 — Resume — SHIPPED, v1.34.281.** `hearthbench.runner.
+  run.run_cases_with_resume(cases, adapter, registry, run_dir, ...)`:
+  the checklist's own literal words made real — reads A8's `RunRecord
+  Reader.completed_case_ids()` fresh off disk at call time and skips
+  every case already committed there; each newly-run case commits to
+  `run_dir` (A8.1) the instant it completes. A run interrupted mid-way
+  and re-invoked against the SAME `run_dir` picks up exactly where it
+  left off — verified directly (a 2-of-4-case partial "session"
+  followed by a full-4-case resume call makes exactly 2 NEW HTTP
+  requests, never re-running the first 2; a third call against an
+  already-complete run makes zero).
 - [ ] **A11.5 — Reproducibility.** Fixed seeds, recorded sampler
   settings, a `--strict-repro` mode that fails the run if the adapter
   reports non-deterministic capability.

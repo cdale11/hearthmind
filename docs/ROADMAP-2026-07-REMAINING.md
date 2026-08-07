@@ -754,27 +754,112 @@ import-isolation firewall), `A2` (model adapter layer), `A3` (prompt
 library/test definitions), `A4` (scoring — "the judge problem," the
 doc's own central design fork), `A5`'s three OBJECTIVE categories
 (`A5.7`/`A5.8`/`A5.9`, needing no judge model, plus `A5.10`'s guide),
-and now `A13`'s CI regression guard (`A13.1`-`A13.4`, plus the A11
-execution-core slice it needed) are shipped. **Correction to this
-doc's own prior framing**: an earlier pass here placed A13 last
-("needs the whole pipeline first") — wrong; the checklist's own
-SEQUENCE explicitly places it right after A4.1+A5.7/A5.8 ("A13 CI
-regression guard — lands as soon as [that] works"), specifically
-*because* it only needs deterministic scoring, not the full A6-A12
-pipeline. Fixed this pass rather than left to compound. Remaining, in
-dependency order:
+`A13`'s CI regression guard (`A13.1`-`A13.4`), and now `A7.1`/`A8`
+(the real run record + recomputable metrics)/`A11.4` (resume) are
+shipped. **A second correction to this doc's own prior framing, same
+class as the first**: the previous revision of this section restated
+the checklist's own dependency order from memory as "...A6 structured-
+output validator → A7/A8/A9 metrics/diagnostics/reports → A10 the
+Score → A11 run modes → A12 web UI..." — but the checklist's own
+SEQUENCE section places `A7`/`A8`/`A11.4` (step 5) explicitly BEFORE
+`A9`+`A10`+`A12` (step 6), and never names `A6` at all anywhere in
+SEQUENCE (it is genuinely un-sequenced — buildable whenever convenient,
+blocking nothing downstream, since `A5.8`'s structured-output category
+already scores both constrained/unconstrained modes using only A4.1's
+existing scorers, with no dependency on A6 ever landing). Fixed here
+rather than left to compound a second time. Remaining, in the
+checklist's own real SEQUENCE order:
 
-`A5.1`-`A5.6` the six subjective categories (needs A4.2's judge tier +
-real content authoring — A4.2 itself is now real, only the content-
-authoring half remains) → `A6` structured-output validator → `A7`/
-`A8`/`A9` metrics collector/diagnostics/reports (`A7.3` partially
-shipped already, see below) → `A10` the HearthBench Score → the
-remaining `A11` run modes (`A11.1`-`A11.5`; unblocks **B15.5**'s
-`reference_mode`, currently built but unused for lack of this, and
-also `A5.11`, gated on B15.5) → `A1.3` process isolation (gated on
-A2+A11, A2 now real) → `A12` web UI (incl. A12.9, the human-rating page
-over A4.3's already-real data model) → `A13.5`'s nightly deeper run
-(needs real CI infrastructure this repo doesn't have).
+`A9` reports + `A10` the HearthBench Score + `A12` web UI (incl. A12.9,
+the human-rating page over A4.3's already-real data model) + **C5**
+model passport (step 6) → `A4.2`'s remaining content-authoring half
+(the judge-scoring MECHANISM is already real; A5.1-A5.6's six
+subjective categories need real cases written against it) + `A4.3`'s
+human-rating page's own UI (step 7) → `A5.11` the world-level emergence
+run, gated on **B15.5**'s `reference_mode` (built, still unused —
+now genuinely closer, since A11.4/A8 exist; step 8, explicitly last).
+`A1.3` process isolation (gated on A2+A11, A2 already real) and `A6`
+structured-output validator (un-sequenced, buildable whenever) remain
+open but don't block any of the above. `A7.2` (a system-sampling
+thread) and `A11.1`-`A11.3`/`A11.5` (the fuller quick/full/custom/
+strict-repro run-mode abstraction) stay real, distinct, unstarted
+future work within their own already-partial items.
+
+- **A7.1/A8/A11.4 (real run record, recomputable metrics, resume) —
+  SHIPPED, v1.34.281.** Per the checklist's own SEQUENCE ("A7/A8
+  metrics + diagnostics; A11.4 resume" — step 5, right after A13),
+  ships exactly this, not A6 (see the correction above).
+
+  New `hearthbench/diagnostics/run_record.py` (A8, `hearthbench/
+  diagnostics/`'s own reserved module gets its first real content):
+  `RunRecordWriter`/`RunRecordReader` — one real directory per run,
+  `cases.jsonl` (one `CaseRecord` line per case, `commit_case` writing/
+  flushing/`os.fsync`ing IMMEDIATELY on every call, never batched in
+  memory — the real mechanism A11.4 depends on) + `manifest.json`
+  (A8.2, written once at run creation, never silently overwritten by a
+  later resume call). `build_environment_snapshot` reuses A2's own
+  `AdapterDescribe`/`AdapterCapabilities` directly, duck-typed off
+  `adapter.describe()`/`.capabilities()` — a caller whose adapter lacks
+  either method still gets a real, honest, partially-empty snapshot,
+  never a crash. `BlobStore` (A8.3): sha256-keyed content-addressed
+  storage under `<run_dir>/blobs/`, genuinely deduplicated (a re-stored
+  identical blob is a real no-op write, verified directly rather than
+  assumed from the naming scheme alone) — a `CaseRecord` references
+  prompt/completion text by hash instead of inlining it twice.
+  `prune_run` (A8.4) is the ONE explicit-only deletion path; nothing
+  else in the module ever deletes a run directory.
+
+  New `hearthbench/metrics/aggregate.py` (A7, `hearthbench/metrics/`'s
+  own reserved module gets its first real content): `recompute_run_
+  metrics(run_dir)` reads a run's raw per-case `ScoreDetail`s straight
+  back off disk via `RunRecordReader` and re-derives real per-category/
+  per-scorer statistics through A7.3's already-shipped `summarize_
+  scores` — A7.1's literal claim ("aggregates can be recomputed without
+  re-running") proven directly: zero adapter calls, zero re-scoring,
+  pure re-aggregation of what A8.1 already committed.
+
+  `hearthbench/runner/run.py` gained `run_cases_with_resume(cases,
+  adapter, registry, run_dir, ...)` (A11.4) — factored the existing
+  `run_case_against_adapter`'s render→call→score sequence into a
+  shared `_execute_case` helper so this and the original function share
+  one real implementation rather than diverging copies. Reads `Run
+  RecordReader.completed_case_ids()` fresh off disk at call time and
+  skips every case already committed there, running and immediately
+  committing only what's left — a run interrupted mid-way (crash,
+  Ctrl-C, a deliberately paused benchmark) and re-invoked against the
+  SAME `run_dir` picks up exactly where it left off, per the
+  checklist's own literal words.
+
+  New `scripts/verify_a7_a8_run_diagnostics.py` (34 checks, all pass
+  first run, no bug found) — real HTTP round-trips throughout (the
+  same `_CapturingHandler` local-server technique every sibling verify
+  script already established), no mocked adapter: `BlobStore`'s real
+  dedup/round-trip/missing-digest cases; `CaseRecord`'s round-trip;
+  `build_environment_snapshot` against a real `OpenAICompatAdapter`
+  incl. the no-`describe()`/`capabilities()` honest-degrade case;
+  `RunRecordWriter`/`RunRecordReader`'s manifest write-once guarantee,
+  real JSONL commits, and empty-directory degrade; `prune_run`'s real
+  deletion plus its safe already-gone no-op; and the headline proof —
+  a real 2-of-4-case partial "session" against a real fake server,
+  followed by a real resume call with the full 4-case list against the
+  SAME `run_dir`, confirming the resume call makes EXACTLY 2 new HTTP
+  requests (never re-running the first 2, total 4 across both calls,
+  never 6), all 4 cases land on disk, and a THIRD call against an
+  already-complete run makes zero further requests; `recompute_run_
+  metrics` recomputing the exact same category/scorer statistics from
+  the committed run directory alone, incl. confirming the A5.7
+  registry-registration fix (v1.34.280) reaches this path too.
+
+  Verified: the new script; `verify_hearthbench_isolation.py` (now 35
+  hearthbench files, still zero forbidden imports either direction)/
+  `verify_hearthbench_adapter_isolation.py` both clean; `pyflakes`
+  clean; `verify_a2_model_adapters.py`/`verify_a3_prompt_library.py`/
+  `verify_a4_scoring.py`/`verify_a5_categories.py`/`verify_a13_ci_
+  guard.py` all re-run clean (unaffected). No native module or
+  `simulation/engine.py` code path touched (confirmed via `git status`
+  — only the two new modules, their `__init__.py` re-exports, `runner/
+  run.py`'s additive extension, and the new verify script) — no
+  replay-hash/native-soak re-run needed.
 
 - **A13 (+ A11 execution core) — SHIPPED, v1.34.280.** Corrects this
   doc's own prior mis-ordering (see above) and ships exactly what the
