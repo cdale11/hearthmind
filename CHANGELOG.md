@@ -4,6 +4,109 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.278] — Roadmap Phase 6 continues: HearthBench A4, Scoring & the judge problem
+
+Explicit user instruction: "continue phase 6" — A4, "the central
+design decision" per the doc's own framing, following A3's prompt
+library (v1.34.277).
+
+**[DECIDED: build both paths]** made real, not just recorded: new
+`hearthbench/scoring/` ships all three tiers the checklist names, each
+independently testable without a live LLM server.
+
+A4.1 (Tier 1, always on/free): nine scorers. `schema_validity`/
+`length_compliance`/`leak_freedom`/`context_reflection` are lifted
+directly from `hearthmind.llm.quality_labels`/`.review_diagnostics`,
+matching the checklist's own "lift from quality_labels.py" instruction
+verbatim. `fallback_free`/`latency` are new — a per-case 0/1 reading
+for `fallback_free` (a category's real "rate" is the mean of many
+cases' `value`, the same aggregate-later shape the checklist's other
+rate bullets already imply); `latency` is a pure measurement
+(`value=None`, never a verdict — what counts as "good" latency is
+A10's future rubric's job). `lexical_diversity` (type-token ratio) and
+`repetition_self_similarity` (Jaccard word-overlap against a run's
+prior outputs, reusing the exact 0.6 threshold production's own
+`VOICE_LINE_DUPLICATE_OVERLAP`/`FOLKLORE_DUPLICATE_OVERLAP` already
+settled on for the identical failure class) are new, stdlib-only, and
+close two checklist bullets nothing in this codebase measured before.
+`multi_turn_recall` makes A3.3's `Turn.expects_recall_of` scoreable —
+an honest, real slice of "contradiction detection": checks whether a
+recall-testing turn's own output references the earlier injected
+fact, explicitly NOT a semantic-contradiction detector (that needs
+real understanding, left to Tier 2 rather than faked with a lexical
+heuristic).
+
+A4.2 (Tier 2, optional): `JudgeScorer` wraps ANY A2 `ModelAdapter`
+(duck-typed — zero import of `hearthbench.adapters`, so a judge is
+scored through the exact same `generate()` contract a subject model
+is) behind a fixed, versioned rubric (naturalness/personality/
+emotional-realism, 1-5, with worked score-1/score-5 anchors); judge
+model + rubric version are recorded on every `ScoreDetail`, exactly as
+A4.2's own text requires. `measure_self_consistency` re-scores a fixed
+output N times and reports the real spread (stdev, an `agreement`
+reading bounded to `[0, 1]`) — "self-consistency measured by
+re-scoring a sample," literally.
+
+A4.3 (Tier 3): `HumanRatingTask`/`HumanRating` — a real blind-pairwise
+data model (adapter identity kept structurally separate from what a
+rating page would show a rater) plus append-only JSONL storage
+(`append_rating`/`load_ratings`, same durable-log convention as
+`hearthmind.llm.recorder`'s own archive) and `judge_human_agreement`
+(the report A4.3's own text asks for, incl. a real per-disagreement
+record). The rating PAGE itself is A12.9 — real, distinct, un-started
+UI work — but the data model and agreement math are already usable
+today via a script.
+
+A4.4: `Scorer(id, version, fn(case, result, context) -> ScoreDetail)`
++ `ScorerRegistry` — re-registering an id at a DIFFERENT version is
+rejected outright (`DuplicateScorerError`), so "scorer version is part
+of a run's identity" is mechanically enforced, not just asserted in
+prose. `DEFAULT_REGISTRY` ships pre-populated with all nine Tier 1
+scorers (always safe, always free); Tier 2/3 scorers are per-run
+constructions (they close over a live judge adapter / a rating file)
+registered explicitly by a caller, never auto-registered.
+
+New `CaseResult` (`hearthbench/scoring/types.py`) is this pass's one
+real design decision beyond the checklist's own text: A6 (the full
+structured-output run-record) and A11 (the runner) don't exist yet, so
+every `Scorer.fn`'s `result` parameter needed SOME concrete shape to
+read today. `CaseResult` is a small, honest bridge — duck-typed onto
+both a live A2 `AdapterResult` (`from_adapter_result`) and an
+already-archived recorder example (`from_archive_example`, the exact
+shape A3.1's `fixtures.py` already reads) — nothing here assumes A6's
+eventual real run-record won't carry strictly more detail.
+
+New `scripts/verify_a4_scoring.py` (55 checks, all pass — one real
+floating-point test-DATA fix needed before shipping, not a bug in the
+module under test: `0.9 - 0.85` doesn't land exactly on a `0.05` tie
+margin under IEEE 754, caught immediately and the test's own input
+widened to an unambiguous gap; `judge_implied_choice` itself needed no
+change). Tier 1 exercised against a REAL archive built through a real
+`TrainingRecorder` (same technique A3's own verify script established)
+including a genuinely leaky recorded example (raw coordinates + a
+meta-leakage marker, caught by `leak_freedom`) and a genuinely clean
+one — proves the lift from `quality_labels.py` reads real recorded
+content correctly, not a synthetic stand-in. Tier 2 exercised against
+a REAL local stdlib HTTP server through the REAL `OpenAICompatAdapter`
+(same `_CapturingHandler` technique A2's verify script established): a
+real multi-axis rubric round-trip with a hand-computed composite
+cross-check, a real non-JSON judge answer degrading cleanly to an
+error detail (never a crash), a real unreachable-host connection-
+refused case, and a real 3-sample self-consistency spread over three
+genuinely different canned rubric answers plus a real identical-
+answers case confirming stdev exactly `0.0`/agreement exactly `1.0`.
+
+Verified: the new script; `scripts/verify_hearthbench_isolation.py`/
+`verify_hearthbench_adapter_isolation.py` both clean; `pyflakes` clean
+on all new files; `scripts/verify_a2_model_adapters.py`/`verify_a3_
+prompt_library.py` both re-run clean (unaffected). No native module,
+`simulation/engine.py` code path, or any other production file touched
+this pass (a pure new `hearthbench/scoring/` package + its own verify
+script, confirmed via `git status` showing exactly those two new
+paths) — no replay-hash/native-soak re-run needed. `A5` (the 9
+benchmark categories) is the next dependency-ordered Phase 6 item —
+resume only on future explicit direction.
+
 ## [1.34.277] — Roadmap Phase 6 continues: HearthBench A3, the Prompt Library (and a real bug it found)
 
 Explicit user instruction: "continue phase 6" — A3, the second

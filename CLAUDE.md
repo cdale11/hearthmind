@@ -742,6 +742,71 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.278)
+
+Explicit user instruction: "continue phase 6" — A4 (Scoring & the
+judge problem, "the central design decision"), following A3
+(v1.34.277).
+
+**[DECIDED: build both paths]** made real: new `hearthbench/scoring/`
+ships all three tiers as independently-testable primitives. A4.1
+(Tier 1, always-on/free): nine scorers — `schema_validity`/`length_
+compliance`/`leak_freedom`/`context_reflection` lifted directly from
+`hearthmind.llm.quality_labels`/`.review_diagnostics`; `fallback_free`
+(per-case fallback reading, a category's real rate is the mean across
+cases)/`latency` (a measurement, `value=None`, never a verdict) are
+new; `lexical_diversity`/`repetition_self_similarity` are new stdlib-
+only scorers, the latter reusing production's own settled `0.6`
+Jaccard-overlap threshold (`VOICE_LINE_DUPLICATE_OVERLAP`/`FOLKLORE_
+DUPLICATE_OVERLAP`) for the identical failure class measured across a
+run instead of within one dialogue exchange; `multi_turn_recall` makes
+A3.3's `Turn.expects_recall_of` scoreable — a real, honest slice of
+"contradiction detection" (does a recall-testing turn's output
+reference the injected fact), explicitly not a semantic-contradiction
+detector, which needs real understanding and is left to Tier 2.
+
+A4.2 (Tier 2, optional): `JudgeScorer` wraps any A2 `ModelAdapter`
+(duck-typed, zero import of `hearthbench.adapters`) behind a fixed,
+versioned rubric (naturalness/personality/emotional-realism, worked
+anchors); judge model + rubric version recorded on every result;
+`measure_self_consistency` re-scores a fixed output N times and
+reports the real spread. A4.3 (Tier 3): `HumanRatingTask`/`HumanRating`
+(blind — adapter identity kept structurally separate) + append-only
+JSONL storage + `judge_human_agreement` — real, usable via a script;
+the rating PAGE is A12.9, not attempted. A4.4: `Scorer(id, version,
+fn(case, result, context) -> ScoreDetail)` + `ScorerRegistry`
+(rejects re-registering an id at a different version outright);
+`DEFAULT_REGISTRY` ships pre-populated with all nine Tier 1 scorers.
+
+New `CaseResult` is this pass's one real design decision beyond the
+checklist's own text: A6 (the full run-record)/A11 (the runner) don't
+exist yet, so it's a small honest bridge duck-typed onto both a live
+A2 `AdapterResult` and an already-archived recorder example (A6's
+eventual real run-record may carry strictly more, never less).
+
+New `scripts/verify_a4_scoring.py` (55 checks, all pass — one real
+floating-point test-DATA fix needed, not a module bug: `0.9 - 0.85`
+doesn't land exactly on a `0.05` tie margin under IEEE 754, caught
+immediately, test input widened). Tier 1 exercised against a REAL
+archive built through a real `TrainingRecorder` (same technique A3's
+verify script established), including a genuinely leaky recorded
+example and a clean one. Tier 2 exercised against a REAL local HTTP
+server through the REAL `OpenAICompatAdapter` (same technique A2's
+verify script established): a real rubric round-trip with a hand-
+computed composite cross-check, a real non-JSON judge answer, a real
+unreachable-host case, and a real 3-sample self-consistency spread
+plus an identical-answers case confirming stdev exactly `0.0`.
+
+Verified: the new script; `scripts/verify_hearthbench_isolation.py`/
+`verify_hearthbench_adapter_isolation.py` both clean; `pyflakes`
+clean; `verify_a2_model_adapters.py`/`verify_a3_prompt_library.py`
+both re-run clean. No native module, `simulation/engine.py` code path,
+or other production file touched this pass (a pure new `hearthbench/
+scoring/` package + its own verify script) — no replay-hash/native-
+soak re-run needed, confirmed via `git status` showing only the two
+new paths. `A5` (the 9 benchmark categories) is the next dependency-
+ordered Phase 6 item — resume only on future explicit direction.
+
 ## Current state (v1.34.277)
 
 Explicit user instruction: "continue phase 6" — A3 (Prompt Library &

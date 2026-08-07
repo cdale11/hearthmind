@@ -750,17 +750,92 @@ through in one pass per this project's own "never big-bang" discipline.
 ## Phase 6 — HearthBench (build the benchmark itself)
 
 `A0` (confirmed reusable pieces), `A1.1`/`A1.2` (package skeleton +
-import-isolation firewall), `A2` (model adapter layer), and now `A3`
-(prompt library/test definitions) are shipped. Remaining, in
-dependency order:
+import-isolation firewall), `A2` (model adapter layer), `A3` (prompt
+library/test definitions), and now `A4` (scoring — "the judge
+problem," the doc's own central design fork) are shipped. Remaining,
+in dependency order:
 
-`A4` scoring ("the judge problem," the doc's own central design fork)
-→ `A5` the 9 benchmark categories → `A6` structured-output validator →
+`A5` the 9 benchmark categories → `A6` structured-output validator →
 `A7`/`A8`/`A9` metrics collector/diagnostics/reports → `A10` the
 HearthBench Score → `A11` run modes (unblocks **B15.5**'s `reference_
 mode`, currently built but unused for lack of this) → `A1.3` process
-isolation (gated on A2+A11, A2 now real) → `A12` web UI → `A13` CI
+isolation (gated on A2+A11, A2 now real) → `A12` web UI (incl. A12.9,
+the human-rating page over A4.3's already-real data model) → `A13` CI
 prompt-regression guard (needs the whole pipeline first).
+
+- **A4 — SHIPPED, v1.34.278.** **[DECIDED: build both paths]** made
+  real: `hearthbench/scoring/` ships all three tiers plus A4.4's
+  registry, each independently testable without a live LLM server.
+  A4.1 (Tier 1, always-on/free): nine scorers, five lifted directly
+  from `hearthmind.llm.quality_labels`/`.review_diagnostics` (schema
+  validity, length compliance, leak freedom, context reflection —
+  covers most of Grounding/Structured Outputs/Memory per the
+  checklist's own claim), four genuinely new (`fallback_free` — the
+  per-case reading a category's real parse/retry/fallback RATE
+  aggregates from; `latency` — a measurement, `value=None`, never a
+  verdict, since what counts as "good" is A10's future rubric's call;
+  `lexical_diversity` — type-token ratio, the same "same handful of
+  words reused" failure class production's own `VOICE_LINE_DUPLICATE_
+  OVERLAP`/`FOLKLORE_DUPLICATE_OVERLAP` already fixed twice, measured
+  here at the single-output level; `repetition_self_similarity` — the
+  same failure class measured ACROSS a run's outputs, via a caller-
+  supplied `prior_outputs` list in `context`). A3.3's `Turn.expects_
+  recall_of` is made scoreable as `multi_turn_recall` — a real, honest
+  slice of "contradiction detection": checks whether a recall-testing
+  turn's own output actually references the injected fact (lexical
+  overlap), explicitly NOT detecting an active semantic contradiction
+  (`Turn.offers_contradiction` — that needs real understanding, Tier
+  2's territory, not a heuristic). A4.2 (Tier 2, optional): `JudgeScorer`
+  wraps ANY A2 `ModelAdapter` (duck-typed, zero import of `hearthbench.
+  adapters`) behind a fixed, versioned rubric (naturalness/personality/
+  emotional-realism, 1-5, with worked anchors) — judge model + rubric
+  version recorded on every `ScoreDetail`, exactly as A4.2's own text
+  requires; `measure_self_consistency` re-scores a fixed output N times
+  and reports the real spread (stdev/agreement), the literal
+  "self-consistency measured by re-scoring a sample." A4.3 (Tier 3):
+  `HumanRatingTask`/`HumanRating` (blind — adapter identity kept out of
+  what a rater would see) + append-only JSONL storage + `judge_human_
+  agreement` (the report A4.3's own text asks for) — the rating PAGE
+  itself is A12.9, not attempted here, but the full data model and
+  agreement math are real and already usable via a script. A4.4:
+  `Scorer(id, version, fn(case, result, context) -> ScoreDetail)` +
+  `ScorerRegistry` (rejects re-registering an id at a different
+  version outright — "scorer version is part of a run's identity"
+  enforced, not just claimed); `DEFAULT_REGISTRY` ships pre-populated
+  with all nine Tier 1 scorers. New `CaseResult` is this pass's one
+  real design decision beyond the checklist's own text: A6 (the full
+  run-record) and A11 (the runner) don't exist yet, so `CaseResult` is
+  a small, honest bridge duck-typed onto both a live A2 `AdapterResult`
+  and an already-archived recorder example — nothing assumes A6 won't
+  carry strictly more detail later.
+
+  New `scripts/verify_a4_scoring.py` (55 checks, all pass first run
+  bar one floating-point test-data adjustment in the script itself,
+  not the module under test — `0.9 - 0.85` doesn't land exactly on a
+  `0.05` tie margin in IEEE 754, caught immediately and the test's own
+  input widened, no change to `judge_implied_choice`). Tier 1 exercised
+  against a REAL archive (the same `TrainingRecorder`-driven technique
+  A3's own verify script established) including a genuinely leaky
+  recorded example (raw coordinates + a meta-leakage marker) and a
+  genuinely clean one, proving the lift from `quality_labels.py` reads
+  real recorded content correctly, not synthetic stand-ins. Tier 2
+  exercised against a REAL local HTTP server through the REAL
+  `OpenAICompatAdapter` (same `_CapturingHandler` technique A2's verify
+  script established) — a real multi-axis rubric round-trip with a
+  hand-computed composite check, a real non-JSON judge answer
+  degrading cleanly, a real unreachable-host connection-refused case,
+  and a real 3-sample self-consistency spread over three genuinely
+  different canned rubric answers plus a real identical-answers case
+  confirming stdev exactly 0.
+
+  Verified: the new script; `verify_hearthbench_isolation.py`/`verify_
+  hearthbench_adapter_isolation.py` both clean; `pyflakes` clean;
+  `scripts/verify_a2_model_adapters.py`/`verify_a3_prompt_library.py`
+  both re-run clean (unaffected). No native module, `simulation/
+  engine.py` code path, or other production file touched this pass
+  (pure new `hearthbench/scoring/` package + its own verify script) —
+  no replay-hash/native-soak re-run needed, confirmed via `git status`
+  showing only the two new paths.
 
 - **A3 — SHIPPED, v1.34.277.** A3.1 `hearthbench/prompts/fixtures.py`'s
   `export_fixture_pack` — real reuse of `hearthmind.llm.review_pack.

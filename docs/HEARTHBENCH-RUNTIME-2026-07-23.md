@@ -227,33 +227,47 @@ themselves.
   real closed vocabulary and passing it in the correct position. See
   CHANGELOG.md's [1.34.277] entry for the full incident detail.
 
-## A4 — Scoring & the judge problem [MISSING] — *the central design decision*
+## A4 — Scoring & the judge problem [SHIPPED, v1.34.278] — *the central design decision*
 
 **[DECIDED: build both paths.]** Deterministic-only scoring is a
 first-class run mode (`--no-judge`), used by CI (A13) and quick
 screening; the judge tier is an additive layer for subjective
 categories. Both produce a valid, clearly-labelled report:
 `Score: 78.1 (deterministic-only; Dialogue/Personality unscored)` is
-legitimate, never broken.
+legitimate, never broken. `hearthbench/scoring/` ships all three
+tiers as real, independently-testable primitives (full detail in
+`docs/ROADMAP-2026-07-REMAINING.md`'s Phase 6 / `CLAUDE.md`'s
+"Current state (v1.34.278)") — A10's actual weighted composite
+(`--no-judge` mode itself, the disqualifying floors) is A10's own
+later job, not built here; A4 only ships the scorers and their
+registry.
 
-- [ ] **A4.1 — Tier 1: deterministic scorers (always on, free).**
-  Schema validity, parse/retry/fallback rate, latency/throughput,
-  grounding-violation detection, contradiction detection, repetition/
-  self-similarity, lexical diversity, context-reflection rate, leak
-  patterns, length compliance. Lift from `quality_labels.py`. Covers
-  Grounding, Structured Outputs, Reliability, Performance, and much of
-  Memory alone.
-- [ ] **A4.2 — Tier 2: judge-model scorers (optional, subjective
-  categories).** A configurable, separate judge adapter scoring
-  naturalness/personality/emotional-realism on a fixed rubric with
-  few-shot anchors; judge model + prompt version recorded per run;
-  self-consistency measured by re-scoring a sample.
-- [ ] **A4.3 — Tier 3: human rating UI (calibration ground truth).** A
-  blind-pairwise page over stored outputs; reports judge↔human
-  agreement.
-- [ ] **A4.4 — Scorers are pure, versioned, registered.**
-  `Scorer(id, version, fn(case, result, context) -> ScoreDetail)` —
-  scorer version is part of a run's identity.
+- [x] **A4.1 — Tier 1: deterministic scorers (always on, free) —
+  SHIPPED.** Nine scorers: `schema_validity`/`length_compliance`/
+  `leak_freedom`/`context_reflection` lifted directly from
+  `quality_labels.py`/`review_diagnostics.py`; `fallback_free`/
+  `latency` (parse/retry/fallback rate, latency/throughput);
+  `lexical_diversity`/`repetition_self_similarity` (new, stdlib-only);
+  `multi_turn_recall` (A3.3's `Turn.expects_recall_of` made scoreable
+  — the real, honest slice of "contradiction/grounding-violation
+  detection" this pass ships; a genuine active-contradiction check
+  needs semantic understanding, left to Tier 2).
+- [x] **A4.2 — Tier 2: judge-model scorers (optional, subjective
+  categories) — SHIPPED.** `JudgeScorer` wraps any A2 `ModelAdapter`
+  behind a fixed, versioned rubric (naturalness/personality/emotional-
+  realism, worked anchors); judge model + rubric version recorded on
+  every result; `measure_self_consistency` re-scores a sample and
+  reports the real stdev/agreement.
+- [x] **A4.3 — Tier 3: human rating (calibration ground truth) —
+  PARTIAL.** The blind-pairwise DATA MODEL (`HumanRatingTask`/
+  `HumanRating`, append-only JSONL storage) and `judge_human_agreement`
+  are real and shipped; the rating PAGE itself is A12.9, not attempted
+  this pass.
+- [x] **A4.4 — Scorers are pure, versioned, registered — SHIPPED.**
+  `Scorer(id, version, fn(case, result, context) -> ScoreDetail)` +
+  `ScorerRegistry` (rejects re-registering an id at a different
+  version) — scorer version is part of a run's identity, mechanically
+  enforced, not just stated.
 
 ## A5 — Benchmark categories [MISSING] — every one from the brief
 
