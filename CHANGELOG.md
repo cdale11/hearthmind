@@ -4,6 +4,71 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.271] — Roadmap Phase 4, B9.3 closed + a stale B4.2 doc fix (docs-only)
+
+Explicit user instruction: "continue with phase 4's remaining items" —
+following B3.3's partial close (v1.34.270), investigated Phase 4's
+other two items directly rather than leaving them as vague "not
+attempted" placeholders.
+
+**B9.3, genuinely closed.** After B3.3's 42-site batch, exactly 14
+`_TICK_JOBS` entries remain `TriggerKind.PERIODIC` — read every one of
+them directly (not the ~200-site estimate, which predates this
+session's own B3.3 work closing most of the real candidates). All 14
+fall into one of three classes, none a real timescale mismatch: (1)
+genuine per-tick stochastic processes needing a fresh roll every real
+tick to mean what their own tuned constant says (`spread_concepts`'s
+`CONCEPT_SPREAD_CHANCE_PER_TICK`, `dispute`/`record`/`migration_
+decision`'s cooldown rolls); (2) genuine edge-detection over a
+continuously-varying Body signal that would silently miss the exact
+crossing tick at any coarser cadence (`trigger_state_edges`'s drought/
+surplus low->high detection — its own docstring already states the
+reasoning: "a naive 'check every tick' would fire every tick the state
+stays above threshold," the fix for which IS the tick-scale check,
+not a coarser one); (3) already-cheap O(1) early-exits on a small
+transient collection that changes unpredictably tick-to-tick, not on
+a calendar boundary (`naming`/`retry_mind_authoring`/`trigger_rules_
+life_events`) — technically convertible to `ON_DIRTY`, but the current
+check already costs ~0 (an empty-collection truthiness test), so
+converting would trade real correctness risk (a missed `DirtyTracker.
+mark_dirty` call at one of several mutation sites silently starves the
+job forever) for no measurable win — the opposite trade B3.3's own 42
+conversions made. `due_cognition`/`due_dialogue`/`voice_dialogue` are
+inherently per-agent-due-timer scans (agents become individually
+eligible on their own staggered schedule, never a shared calendar
+event) and `broadcast` is real-time UI infrastructure — both genuinely
+tick-scale by design. `TimescaleLadder`/`ElapsedTimeTracker` (Tier 5's
+`simulation/timescales.py`) stay real, verified, standalone
+infrastructure for a future job that DOES have a genuine mismatch —
+none exists in the live tree today.
+
+**B4.2, a stale doc correction.** The roadmap's own "the last two
+dormancy candidates — 'inactive settlements' and 'distant wildlife'"
+framing was wrong: "inactive settlements" already shipped at v1.34.210
+(`_update_settlement_dormancy`), leaving only "distant wildlife" open
+— that session's own CHANGELOG entry says so explicitly ("This closes
+four of B4.2's five named candidates... Only 'distant wildlife'
+remains open"), a fact this roadmap doc's own Phase 4 section never
+got updated to reflect. Re-investigated "distant wildlife" directly
+this pass rather than just re-flagging it: unlike its four siblings,
+there is no safe Mind-layer-only reframe available for it — wildlife
+carries no institutional/narrative memory of its own for a "which herd
+gets attention" rotation to gate. `WildlifeGrid.tick()`'s predator-
+grazer same-tile collision check runs inside the same per-tick RNG-
+consuming loop as movement/reproduction/migration, so selectively
+freezing "distant" herds risks changing which animals live or die
+based purely on an arbitrary runtime scheduling decision — precisely
+what `docs/CONSTITUTION.md`'s B15 `TWO_PART_GUARANTEE` ("the
+deterministic Body is replay-identical regardless of any runtime
+decision") exists to forbid. This is the fourth session to
+independently reach this same conclusion (v1.34.183/.190/.192/
+.208/.210, now this one) — the roadmap entry is rewritten to say so
+plainly and stop inviting a fifth re-investigation without a real
+product decision first.
+
+Docs-only — no code changed. `docs/ROADMAP-2026-07-REMAINING.md`'s
+Phase 4 section rewritten with both findings in full detail.
+
 ## [1.34.270] — Roadmap Phase 4, B3.3: 42 more `_TICK_JOBS` sites moved onto real event-gating
 
 Explicit user instruction: "continue with phase 4" — Phase 4's B3.3

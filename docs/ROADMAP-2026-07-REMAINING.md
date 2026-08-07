@@ -526,12 +526,75 @@ through in one pass per this project's own "never big-bang" discipline.
   that direction. Resume only on a fresh site actually found, or on
   future explicit direction.
 - **B9.3** — audit ~200 per-tick call sites for timescale mismatch
-  against the real `TimescaleLadder`.
-- **B4.2, the last two dormancy candidates** — "inactive settlements" and
-  "distant wildlife" (of five originally named; three already shipped).
-  Both touch real Body-deterministic per-tick simulation and need a
-  genuinely lossless elapsed-tick reconstruction design before they can
-  sleep safely, unlike their Mind-layer-only siblings.
+  against the real `TimescaleLadder`. **Investigated in full, v1.34.271
+  — genuinely closed, not just deferred.** After B3.3's 42-site batch
+  above, exactly 14 `_TICK_JOBS` entries remain `TriggerKind.PERIODIC`
+  (`naming`, `retry_mind_authoring`, `trigger_state_edges`, `spread_
+  concepts`, `spread_tradition_keeping`, `trigger_rules_life_events`,
+  `composite_reactions`, `record`, `dispute`, `migration_decision`,
+  `due_cognition`, `due_dialogue`, `voice_dialogue`, `broadcast`) — read
+  each one directly rather than trusting the ~200 estimate. All 14 fall
+  into one of three classes, none of which is a real timescale
+  mismatch: (1) genuine per-tick stochastic processes that need a fresh
+  roll every real tick to mean what their own tuned constant says
+  (`spread_concepts`'s `CONCEPT_SPREAD_CHANCE_PER_TICK`, `dispute`/
+  `record`/`migration_decision`'s per-candidate cooldown rolls); (2)
+  genuine edge-detection over a continuously-varying Body signal that
+  would silently miss the exact crossing tick if checked any less
+  often (`trigger_state_edges`'s drought/surplus low->high detection,
+  explicit in its own docstring: "a naive 'check every tick' would fire
+  every tick the state stays above threshold" — the FIX for that is
+  the tick-scale check itself, not a coarser cadence); (3) already-cheap
+  O(1) early-exits on a small transient collection that changes
+  unpredictably tick-to-tick, not on a calendar boundary (`naming`'s
+  `newly_named_settlement_ids`, `retry_mind_authoring`'s pending-agent
+  deque, `trigger_rules_life_events`'s `last_life_events` categories) —
+  technically convertible to `ON_DIRTY`, but the real CPU cost of the
+  current check is already ~0 (an empty-collection truthiness test),
+  so converting would buy real correctness RISK (a missed `DirtyTracker.
+  mark_dirty` call at one of several mutation sites silently starves
+  the job forever) for no measurable win, the opposite trade B3.3's own
+  42 conversions made. `due_cognition`/`due_dialogue`/`voice_dialogue`
+  are inherently per-agent-due-timer scans (agents become individually
+  eligible on their own staggered schedule, not a shared calendar
+  event) and `broadcast` is real-time UI infrastructure — both
+  genuinely tick-scale by design. Nothing here needs `TimescaleLadder`/
+  `ElapsedTimeTracker` wiring; the module stays real, verified,
+  standalone infrastructure for a future consumer that DOES have a
+  genuine mismatch (none exists in the live tree today). This closes
+  B9.3 — resume only if a future new job introduces a real mismatch.
+- **B4.2, the last dormancy candidate** — **"inactive settlements" was
+  already shipped (v1.34.210, `_update_settlement_dormancy`) — this
+  roadmap entry's own "the last two" framing was stale, corrected
+  v1.34.271.** Only **"distant wildlife"** remains open, of five
+  originally named (idle institutions/unused ideas/forgotten
+  traditions/inactive settlements all shipped as Mind-layer-attention-
+  only dormancy — see each one's own `_update_*_dormancy` docstring).
+  Re-investigated directly this pass (`world/wildlife.py`'s
+  `WildlifeGrid.tick`), not just re-flagged: unlike its four siblings,
+  there is no Mind-layer-only reframe available — wildlife carries no
+  institutional/narrative memory of its own for a "which herd gets this
+  month's attention" rotation to gate. `WildlifeGrid.tick()` is real
+  Body-deterministic per-tick simulation with a single shared RNG
+  stream consumed in `self.herds.values()` iteration order across
+  movement, reproduction, hunting, and migration rolls — critically,
+  predator-grazer collision (`prey = next(...) if h.x == herd.x and
+  h.y == herd.y...`) is a real same-tile check inside this SAME loop,
+  so a "distant" predator herd silently frozen while a "distant" grazer
+  herd nearby keeps ticking (or vice versa) would change which animals
+  live or die based purely on an arbitrary runtime scheduling decision
+  — exactly what `docs/CONSTITUTION.md`'s B15 `TWO_PART_GUARANTEE`
+  ("the deterministic Body is replay-identical regardless of any
+  runtime decision") exists to forbid. Freezing BOTH species together
+  by shared distance-to-nearest-settlement would avoid that specific
+  hazard but still needs a real product decision on what a woken herd's
+  population should read after N frozen ticks (freeze it exactly as it
+  was, or a closed-form "coarse ecology" catch-up formula) — a design
+  question, not an implementation gap. Confirmed, not merely repeated:
+  this is the fourth session to independently reach the same
+  conclusion (v1.34.183, v1.34.190, v1.34.192, v1.34.208/.210, now
+  this one) — stop re-investigating it without a real product decision
+  naming which tradeoff to take.
 
 ## Phase 5 — Finish wiring the Adaptive Runtime's remaining pieces
 

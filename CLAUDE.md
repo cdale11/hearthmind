@@ -742,6 +742,59 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.271)
+
+Explicit user instruction: "continue with phase 4's remaining items"
+— B9.3 and B4.2, following B3.3's partial close last pass. **Docs-
+only, no code changed.**
+
+**B9.3, genuinely closed, not deferred.** After B3.3's 42-site batch,
+exactly 14 `_TICK_JOBS` entries remain `TriggerKind.PERIODIC` — read
+every one directly rather than trusting the doc's own stale "~200
+candidates" framing. All 14 fall into one of three classes, none a
+real timescale mismatch: (1) genuine per-tick stochastic processes
+needing a fresh roll every real tick to mean what their own tuned
+constant says (`spread_concepts`/`dispute`/`record`/`migration_
+decision`); (2) genuine edge-detection over a continuously-varying
+Body signal that would silently miss the exact crossing tick at any
+coarser cadence (`trigger_state_edges`'s drought/surplus detection —
+its own docstring already names this exact reasoning); (3) already-
+cheap O(1) early-exits on a small transient collection that changes
+unpredictably tick-to-tick (`naming`/`retry_mind_authoring`/`trigger_
+rules_life_events`) — technically `ON_DIRTY`-convertible, but the
+current check already costs ~0, so converting would trade real
+correctness risk (a missed `DirtyTracker.mark_dirty` call at one of
+several mutation sites silently starves the job forever) for no
+measurable win — the opposite trade B3.3's own 42 conversions made.
+`due_cognition`/`due_dialogue`/`voice_dialogue` (per-agent due-timer
+scans) and `broadcast` (real-time UI infra) are genuinely tick-scale
+by design. `TimescaleLadder`/`ElapsedTimeTracker` stay real, verified,
+standalone infrastructure for a future job that DOES have a genuine
+mismatch — none exists in the live tree today.
+
+**B4.2, a stale doc correction.** The roadmap's own "the last two
+dormancy candidates" framing was wrong — "inactive settlements"
+already shipped at v1.34.210 (`_update_settlement_dormancy`), a fact
+that session's own CHANGELOG entry stated explicitly but this
+roadmap doc never got updated to reflect. Only "distant wildlife"
+remains open. Re-investigated it directly rather than just
+re-flagging: unlike its four siblings, there's no safe Mind-layer-
+only reframe available — `WildlifeGrid.tick()`'s predator-grazer
+same-tile collision check runs inside the same per-tick RNG-consuming
+loop as movement/reproduction/migration, so selectively freezing
+"distant" herds risks changing which animals live or die based purely
+on an arbitrary runtime scheduling decision — exactly what `docs/
+CONSTITUTION.md`'s B15 `TWO_PART_GUARANTEE` exists to forbid. Fourth
+session to independently reach this conclusion (v1.34.183/.190/.192/
+.208/.210, now this one) — the roadmap entry now says so plainly
+rather than inviting a fifth re-investigation without a real product
+decision first.
+
+`docs/ROADMAP-2026-07-REMAINING.md`'s Phase 4 section rewritten with
+both findings in full detail. **This closes Phase 4 in full** — B3.3
+(v1.34.270), B9.3 and the B4.2 correction (this pass) account for all
+three of its named items.
+
 ## Current state (v1.34.270)
 
 Explicit user instruction: "continue with phase 4" — Phase 4's B3.3
