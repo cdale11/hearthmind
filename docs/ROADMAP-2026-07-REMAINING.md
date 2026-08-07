@@ -754,36 +754,114 @@ import-isolation firewall), `A2` (model adapter layer), `A3` (prompt
 library/test definitions), `A4` (scoring — "the judge problem," the
 doc's own central design fork), `A5`'s three OBJECTIVE categories
 (`A5.7`/`A5.8`/`A5.9`, needing no judge model, plus `A5.10`'s guide),
-`A13`'s CI regression guard (`A13.1`-`A13.4`), and now `A7.1`/`A8`
-(the real run record + recomputable metrics)/`A11.4` (resume) are
-shipped. **A second correction to this doc's own prior framing, same
-class as the first**: the previous revision of this section restated
-the checklist's own dependency order from memory as "...A6 structured-
-output validator → A7/A8/A9 metrics/diagnostics/reports → A10 the
-Score → A11 run modes → A12 web UI..." — but the checklist's own
-SEQUENCE section places `A7`/`A8`/`A11.4` (step 5) explicitly BEFORE
-`A9`+`A10`+`A12` (step 6), and never names `A6` at all anywhere in
-SEQUENCE (it is genuinely un-sequenced — buildable whenever convenient,
-blocking nothing downstream, since `A5.8`'s structured-output category
-already scores both constrained/unconstrained modes using only A4.1's
-existing scorers, with no dependency on A6 ever landing). Fixed here
-rather than left to compound a second time. Remaining, in the
-checklist's own real SEQUENCE order:
+`A13`'s CI regression guard (`A13.1`-`A13.4`), `A7.1`/`A8` (the real
+run record + recomputable metrics)/`A11.4` (resume), and now `A9`/`A10`
+(reports + the real weighted composite Score) are shipped. Per the
+checklist's own SEQUENCE (step 6, "A9 reports + A10 score; A12 UI; C5
+model passport" — right after step 5's A7/A8/A11.4), remaining in the
+checklist's own real order:
 
-`A9` reports + `A10` the HearthBench Score + `A12` web UI (incl. A12.9,
-the human-rating page over A4.3's already-real data model) + **C5**
-model passport (step 6) → `A4.2`'s remaining content-authoring half
-(the judge-scoring MECHANISM is already real; A5.1-A5.6's six
-subjective categories need real cases written against it) + `A4.3`'s
-human-rating page's own UI (step 7) → `A5.11` the world-level emergence
-run, gated on **B15.5**'s `reference_mode` (built, still unused —
-now genuinely closer, since A11.4/A8 exist; step 8, explicitly last).
-`A1.3` process isolation (gated on A2+A11, A2 already real) and `A6`
-structured-output validator (un-sequenced, buildable whenever) remain
+`A12` web UI (incl. A12.9, the human-rating page over A4.3's already-
+real data model) + **C5** model passport (the rest of step 6) →
+`A4.2`'s remaining content-authoring half (the judge-scoring MECHANISM
+is already real; A5.1-A5.6's six subjective categories need real cases
+written against it) + `A4.3`'s human-rating page's own UI (step 7) →
+`A5.11` the world-level emergence run, gated on **B15.5**'s `reference_
+mode` (built, still unused — now genuinely closer, since A11.4/A8/A9/
+A10 exist; step 8, explicitly last). `A1.3` process isolation (gated
+on A2+A11, A2 already real) and `A6` structured-output validator
+(un-sequenced, buildable whenever, blocks nothing downstream) remain
 open but don't block any of the above. `A7.2` (a system-sampling
-thread) and `A11.1`-`A11.3`/`A11.5` (the fuller quick/full/custom/
-strict-repro run-mode abstraction) stay real, distinct, unstarted
-future work within their own already-partial items.
+thread), `A11.1`-`A11.3`/`A11.5` (the fuller quick/full/custom/strict-
+repro run-mode abstraction), and A9.1's latency/memory GRAPHS (no
+charting dependency exists in this repo) stay real, distinct,
+unstarted future work within their own already-partial items.
+
+- **A9/A10 (reports + the HearthBench Score) — SHIPPED, v1.34.282.**
+  Per the checklist's own SEQUENCE, step 6 right after step 5's A7/A8/
+  A11.4 (v1.34.281) — reports need a real run/composite to report ON,
+  which is exactly what step 5 shipped.
+
+  New `hearthbench/reporting/score.py` (A10): `compute_score(category_
+  summaries, latency_stats=None, floors=None)` takes the EXACT shape
+  both `hearthbench.runner.run.aggregate_scores` (a live run) and
+  `hearthbench.metrics.aggregate.recompute_run_metrics` (a stored run,
+  read back off disk) already return, so this composes with either
+  with zero adaptation. A10.1: each real `Category.weight` — already
+  the checklist's own stated default table (Grounding 20, Reliability/
+  structured-output 8, Performance 5, the three categories real
+  today) — IS the composite's weight source, never a second hardcoded
+  copy; `MISSING_SUBJECTIVE_CATEGORY_WEIGHTS` records the other six
+  named weights (Dialogue/Beliefs/Memory/Village cognition/
+  Personality/Planning) purely as information so a category with no
+  real data yet is reported as genuinely unmeasured, never scored as a
+  fabricated zero or given silent full credit. A10.2: `DEFAULT_
+  DISQUALIFYING_FLOORS` ships the checklist's own worked example
+  verbatim (grounding < 50 caps the total at 60); only ever checked
+  against a category actually scored this run. A10.3: Performance had
+  NO gradeable scorer at all before this pass (`latency`'s own
+  `ScoreDetail.value` is `None` by design — that scorer's own
+  docstring says "A10's future rubric decides") — `score_from_latency_
+  stats` IS that rubric now, real `LATENCY_SCORE_BANDS_MS` p50-latency
+  bands mapped onto `[0, 100]`. A10.4: `category_confidence_margin`
+  (real 95% CI half-widths, reusing `CategoryScoreSummary.confidence_
+  interval_95` directly) + `overall_confidence_margin` (the WIDEST —
+  least confident — margin among categories that actually
+  contributed, "only as confident as the shakiest measured input").
+
+  New `hearthbench/reporting/report.py` (A9): `render_html_report`
+  (A9.1) — self-contained HTML, the honest recommendation up top, per-
+  category scores with confidence, a "not yet measured" disclosure
+  list, and, given a real `run_dir`, real failure examples pulled
+  through A8's `RunRecordReader`/`BlobStore` (an actual committed
+  case's actual prompt/completion text — never synthesized); latency/
+  memory GRAPHS explicitly not attempted (no charting dependency in
+  this repo — the real p50/p95/max numbers print as a plain table
+  instead, with an honest note). `export_json`/`export_csv` (A9.2).
+  `compare_runs` (A9.3): N real `HearthBenchScore`s against the first
+  as baseline, real per-category deltas, and a genuine significance
+  flag per category — the baseline's and candidate's real confidence
+  intervals either overlap (not flagged) or don't (`significant_
+  change=True`); `None` when either side lacks a real margin, never a
+  guessed flag. `recommendation_text` (A9.4): any real disqualification
+  is stated FIRST, a wide confidence margin is flagged `LOW CONFIDENCE`
+  prominently, an unscored run never states a fabricated total.
+
+  New `scripts/verify_a9_a10_score_report.py` (46 checks, all pass —
+  one real test-calibration fix made before shipping, not a bug in
+  either module: the first attempt assumed a confidently-fabricating
+  model's real grounding score would land below 50 outright, but
+  grounding averages FOUR real scorers and only ONE of them
+  (`no_unsupported_specifics`) actually detects confident fabrication
+  — the other three check leak-freedom/multi-turn recall, unrelated
+  failure modes — so the real measured score lands near 50, not near
+  0; fixed by calibrating the disqualifying floor in the test to what
+  was actually measured rather than asserting an unearned specific
+  number, which is itself the real, honest proof the floor mechanism
+  fires against real degraded data): `score_from_latency_stats`'s real
+  band boundaries; a real end-to-end grounding run (through `run_
+  cases_with_resume` against a real fake HTTP server) feeding a real
+  `compute_score` call whose renormalized weights/n_cases_total/
+  confidence margin all match hand computation; a real disqualification
+  proof against a real fabricating model's real measured data, capped
+  at the real cap; the genuinely-empty-run honest-`None` case;
+  `recommendation_text`'s disqualification-first/low-confidence/no-
+  fabricated-total cases; real JSON/CSV round-trips; a real HTML report
+  containing the real embedded recommendation, latency table, missing-
+  category disclosure, and — pulled from a real run directory — the
+  real fabricated completion text plus the real disqualification
+  banner; `compare_runs` against real score pairs incl. a real negative
+  delta + significant-change flag for a real regression, a same-score-
+  against-itself never-flagged-significant case, and a missing-margin
+  honest-`None` case.
+
+  Verified: the new script; `scripts/verify_hearthbench_isolation.py`
+  (now 37 hearthbench files)/`verify_hearthbench_adapter_isolation.py`
+  both clean; `pyflakes` clean; `verify_a2_model_adapters.py`/`verify_
+  a3_prompt_library.py`/`verify_a4_scoring.py`/`verify_a5_categories.py`/
+  `verify_a13_ci_guard.py`/`verify_a7_a8_run_diagnostics.py` all re-run
+  clean. No native module or `simulation/engine.py` code path touched
+  — no replay-hash/native-soak re-run needed.
 
 - **A7.1/A8/A11.4 (real run record, recomputable metrics, resume) —
   SHIPPED, v1.34.281.** Per the checklist's own SEQUENCE ("A7/A8

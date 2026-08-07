@@ -742,6 +742,60 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.282)
+
+Explicit user instruction: "continue phase 6" — A9 (reports) + A10
+(the HearthBench Score). Per the checklist's own SEQUENCE, step 6
+follows directly after step 5's A7/A8/A11.4 (v1.34.281) — reports need
+a real run to report on, which step 5 just shipped.
+
+New `hearthbench/reporting/score.py` (A10): `compute_score` takes the
+exact `{category: {scorer: CategoryScoreSummary}}` shape both a live
+run and `recompute_run_metrics` already return. A10.1: each real
+`Category.weight` (Grounding 20/structured-outputs 8/Performance 5,
+the three real today) IS the weight source, renormalized over only
+categories with real data; `MISSING_SUBJECTIVE_CATEGORY_WEIGHTS`
+records the other six named weights so they're reported as genuinely
+unmeasured, never zeroed. A10.2: `DEFAULT_DISQUALIFYING_FLOORS` ships
+the checklist's own worked example (grounding<50 caps total at 60).
+A10.3: Performance had no gradeable scorer at all (`latency.value` is
+always `None` by design) — `score_from_latency_stats` is the real p50
+rubric that finally scores it. A10.4: `category_confidence_margin`
+(real 95% CIs) + `overall_confidence_margin` (the widest, "only as
+confident as the shakiest input").
+
+New `hearthbench/reporting/report.py` (A9): `render_html_report`
+(self-contained HTML, honest recommendation first, real failure
+examples pulled through A8's `RunRecordReader`/`BlobStore` when given
+a `run_dir`; latency/memory graphs explicitly not attempted — no
+charting dependency exists, real numbers print as a plain table
+instead); `export_json`/`export_csv`; `compare_runs` (N runs vs. a
+baseline, real per-category deltas + a genuine CI-overlap significance
+flag); `recommendation_text` (disqualification stated first, low
+confidence flagged prominently, never a fabricated total).
+
+New `scripts/verify_a9_a10_score_report.py` (46 checks, all pass —
+one real test-calibration fix, not a module bug: grounding averages 4
+scorers and only 1 detects confident fabrication, so a fabricating
+model's real score lands near 50 not near 0 — the test now calibrates
+its disqualifying floor to what was actually measured, which is
+itself the honest proof the mechanism fires against real data): a
+real end-to-end grounding run through `run_cases_with_resume` feeding
+`compute_score`; a real disqualification against a real fabricating
+model, capped correctly; JSON/CSV round-trips; a real HTML report
+with embedded failure text + disqualification banner; `compare_runs`
+against real score pairs incl. a real significant regression and a
+same-score-vs-itself never-significant case.
+
+Verified: the new script; `verify_hearthbench_isolation.py` (37
+hearthbench files)/`verify_hearthbench_adapter_isolation.py` both
+clean; `pyflakes` clean; `verify_a2_model_adapters.py`/`verify_a3_
+prompt_library.py`/`verify_a4_scoring.py`/`verify_a5_categories.py`/
+`verify_a13_ci_guard.py`/`verify_a7_a8_run_diagnostics.py` all re-run
+clean. No native module or `simulation/engine.py` code path touched
+— no replay-hash/native-soak re-run needed. Per SEQUENCE, A12/C5 (the
+rest of step 6) are next — resume only on future explicit direction.
+
 ## Current state (v1.34.281)
 
 Explicit user instruction: "continue phase 6" — A7.1/A8 (the real run

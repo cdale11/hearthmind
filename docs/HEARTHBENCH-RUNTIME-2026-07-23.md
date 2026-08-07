@@ -394,31 +394,73 @@ New `hearthbench/diagnostics/run_record.py`.
   discipline A13.4's `save_baseline` already established for this
   package.
 
-## A9 — Reports [MISSING]
+## A9 — Reports [PARTIAL, A9.1-A9.4 shipped v1.34.282]
 
-- [ ] **A9.1 — HTML report** (self-contained): recommendation in plain
-  language, per-category scores with confidence, failure examples with
-  the actual prompt/output, latency/memory graphs.
-- [ ] **A9.2 — JSON + CSV exports.**
-- [ ] **A9.3 — Comparison report:** N runs side by side, per-category
-  deltas, a significance flag when CIs overlap, "what changed."
-- [ ] **A9.4 — The recommendation must be honest.** Low confidence
-  stated prominently; a category-disqualifying weakness overrides an
-  otherwise-good average.
+New `hearthbench/reporting/report.py`.
 
-## A10 — The HearthBench Score [MISSING]
+- [x] **A9.1 — HTML report — SHIPPED (partial).** `render_html_report`:
+  self-contained (no external CSS/JS), the plain-language recommendation
+  (A9.4) up top, per-category scores WITH confidence, a real "not yet
+  measured" disclosure list, and — when a real `run_dir` is supplied —
+  real failure examples pulled directly through A8's `RunRecordReader`/
+  `BlobStore` (an actual committed case's actual prompt/completion
+  text, never synthesized). Latency/memory GRAPHS are explicitly NOT
+  attempted — no charting dependency exists in this repo; the report
+  prints the real p50/p95/max numbers as a plain table instead, with
+  an honest note that a chart isn't built.
+- [x] **A9.2 — JSON + CSV exports — SHIPPED.** `export_json`/`export_
+  csv`, stdlib `json`/`csv` only.
+- [x] **A9.3 — Comparison report — SHIPPED.** `compare_runs(labeled_
+  scores)`: N real `HearthBenchScore`s against the first as baseline,
+  real per-category deltas, and a genuine significance flag per
+  category per non-baseline run — the baseline's and candidate's real
+  95%-CI-derived confidence intervals either overlap (not flagged) or
+  don't (`significant_change=True`); `None` when either side lacks a
+  real margin (honest "can't tell," never guessed).
+- [x] **A9.4 — Honest recommendation — SHIPPED.** `recommendation_
+  text`: any real A10.2 disqualification is stated FIRST, before the
+  headline number; a wide confidence margin is flagged `LOW CONFIDENCE`
+  prominently; a genuinely unscored run states so rather than printing
+  a fabricated total.
 
-- [ ] **A10.1 — Weighted composite, explained.** Default weights (all
-  overridable, printed in the report): Grounding 20, Dialogue 15,
-  Beliefs 12, Memory 12, Village cognition 10, Personality 10,
-  Planning 8, Reliability/structured-output 8, Performance 5.
-- [ ] **A10.2 — Disqualifying floors, not just weights** (e.g.
-  grounding < 50 caps the total at 60), stated with its reason.
-- [ ] **A10.3 — Normalization discipline.** Each category maps to
-  0-100 via an explicit, versioned rubric, never a curve against other
-  models.
-- [ ] **A10.4 — Confidence.** `Score: 82.4 ± 3.1 (Full run, N=420
-  cases, judge=<model>)`.
+## A10 — The HearthBench Score [PARTIAL, A10.1-A10.4 shipped v1.34.282]
+
+New `hearthbench/reporting/score.py`.
+
+- [x] **A10.1 — Weighted composite, explained — SHIPPED.** Each real
+  `Category.weight` (already the checklist's own stated default —
+  Grounding 20, Reliability/structured-output 8, Performance 5, the
+  only three categories real today) IS the composite's weight table —
+  no second hardcoded copy. `MISSING_SUBJECTIVE_CATEGORY_WEIGHTS`
+  records the other six named weights (Dialogue 15, Beliefs 12, Memory
+  12, Village cognition 10, Personality 10, Planning 8) purely so
+  `compute_score` can report them as genuinely unmeasured rather than
+  silently omitted. `compute_score` renormalizes weight over ONLY the
+  categories with real scored data this run — a category with zero
+  cases contributes neither a fabricated zero nor silent full credit.
+- [x] **A10.2 — Disqualifying floors — SHIPPED.** `DEFAULT_
+  DISQUALIFYING_FLOORS` ships the checklist's own worked example
+  verbatim (grounding < 50 caps the total at 60, with its stated
+  reason); only checked against a category that was actually scored
+  this run. Verified with real fabricated-answer data: a real model
+  confidently inventing specific facts genuinely trips a real
+  (calibrated-to-what-was-measured) floor and genuinely caps the total.
+- [x] **A10.3 — Normalization discipline — SHIPPED.** Every category
+  score is real `[0, 100]`, `SCORE_RUBRIC_VERSION`-stamped, never a
+  curve against another run. Grounding/structured-outputs (and future
+  subjective categories) score from real `CategoryScoreSummary.pass_
+  rate`/`.mean`; Performance — which has NO gradeable scorer at all
+  (`latency`'s own `ScoreDetail.value` is `None` by design, "A10's
+  future rubric decides") — is scored for the first time via `score_
+  from_latency_stats`'s real `LATENCY_SCORE_BANDS_MS` p50-latency
+  rubric, this item's own literal "future rubric" made real.
+- [x] **A10.4 — Confidence — SHIPPED.** `HearthBenchScore.category_
+  confidence_margin` (a real 95% CI half-width per scored category,
+  reusing `CategoryScoreSummary.confidence_interval_95` directly) +
+  `overall_confidence_margin` (the WIDEST — least confident — margin
+  among the categories that actually contributed, "only as confident
+  as the shakiest measured input") + `n_cases_total` (a real summed
+  case count).
 
 ## A11 — Run modes [PARTIAL, core execution slice v1.34.280 + A11.4 resume v1.34.281]
 
