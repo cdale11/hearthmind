@@ -742,6 +742,72 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.270)
+
+Explicit user instruction: "continue with phase 4" — Phase 4's B3.3
+item, partial close ("convert the remaining `ON_DIRTY`/`ON_EVENT`
+reactivity sites," only `institution_dormancy` converted before this
+pass, per `docs/ROADMAP-2026-07-REMAINING.md`).
+
+Found a large, uniform, safely-batch-convertible class: every job
+gated behind `_monthly_gate`/`_season_year_gate` (both start with
+`if "day_end" not in events: return False` — a coarse per-tick guard
+the scheduler itself never got to see, since the job's own method
+still ran EVERY real tick and immediately returned) plus a handful of
+jobs with a simpler direct `"month_end" in events`/`"day_end" in
+events` check. 42 real sites converted in one batch, per the standing
+"never migrate one at a time... do as many as possible in one turn"
+workflow rule — `institution_dormancy` stays the one prior
+conversion; 4 more dormancy-adjacent/narrative-cadence jobs move to
+`event_types={"month_end"}`; 38 more (chronicle, town_brain, beliefs,
+dream, invention, ontology_proposal/evolution, laws, culture/
+religion/faction/guild/institution jobs, reflection/self_tuning,
+letters, fission, musing, and every other `_monthly_gate`/`_season_
+year_gate`-backed job) move to `event_types={"day_end"}`.
+
+Behavior-preserving by construction, confirmed via direct source
+inspection before converting anything: `Scheduler._due_and_reason`'s
+`ON_EVENT` check reads only `EventBus.pending()`, entirely
+independent of the positional `events`/`previous_season` args still
+forwarded unchanged to `task.fn(*args)` once the task IS due — each
+job's own fine-grained internal gate (staggered day-of-month, retry
+windows, RNG rolls) stays completely untouched; only the scheduler's
+own coarse due-check moves from "call the function every tick, it
+immediately returns" to "never call the function at all on a non-
+matching tick" — a genuine `skipped_clean`, never touching budget/
+deferral machinery, the real structural CPU win B3.1's `DirtyTracker`/
+`EventBus` primitives were built for.
+
+New `SimulationEngine._MONTH_END_GATED_JOBS`/`_DAY_END_GATED_JOBS`
+frozenset class constants drive `_tick_once`'s publish loop.
+`scripts/verify_b0_runtime_migrations.py`'s `EVENT_DRIVEN_TASK_IDS`
+set (previously just `{"institution_dormancy"}`) extended to all 42
+newly-converted task ids — same special-casing shape that script
+already used for the one prior ON_EVENT job, all 176 checks re-pass.
+
+What's deliberately left un-migrated, by design: `sim_summary`/
+`chronicler`/`pillar_chat_*`/`away_digest` (real user-triggered on-
+demand jobs, never periodic) and the three per-agent/per-pair sites
+(`rumor_interpret`/`personal_belief`/`mind`), same exclusion list W2
+already established for settlement-scoped-`GlobalWorkspace` reasons,
+not B3.3's own territory. Genuinely nothing further to convert in
+this direction. Phase 4's other two items (B9.3's ~200-site timescale
+audit, B4.2's last two dormancy candidates — inactive settlements,
+distant wildlife) remain open — resume only on future explicit
+direction.
+
+Verified: a direct 3000-tick production-path run confirming correct
+call-vs-skipped-clean counts through `full_diagnostics()
+['runtime_diagnostics']`; the updated `scripts/verify_b0_runtime_
+migrations.py` (176 checks, all pass); `scripts/verify_b3_dirty_
+events.py`/`verify_runtime_diagnostics.py`/`verify_runtime_
+invariant.py`/`verify_scheduler.py`/`verify_task_graph.py`/`verify_
+dormancy.py` all re-run clean (unaffected); `pyflakes` clean on both
+touched files (only the six known pre-existing forward-ref findings
+in `engine.py`); `scripts/verify_replay_hash.py` (800 ticks, seed
+777, `--in-process`) — MATCH, byte-identical; `scripts/verify_
+native_soak.py` (seeds 1/55, 800 ticks) — MATCH.
+
 ## Current state (v1.34.269)
 
 Explicit user instruction: "start e3" — closes roadmap Phase 3's last

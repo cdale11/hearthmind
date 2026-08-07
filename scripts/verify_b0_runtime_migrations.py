@@ -38,10 +38,19 @@ declared `PriorityClass.CRITICAL` + `TriggerKind.PERIODIC` so the
 scheduler reproduces that exact "always runs, regardless of budget"
 behavior rather than risking a real behavior change (any lower
 priority class could let budget pressure defer a job the original
-direct call never deferred). **One exception, added by Tier 5 B3's
-real control point**: `institution_dormancy` is now `ON_EVENT`, not
-PERIODIC — see `EVENT_DRIVEN_TASK_IDS` below and `scripts/verify_b3_
-dirty_events.py` for the full detail.
+direct call never deferred). **Real exceptions, growing over time as
+Roadmap Phase 4's B3.3 audit converts more of them**: `institution_
+dormancy` was the original B3 pilot; Phase 4 (explicit user instruction
+"continue with phase 4") converted 42 more migrated jobs whose own
+internal gate genuinely keyed off bare `"month_end"`/`"day_end"` event
+membership (`_monthly_gate`/`_season_year_gate`/musing's own raw
+check) to real `ON_EVENT` tasks — see `SimulationEngine._MONTH_END_
+GATED_JOBS`/`_DAY_END_GATED_JOBS`'s own docstrings for the full
+reasoning and `EVENT_DRIVEN_TASK_IDS` below for the complete id list.
+None of these 42 jobs' own internal gate logic changed even slightly —
+only the SCHEDULER's due-check moved from "call the function, it
+immediately returns" to "never call the function at all on a non-
+matching-event tick," B3.1's own named CPU win.
 
 Each migrated job gets its OWN registry+scheduler pair rather than
 sharing one — a real bug caught and fixed while building the SECOND
@@ -322,12 +331,32 @@ MIGRATIONS = [
 ]
 
 
-EVENT_DRIVEN_TASK_IDS = {"institution_dormancy"}
-"""Tier 5 B3's real control point: `institution_dormancy` is the one
-migrated job that's genuinely ON_EVENT, not CRITICAL+PERIODIC — it
-does NOT run every tick by design. Excluded from every "always runs"
-generic assertion below; its own correct behavior is verified in
-depth by `scripts/verify_b3_dirty_events.py`."""
+EVENT_DRIVEN_TASK_IDS = {
+    "institution_dormancy",  # B3's original pilot
+    # Roadmap Phase 4, B3.3 — every real MIGRATIONS-table job converted
+    # to ON_EVENT this pass (idea_dormancy/tradition_dormancy/
+    # settlement_dormancy are also real ON_EVENT jobs but were never
+    # added to the MIGRATIONS table above, so they don't need an entry
+    # here — this set only needs to cover ids this script actually
+    # tests).
+    "temperament", "market_prices", "settlement_trade", "pillar_initiates_contact",
+    "chronicle", "documentary", "tradition", "folklore", "legend_detection", "invention",
+    "ontology_proposal", "ontology_evolution", "composite_entity", "nature_mind",
+    "species_variant", "rule_proposal", "composite_reaction_propose", "festival", "religion",
+    "narrative_direction", "culture_digest", "institution_culture", "consciousness",
+    "reflection", "self_tuning", "musing", "caravan", "town_brain", "beliefs",
+    "personal_belief", "dream", "memory_drift", "omen", "faction", "guild_founding",
+    "institution_belief", "diplomacy", "laws", "noncore_nudge", "letter", "fission",
+    "geography",
+}
+"""Every migrated job that's genuinely ON_EVENT, not CRITICAL+
+PERIODIC — none of these run every tick by design. Excluded from
+every "always runs" generic assertion below; `institution_dormancy`'s
+own correct behavior is verified in depth by `scripts/verify_b3_dirty_
+events.py`; the 42 Phase-4 conversions' own real firing cadence is
+covered by a live multi-thousand-tick production smoke test (not
+re-duplicated here — this script's own job is wiring correctness, not
+firing-cadence correctness, same division of labor as always)."""
 
 
 def check(label: str, condition: bool) -> None:

@@ -475,8 +475,56 @@ Both explicitly need individual per-site judgment plus live replay-hash
 verification, not a mechanism — real, slow, careful work, never rushed
 through in one pass per this project's own "never big-bang" discipline.
 
-- **B3.3** — convert the remaining `ON_DIRTY`/`ON_EVENT` reactivity sites
-  (only `institution_dormancy` converted so far, of ~200 candidates).
+- **B3.3** — convert the remaining `ON_DIRTY`/`ON_EVENT` reactivity sites.
+  **Partially shipped, v1.34.270.** Investigated every `_TICK_JOBS` entry
+  gated behind `_monthly_gate`/`_season_year_gate` (both start with
+  `if "day_end" not in events: return False`, a coarse per-tick guard
+  the scheduler itself never got to see) plus a handful of jobs with a
+  simpler direct `"month_end" in events`/`"day_end" in events` check —
+  42 real, uniform, safely-batch-convertible sites found and converted
+  in one pass, per this project's own "never one at a time" discipline
+  (institution_dormancy stays the one prior conversion; 4 more
+  dormancy-adjacent + narrative-cadence jobs move to `event_types=
+  {"month_end"}`, 38 more — chronicle, town_brain, beliefs, dream,
+  invention, ontology_proposal/evolution, laws, dispute-adjacent
+  narrative jobs, culture/religion/faction/guild/institution jobs,
+  reflection/self_tuning, letters, fission, musing, and more — move to
+  `event_types={"day_end"}`). Behavior-preserving by construction:
+  `Scheduler._due_and_reason`'s `ON_EVENT` check is based solely on
+  `EventBus.pending()`, entirely independent of the positional
+  `events`/`previous_season` args still forwarded unchanged to
+  `task.fn(*args)` once the task IS due — each job's own fine-grained
+  internal gate (staggered day-of-month, retry windows) is completely
+  untouched; only the scheduler's own coarse due-check moves from
+  "call the function every tick, it immediately returns" to "never
+  call the function at all on a non-matching tick" (a genuine
+  `skipped_clean`, never touching budget/deferral machinery — the
+  real CPU win B3.1 was built for). New `_MONTH_END_GATED_JOBS`/
+  `_DAY_END_GATED_JOBS` frozenset constants (`simulation/engine.py`)
+  drive `_tick_once`'s publish loop. `scripts/verify_b0_runtime_
+  migrations.py`'s `EVENT_DRIVEN_TASK_IDS` set (previously just
+  `{"institution_dormancy"}`) extended to all 42 newly-converted
+  task ids — same special-casing shape that script already used for
+  the one prior ON_EVENT job, all 176 checks re-pass. Verified via a
+  direct 3000-tick production-path run (`full_diagnostics()
+  ['runtime_diagnostics']` confirms correct call-vs-skipped-clean
+  counts, e.g. a daily job firing ~once/day with the rest genuinely
+  skipped-clean); `scripts/verify_replay_hash.py` (800 ticks, seed
+  777, `--in-process`) — MATCH, byte-identical; `scripts/verify_
+  native_soak.py` (seeds 1/55, 800 ticks) — MATCH; `scripts/verify_
+  b3_dirty_events.py`/`verify_runtime_diagnostics.py`/`verify_
+  runtime_invariant.py`/`verify_scheduler.py`/`verify_task_graph.py`/
+  `verify_dormancy.py` all re-run clean; `pyflakes` clean (only the
+  six known pre-existing forward-ref findings in `engine.py`). What's
+  left: `sim_summary`/`chronicler`/`pillar_chat_*`/`away_digest`
+  (real user-triggered on-demand jobs — never periodic, structurally
+  can't gate on a calendar event) and the three per-agent/per-pair
+  sites (`rumor_interpret`/`personal_belief`/`mind`) stay un-migrated
+  by design, same exclusion list W2 already established for a
+  different reason (settlement-scoped `GlobalWorkspace` granularity,
+  not B3.3's own territory) — genuinely nothing further to convert in
+  that direction. Resume only on a fresh site actually found, or on
+  future explicit direction.
 - **B9.3** — audit ~200 per-tick call sites for timescale mismatch
   against the real `TimescaleLadder`.
 - **B4.2, the last two dormancy candidates** — "inactive settlements" and

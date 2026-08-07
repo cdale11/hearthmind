@@ -3846,7 +3846,8 @@ class SimulationEngine:
             id="chronicle",
             subsystem="chronicle",
             fn=self._maybe_schedule_chronicle,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -3859,7 +3860,8 @@ class SimulationEngine:
             id="documentary",
             subsystem="documentary",
             fn=self._maybe_schedule_documentary,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -3872,7 +3874,8 @@ class SimulationEngine:
             id="tradition",
             subsystem="tradition",
             fn=self._maybe_schedule_tradition,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -3885,7 +3888,8 @@ class SimulationEngine:
             id="folklore",
             subsystem="folklore",
             fn=self._maybe_schedule_folklore,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -3898,7 +3902,8 @@ class SimulationEngine:
             id="legend_detection",
             subsystem="legend_detection",
             fn=self._maybe_schedule_legend_detection,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -3911,7 +3916,8 @@ class SimulationEngine:
             id="invention",
             subsystem="invention",
             fn=self._maybe_schedule_invention,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -3924,7 +3930,8 @@ class SimulationEngine:
             id="ontology_proposal",
             subsystem="ontology_proposal",
             fn=self._maybe_schedule_ontology_proposal,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -3937,7 +3944,8 @@ class SimulationEngine:
             id="ontology_evolution",
             subsystem="ontology_evolution",
             fn=self._maybe_schedule_ontology_evolution,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -3950,7 +3958,8 @@ class SimulationEngine:
             id="composite_entity",
             subsystem="composite_entity",
             fn=self._maybe_schedule_composite_entity,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -3963,7 +3972,8 @@ class SimulationEngine:
             id="nature_mind",
             subsystem="nature_mind",
             fn=self._maybe_schedule_nature_mind,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -3976,7 +3986,8 @@ class SimulationEngine:
             id="species_variant",
             subsystem="species_variant",
             fn=self._maybe_schedule_species_variant,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -3989,7 +4000,8 @@ class SimulationEngine:
             id="rule_proposal",
             subsystem="rule_proposal",
             fn=self._maybe_schedule_rule_proposal,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -4002,7 +4014,8 @@ class SimulationEngine:
             id="composite_reaction_propose",
             subsystem="composite_reaction_propose",
             fn=self._maybe_schedule_composite_reaction_propose,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -4015,7 +4028,8 @@ class SimulationEngine:
             id="festival",
             subsystem="festival",
             fn=self._maybe_schedule_festival,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -4028,7 +4042,8 @@ class SimulationEngine:
             id="religion",
             subsystem="religion",
             fn=self._maybe_schedule_religion,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -4041,7 +4056,8 @@ class SimulationEngine:
             id="narrative_direction",
             subsystem="narrative_direction",
             fn=self._maybe_schedule_narrative_direction,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -4054,7 +4070,8 @@ class SimulationEngine:
             id="culture_digest",
             subsystem="culture_digest",
             fn=self._maybe_schedule_culture_digest,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -4067,7 +4084,8 @@ class SimulationEngine:
             id="consciousness",
             subsystem="consciousness",
             fn=self._maybe_schedule_consciousness,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -4080,7 +4098,8 @@ class SimulationEngine:
             id="reflection",
             subsystem="reflection",
             fn=self._maybe_schedule_reflection,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -4093,7 +4112,8 @@ class SimulationEngine:
             id="self_tuning",
             subsystem="self_tuning",
             fn=self._maybe_schedule_self_tuning,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -4106,7 +4126,8 @@ class SimulationEngine:
             id="musing",
             subsystem="musing",
             fn=self._maybe_schedule_musing,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -4119,7 +4140,8 @@ class SimulationEngine:
             id="caravan",
             subsystem="caravan",
             fn=self._maybe_schedule_caravan,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -4132,7 +4154,8 @@ class SimulationEngine:
             id="town_brain",
             subsystem="town_brain",
             fn=self._maybe_schedule_town_brain,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -4145,7 +4168,8 @@ class SimulationEngine:
             id="beliefs",
             subsystem="beliefs",
             fn=self._maybe_schedule_beliefs,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -4158,7 +4182,8 @@ class SimulationEngine:
             id="personal_belief",
             subsystem="personal_belief",
             fn=self._maybe_schedule_personal_belief,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -4171,7 +4196,8 @@ class SimulationEngine:
             id="dream",
             subsystem="dream",
             fn=self._maybe_schedule_dream,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -4184,7 +4210,8 @@ class SimulationEngine:
             id="memory_drift",
             subsystem="memory_drift",
             fn=self._maybe_schedule_memory_drift,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -4197,7 +4224,8 @@ class SimulationEngine:
             id="temperament",
             subsystem="temperament",
             fn=self._maybe_tick_temperament,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"month_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -4210,7 +4238,8 @@ class SimulationEngine:
             id="omen",
             subsystem="omen",
             fn=self._maybe_schedule_omen,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -4223,7 +4252,8 @@ class SimulationEngine:
             id="market_prices",
             subsystem="market_prices",
             fn=self._maybe_tick_market_prices,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"month_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -4236,7 +4266,8 @@ class SimulationEngine:
             id="settlement_trade",
             subsystem="settlement_trade",
             fn=self._maybe_tick_settlement_trade,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"month_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -4249,7 +4280,8 @@ class SimulationEngine:
             id="pillar_initiates_contact",
             subsystem="pillar_initiates_contact",
             fn=self._maybe_pillar_initiates_contact,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"month_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -4262,7 +4294,8 @@ class SimulationEngine:
             id="guild_founding",
             subsystem="guild_founding",
             fn=self._maybe_schedule_guild_founding,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -4275,7 +4308,8 @@ class SimulationEngine:
             id="faction",
             subsystem="faction",
             fn=self._maybe_schedule_faction,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -4288,7 +4322,8 @@ class SimulationEngine:
             id="institution_belief",
             subsystem="institution_belief",
             fn=self._maybe_schedule_institution_belief,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -4301,7 +4336,8 @@ class SimulationEngine:
             id="geography",
             subsystem="geography",
             fn=self._maybe_schedule_geography,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -4314,7 +4350,8 @@ class SimulationEngine:
             id="fission",
             subsystem="fission",
             fn=self._maybe_schedule_fission,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -4327,7 +4364,8 @@ class SimulationEngine:
             id="diplomacy",
             subsystem="diplomacy",
             fn=self._maybe_schedule_diplomacy,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -4340,7 +4378,8 @@ class SimulationEngine:
             id="laws",
             subsystem="laws",
             fn=self._maybe_schedule_laws,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -4353,7 +4392,8 @@ class SimulationEngine:
             id="noncore_nudge",
             subsystem="noncore_nudge",
             fn=self._maybe_schedule_noncore_nudge,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -4366,7 +4406,8 @@ class SimulationEngine:
             id="letter",
             subsystem="letter",
             fn=self._maybe_schedule_letter,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -4461,7 +4502,8 @@ class SimulationEngine:
             id="institution_culture",
             subsystem="institution_culture",
             fn=self._maybe_schedule_institution_culture,
-            trigger=TriggerKind.PERIODIC,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"day_end"}),
             reads=frozenset({"world.settlements"}),
             writes=frozenset({"world.settlements"}),
             timescale="tick",
@@ -6466,6 +6508,92 @@ class SimulationEngine:
         "_maybe_schedule_institution_culture": "_runtime_scheduler_institution_culture",
     }
 
+    _MONTH_END_GATED_JOBS: frozenset[str] = frozenset({
+        "_update_institution_dormancy",
+        "_update_idea_dormancy",
+        "_update_tradition_dormancy",
+        "_update_settlement_dormancy",
+        "_maybe_tick_temperament",
+        "_maybe_tick_market_prices",
+        "_maybe_tick_settlement_trade",
+        "_maybe_pillar_initiates_contact",
+    })
+    """Roadmap Phase 4, B3.3 (explicit user instruction "continue with
+    phase 4"): every B0.3-migrated job whose OWN internal gate ever
+    checked a bare `"month_end" not in events: return` as its real
+    scheduling condition — `_update_institution_dormancy`'s three
+    dormancy siblings were already converted to `TriggerKind.ON_EVENT`
+    (B3, the original pilot); `_maybe_tick_temperament`/`_maybe_tick_
+    market_prices`/`_maybe_tick_settlement_trade`/`_maybe_pillar_
+    initiates_contact` share the identical shape and are converted in
+    this same pass. Each job's OWN internal gate call is completely
+    UNCHANGED — this only moves the "is it even month_end" check from
+    inside the function (called every tick, immediately returning on a
+    miss) to the scheduler's own B3.1/B3.2 due-check (`skipped_clean`,
+    never touching budget/deferral machinery at all on a non-month_end
+    tick), the real structural CPU win B3.1's own text names."""
+
+    _DAY_END_GATED_JOBS: frozenset[str] = frozenset({
+        "_maybe_schedule_chronicle",
+        "_maybe_schedule_documentary",
+        "_maybe_schedule_tradition",
+        "_maybe_schedule_folklore",
+        "_maybe_schedule_legend_detection",
+        "_maybe_schedule_invention",
+        "_maybe_schedule_ontology_proposal",
+        "_maybe_schedule_ontology_evolution",
+        "_maybe_schedule_composite_entity",
+        "_maybe_schedule_nature_mind",
+        "_maybe_schedule_species_variant",
+        "_maybe_schedule_rule_proposal",
+        "_maybe_schedule_composite_reaction_propose",
+        "_maybe_schedule_festival",
+        "_maybe_schedule_religion",
+        "_maybe_schedule_narrative_direction",
+        "_maybe_schedule_culture_digest",
+        "_maybe_schedule_institution_culture",
+        "_maybe_schedule_consciousness",
+        "_maybe_schedule_reflection",
+        "_maybe_schedule_self_tuning",
+        "_maybe_schedule_caravan",
+        "_maybe_schedule_town_brain",
+        "_maybe_schedule_beliefs",
+        "_maybe_schedule_personal_belief",
+        "_maybe_schedule_dream",
+        "_maybe_schedule_memory_drift",
+        "_maybe_schedule_omen",
+        "_maybe_schedule_faction",
+        "_maybe_schedule_guild_founding",
+        "_maybe_schedule_institution_belief",
+        "_maybe_schedule_diplomacy",
+        "_maybe_schedule_laws",
+        "_maybe_schedule_noncore_nudge",
+        "_maybe_schedule_letter",
+        "_maybe_schedule_fission",
+        "_maybe_schedule_geography",
+        "_maybe_schedule_musing",
+    })
+    """Roadmap Phase 4, B3.3, this pass's larger half: every real
+    B0.3-migrated job whose own internal gate — `_monthly_gate`/
+    `_season_year_gate` (both start `if "day_end" not in events:
+    return False`), or (musing alone) a bare `if "day_end" not in
+    events: return` — makes "was this even a real day_end tick" the
+    genuine first-line precondition for doing anything at all. Same
+    "move the check to the scheduler, leave the function's own finer-
+    grained gate (day-of-month/retry-window/RNG roll) completely
+    untouched" shape as `_MONTH_END_GATED_JOBS` above — a converted
+    job's `_monthly_gate(events, "job")`/`_season_year_gate(...)` call
+    inside its own body is UNCHANGED, so its real firing day/season and
+    retry-window behavior are byte-for-byte identical to before this
+    pass; only non-day_end ticks now skip cleanly at the scheduler
+    level instead of invoking the function to immediately bail.
+    Excludes every genuinely per-tick job (`_schedule_due_cognition`/
+    `_schedule_due_dialogue`/`_schedule_voice_dialogue`/`_maybe_
+    schedule_record`/`_maybe_schedule_dispute`/`_maybe_schedule_
+    migration_decision`/etc.) — none of those take `events` as a real
+    gating input at all, so they're correctly still `PERIODIC`, not
+    B3.3 candidates left unconverted by oversight."""
+
     def _tick_once(self) -> None:
         tick_start = time.perf_counter()
         self._reserved_this_tick = 0  # see its docstring: fresh reservation count each tick
@@ -6481,17 +6609,22 @@ class SimulationEngine:
 
         previous_season = self.world.clock.season
         events = self.world.tick()
-        # Tier 5 B3's real control point: `_update_institution_dormancy`'s
-        # Task is declared `ON_EVENT`/`event_types={"month_end"}` — the
-        # scheduler's own B3.2 EventBus needs the real per-tick calendar
-        # event published into it before that job's dispatch slot runs,
-        # same source (`events`) its old internal `if "month_end" not
-        # in events: return` guard used to read directly.
+        # Tier 5 B3's real control point, extended in Roadmap Phase 4's
+        # B3.3 pass (explicit user instruction "continue with phase 4")
+        # from the original 4-job pilot to every real B0.3-migrated job
+        # whose own gate genuinely keyed off bare event membership —
+        # see `_MONTH_END_GATED_JOBS`/`_DAY_END_GATED_JOBS`'s own
+        # docstrings for the full reasoning. Each `ON_EVENT` task's
+        # scheduler needs the real per-tick calendar event published
+        # into its own B3.2 EventBus before that job's dispatch slot
+        # runs, same source (`events`) its old internal gate read
+        # directly.
         if "month_end" in events:
-            self._runtime_scheduler_institution_dormancy.event_bus.publish("month_end")
-            self._runtime_scheduler_idea_dormancy.event_bus.publish("month_end")
-            self._runtime_scheduler_tradition_dormancy.event_bus.publish("month_end")
-            self._runtime_scheduler_settlement_dormancy.event_bus.publish("month_end")
+            for _job in self._MONTH_END_GATED_JOBS:
+                getattr(self, self._RUNTIME_SCHEDULED_JOB_SCHEDULERS[_job]).event_bus.publish("month_end")
+        if "day_end" in events:
+            for _job in self._DAY_END_GATED_JOBS:
+                getattr(self, self._RUNTIME_SCHEDULED_JOB_SCHEDULERS[_job]).event_bus.publish("day_end")
         total_materials = sum(s.materials for s in self.world.settlements)
         self._materials_level_history.append((self.world.clock.tick_count, total_materials))
         for event in events:

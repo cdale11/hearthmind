@@ -4,6 +4,81 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.270] — Roadmap Phase 4, B3.3: 42 more `_TICK_JOBS` sites moved onto real event-gating
+
+Explicit user instruction: "continue with phase 4" — Phase 4's B3.3
+item ("convert the remaining `ON_DIRTY`/`ON_EVENT` reactivity sites,"
+only `institution_dormancy` converted before this pass). Investigated
+every `_TICK_JOBS` entry and found a large, uniform, safely-batch-
+convertible class: every job gated behind `_monthly_gate`/`_season_
+year_gate` (both start with `if "day_end" not in events: return
+False` — a coarse per-tick guard the scheduler itself never got to
+see, since the job's own method still ran every real tick and
+immediately returned) plus a handful of jobs with a simpler direct
+`"month_end" in events`/`"day_end" in events` check. 42 real sites
+converted in one batch, per this project's own "never migrate one at
+a time... do as many as possible in one turn" standing rule —
+`institution_dormancy` stays the one prior conversion; 4 more
+dormancy-adjacent/narrative-cadence jobs (`_maybe_tick_temperament`/
+`_maybe_tick_market_prices`/`_maybe_tick_settlement_trade`/`_maybe_
+pillar_initiates_contact`) move to `event_types={"month_end"}`; 38
+more (chronicle, town_brain, beliefs, dream, invention, ontology_
+proposal/evolution, laws, culture/religion/faction/guild/institution
+jobs, reflection/self_tuning, letters, fission, musing, and every
+other `_monthly_gate`/`_season_year_gate`-backed job) move to
+`event_types={"day_end"}`.
+
+Behavior-preserving by construction, confirmed by direct source
+inspection before converting anything: `Scheduler._due_and_reason`'s
+`ON_EVENT` check is based solely on `EventBus.pending()`, entirely
+independent of the positional `events`/`previous_season` arguments
+still forwarded unchanged to `task.fn(*args)` once the task IS due —
+each job's own fine-grained internal gate logic (staggered day-of-
+month, retry windows, RNG rolls) stays completely untouched; only the
+scheduler's own coarse due-check moves from "call the function every
+tick, it immediately returns" to "never call the function at all on a
+non-matching tick" — a genuine `skipped_clean`, never touching
+budget/deferral machinery, the real structural CPU win B3.1's own
+`DirtyTracker`/`EventBus` primitives were built for and B3.3's own
+text names as the "single biggest win."
+
+New `SimulationEngine._MONTH_END_GATED_JOBS`/`_DAY_END_GATED_JOBS`
+frozenset class constants drive `_tick_once`'s publish loop (replacing
+the old 4-line hardcoded month_end-only block that only covered the
+four dormancy jobs). `scripts/verify_b0_runtime_migrations.py`'s
+`EVENT_DRIVEN_TASK_IDS` set (previously just `{"institution_
+dormancy"}`, used to assert every OTHER migrated task stays `CRITICAL
++ PERIODIC`) extended to all 42 newly-converted task ids — the same
+special-casing shape that script already used for the one prior
+ON_EVENT job.
+
+Verified: a direct 3000-tick production-path run confirming correct
+call-vs-skipped-clean counts through `full_diagnostics()
+['runtime_diagnostics']` (e.g. a daily job firing once per real day
+crossed with the rest of that day's ticks genuinely recorded skipped_
+clean); the updated `scripts/verify_b0_runtime_migrations.py` (176
+checks, all pass); `scripts/verify_b3_dirty_events.py`/`verify_
+runtime_diagnostics.py`/`verify_runtime_invariant.py`/`verify_
+scheduler.py`/`verify_task_graph.py`/`verify_dormancy.py` all re-run
+clean (unaffected); `pyflakes` clean on both touched files (only the
+six known pre-existing forward-ref findings in `engine.py`);
+`scripts/verify_replay_hash.py` (800 ticks, seed 777, `--in-process`)
+— MATCH, byte-identical; `scripts/verify_native_soak.py` (seeds 1/55,
+800 ticks) — MATCH.
+
+What's deliberately left un-migrated, by design: `sim_summary`/
+`chronicler`/`pillar_chat_*`/`away_digest` (real user-triggered on-
+demand jobs, never periodic — structurally can't gate on a calendar
+event), and the three per-agent/per-pair sites (`rumor_interpret`/
+`personal_belief`/`mind`), same exclusion list W2 already established
+for a different reason (settlement-scoped `GlobalWorkspace`
+granularity is W3's own territory, not B3.3's). Genuinely nothing
+further to convert in this specific direction. Phase 4's other two
+items (B9.3's ~200-site timescale audit, B4.2's last two dormancy
+candidates — inactive settlements, distant wildlife) remain open,
+each needing its own real per-site judgment pass — resume only on
+future explicit direction.
+
 ## [1.34.269] — Roadmap Phase 3, E3: a real per-agent competing-goals workspace
 
 Explicit user instruction: "start e3" — closes Phase 3's last real
