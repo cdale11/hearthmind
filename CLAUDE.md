@@ -742,6 +742,62 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.279)
+
+Explicit user instruction: "continue phase 6" — A5's three objective
+categories (A5.7 Grounding, A5.8 Structured Outputs, A5.9 Performance)
+plus A5.10's extension guide, following A4 (v1.34.278). Per the
+checklist's own SEQUENCE, ships exactly what's buildable on A4.1's
+real Tier 1 scorers alone (no judge model needed); the six subjective
+categories (A5.1-A5.6) stay explicitly open.
+
+New `hearthbench/tests/category.py`: `Category` (weight mirrors
+A10.1's own stated default composite table) + `summarize_scores`/
+`CategoryScoreSummary` — a real, tested, category-scoped slice of
+A7.3's stated statistics (N/mean/median/p95/stdev/95% CI), explicitly
+NOT the full A7 metrics collector (no per-run record, no system-
+sampling thread), flagged as such rather than overclaimed.
+
+**A5.7 Grounding** (`grounding.py`, weight 20): four real hand-
+authored adversarial `TestCase`s, each baiting a specific fact its own
+`structured_input` deliberately withholds. New category-specific
+scorer `no_unsupported_specifics`: flags a number/proper-noun claim in
+the output with no support in `structured_input`, bounded so heavy
+fabrication saturates rather than falling unboundedly. "Reward
+explicit uncertainty" needed no separate logic — a hedge introduces no
+new specifics, so it already scores clean under the same heuristic.
+
+**A5.8 Structured outputs** (`structured_outputs.py`, weight 8):
+`build_structured_output_cases()` derives a real `(grammar, no_
+grammar)` case pair per task actually registered in `hearthmind.llm.
+json_schemas.TASK_SCHEMAS` — zero hardcoded task list. `score_
+structured_output_delta` answers A6.3's identical "score both modes,
+report the delta" using only `CategoryScoreSummary`'s `pass_rate`.
+
+**A5.9 Performance** (`performance.py`, weight 5): wraps A4.1's
+`latency` scorer; `summarize_latency` computes real p50/p95/max/mean
+for latency, TTFT, and completion tok/s. Continuous RAM/swap/CPU%
+sampling (A7.2) stays unstarted future work.
+
+**A5.10**: `docs/HEARTHBENCH-CATEGORY-GUIDE.md` (a real 5-step
+walkthrough) + `hearthbench/tests/_template.py` (a real, importable,
+deliberately unregistered starter module).
+
+New `scripts/verify_a5_categories.py` (47 checks, all pass — one real
+test-DATA fix, not a module bug: a bait-question substring check
+looked for "population," never literally in the real rendered
+question — fixed to check for "marshcroft").
+
+Verified: the new script; `scripts/verify_hearthbench_isolation.py`/
+`verify_hearthbench_adapter_isolation.py` both clean (31 hearthbench
+files); `pyflakes` clean; `verify_a2_model_adapters.py`/`verify_a3_
+prompt_library.py`/`verify_a4_scoring.py` all re-run clean. No native
+module, `simulation/engine.py` code path, or other production file
+touched (confirmed via `git status`) — no replay-hash/native-soak
+re-run needed. The six subjective A5 categories (needing A4.2's judge
+tier + real content authoring) are the next dependency-ordered Phase 6
+item — resume only on future explicit direction.
+
 ## Current state (v1.34.278)
 
 Explicit user instruction: "continue phase 6" — A4 (Scoring & the

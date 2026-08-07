@@ -269,9 +269,16 @@ registry.
   version) — scorer version is part of a run's identity, mechanically
   enforced, not just stated.
 
-## A5 — Benchmark categories [MISSING] — every one from the brief
+## A5 — Benchmark categories [PARTIAL, v1.34.279] — every one from the brief
 
-Each becomes a category module with concrete cases and scorers.
+Each becomes a category module with concrete cases and scorers. Per
+the checklist's own SEQUENCE ("A4.1 deterministic scorers + A5.7/A5.8
+[grounding + structured output]" precedes "A4.2 judge + remaining
+subjective categories"), the three OBJECTIVE categories (A5.7/A5.8/
+A5.9, none needing a judge model) plus A5.10's guide are shipped this
+pass in `hearthbench/tests/`; the six subjective categories (A5.1-A5.6)
+and A5.11 (gated on B15.5) remain open — see `docs/ROADMAP-2026-07-
+REMAINING.md`'s Phase 6 entry for full detail.
 
 - [ ] **A5.1 — Dialogue.** Naturalness, coherence, personality
   expression, emotional realism, incl. an "ambient filler" penalty for
@@ -286,15 +293,37 @@ Each becomes a category module with concrete cases and scorers.
   horizon realism, adaptation when blocked.
 - [ ] **A5.6 — Village cognition.** Cultural belief formation,
   institution reasoning, tradition crystallization, social reasoning.
-- [ ] **A5.7 — Grounding.** Never invents objective facts — adversarial
-  bait cases, reward explicit uncertainty, heavily penalize confident
-  fabrication. Weighted highest (A10).
-- [ ] **A5.8 — Structured outputs.** JSON validity, schema compliance,
-  retry/parse-failure/fallback rate, with and without grammar
-  constraints.
-- [ ] **A5.9 — Performance.** Latency (p50/p95/max), TTFT, tok/s,
-  RAM/swap/CPU%, sampled continuously, attributed per case.
-- [ ] **A5.10 — Category extension guide.** A short doc + template.
+- [x] **A5.7 — Grounding — SHIPPED.** `hearthbench/tests/grounding.py`,
+  weight 20 (A10.1's stated highest default). Four real hand-authored
+  adversarial bait `TestCase`s (each a single `Turn` withholding the
+  exact fact its own question asks for — population count, a spouse's
+  name, a harvest yield, a weather forecast — plus `expected_
+  invariants` naming what's deliberately unstated). New category-
+  specific scorer `no_unsupported_specifics`: flags a number/proper-
+  noun claim in the output with no support anywhere in the case's own
+  `structured_input` — "reward explicit uncertainty" needs no separate
+  logic, since a hedge states no new specifics and so already scores
+  clean under the same heuristic.
+- [x] **A5.8 — Structured outputs — SHIPPED.** `hearthbench/tests/
+  structured_outputs.py`, weight 8. `build_structured_output_cases()`
+  derives a real `(grammar, no_grammar)` `TestCase` pair per task
+  actually registered in `hearthmind.llm.json_schemas.TASK_SCHEMAS` —
+  zero hardcoded task list, grows automatically. `score_structured_
+  output_delta` is this pass's real answer to A6.3's identical "score
+  both modes, report the delta," needing nothing from the still-
+  unbuilt A6.
+- [x] **A5.9 — Performance — SHIPPED.** `hearthbench/tests/
+  performance.py`, weight 5. Wraps A4.1's `latency` scorer (a pure
+  measurement); `summarize_latency` computes real p50/p95/max/mean for
+  latency, TTFT, and completion tok/s (derived from `AdapterResult`'s
+  own token counts) — the "attributed per case" half of A5.9's own
+  text. Continuous RAM/swap/CPU% sampling (A7.2) is real, distinct,
+  unstarted future work.
+- [x] **A5.10 — Category extension guide — SHIPPED.** `docs/
+  HEARTHBENCH-CATEGORY-GUIDE.md` (the doc) + `hearthbench/tests/
+  _template.py` (the template — deliberately unregistered, not in
+  `CATEGORY_REGISTRY`) — both literally what this item's own text
+  asks for.
 - [ ] **A5.11 — World-level emergence run [APPROVED].** Run a real
   fixed-seed sim (2k-5k ticks, LLM on) and score the *emergent output*
   (causal chain length, topic diversity, belief accuracy, want-
@@ -316,15 +345,22 @@ Each becomes a category module with concrete cases and scorers.
 - [ ] **A6.3** — Score both constrained and unconstrained modes when
   supported, report the delta.
 
-## A7 — Metrics Collector [MISSING]
+## A7 — Metrics Collector [MISSING, A7.3 partial slice shipped v1.34.279]
 
 - [ ] **A7.1** — Per-case/per-category/per-run metric records, all raw
   values retained (A8) so aggregates can be recomputed without
   re-running.
 - [ ] **A7.2** — System sampling thread (RSS, swap, CPU%, llama-server
   `/metrics`), aligned to case boundaries.
-- [ ] **A7.3** — N, mean, median, p95, stdev, and a confidence interval
-  per category — feeds A10/A11's score-confidence requirement.
+- [~] **A7.3 — PARTIAL.** N, mean, median, p95, stdev, and a confidence
+  interval per category — feeds A10/A11's score-confidence requirement.
+  `hearthbench.tests.category.summarize_scores`/`CategoryScoreSummary`
+  ship exactly this math, real and tested, as A5's own shared
+  category-aggregation infra (needed to give A5.7-A5.9 something to
+  report). NOT the full A7 metrics collector — no per-run record (A7.1),
+  no system-sampling thread (A7.2), no cross-category rollup; a future
+  A7 pass wires a real run's results into this same function rather
+  than replacing it.
 
 ## A8 — Diagnostics: lose nothing [MISSING]
 

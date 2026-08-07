@@ -751,17 +751,107 @@ through in one pass per this project's own "never big-bang" discipline.
 
 `A0` (confirmed reusable pieces), `A1.1`/`A1.2` (package skeleton +
 import-isolation firewall), `A2` (model adapter layer), `A3` (prompt
-library/test definitions), and now `A4` (scoring — "the judge
-problem," the doc's own central design fork) are shipped. Remaining,
-in dependency order:
+library/test definitions), `A4` (scoring — "the judge problem," the
+doc's own central design fork), and now `A5`'s three OBJECTIVE
+categories (`A5.7`/`A5.8`/`A5.9`, needing no judge model, plus
+`A5.10`'s guide) are shipped. Remaining, in dependency order:
 
-`A5` the 9 benchmark categories → `A6` structured-output validator →
-`A7`/`A8`/`A9` metrics collector/diagnostics/reports → `A10` the
-HearthBench Score → `A11` run modes (unblocks **B15.5**'s `reference_
-mode`, currently built but unused for lack of this) → `A1.3` process
-isolation (gated on A2+A11, A2 now real) → `A12` web UI (incl. A12.9,
-the human-rating page over A4.3's already-real data model) → `A13` CI
-prompt-regression guard (needs the whole pipeline first).
+`A5.1`-`A5.6` the six subjective categories (needs A4.2's judge tier +
+real content authoring, per the checklist's own SEQUENCE) → `A6`
+structured-output validator → `A7`/`A8`/`A9` metrics collector/
+diagnostics/reports (`A7.3` partially shipped already, see below) →
+`A10` the HearthBench Score → `A11` run modes (unblocks **B15.5**'s
+`reference_mode`, currently built but unused for lack of this, and
+also `A5.11`, gated on B15.5) → `A1.3` process isolation (gated on
+A2+A11, A2 now real) → `A12` web UI (incl. A12.9, the human-rating page
+over A4.3's already-real data model) → `A13` CI prompt-regression
+guard (needs the whole pipeline first).
+
+- **A5 (objective slice) — SHIPPED, v1.34.279.** Per the checklist's
+  own SEQUENCE ("A4.1 deterministic scorers + A5.7/A5.8 [grounding +
+  structured output]" precedes "A4.2 judge + remaining subjective
+  categories"), ships the three categories buildable on A4.1's real
+  Tier 1 scorers alone — no judge model needed — plus the shared
+  aggregation infra and the extension guide.
+
+  New `hearthbench/tests/category.py`: `Category` (id/name/weight/
+  scorer_ids, `weight` mirroring A10.1's own stated default composite
+  table so a future A10 reads real category metadata rather than a
+  second hardcoded table) + `summarize_scores`/`CategoryScoreSummary`
+  — a real, tested, CATEGORY-SCOPED slice of A7.3's own stated stats
+  (N/mean/median/p95/stdev/95% CI), explicitly NOT the full A7 metrics
+  collector (no per-run record, no system-sampling thread) — flagged
+  as such in both this doc and `docs/HEARTHBENCH-RUNTIME-2026-07-
+  23.md`'s A7 section rather than silently claiming more than shipped.
+
+  **A5.7 Grounding** (`grounding.py`, weight 20 — A10.1's stated
+  highest default): four real hand-authored adversarial `TestCase`s,
+  each a single `Turn` that baits a specific fact the case's own
+  `structured_input` deliberately withholds (population count, a
+  spouse's name, a harvest yield, a weather forecast), with `expected_
+  invariants` naming what's unstated. New category-specific scorer
+  `no_unsupported_specifics` (per A5's own header — "each becomes a
+  category module with concrete cases AND SCORERS," a category may
+  ship a scorer narrower than A4.1's general-purpose set): flags a
+  number/proper-noun claim in the output with no support anywhere in
+  `structured_input`, capped so heavy fabrication saturates at 0
+  rather than free-falling unboundedly. "Reward explicit uncertainty"
+  needed no separate mechanism — a hedge states no new specifics, so
+  it already scores clean under the identical heuristic.
+
+  **A5.8 Structured outputs** (`structured_outputs.py`, weight 8):
+  `build_structured_output_cases()` derives a real `(grammar, no_
+  grammar)` `TestCase` pair per task actually registered in
+  `hearthmind.llm.json_schemas.TASK_SCHEMAS` — zero hardcoded task
+  list, grows automatically as tasks are added there. `score_
+  structured_output_delta` answers A6.3's identical "score both
+  constrained/unconstrained modes, report the delta" using only
+  `CategoryScoreSummary`'s own `pass_rate` field — needs nothing from
+  the still-unbuilt A6.
+
+  **A5.9 Performance** (`performance.py`, weight 5): wraps A4.1's
+  already-shipped `latency` scorer (a pure measurement, `value=None`
+  by design); `summarize_latency` computes real p50/p95/max/mean for
+  latency, TTFT, and completion tok/s (derived from real `AdapterResult`
+  token counts) — the "attributed per case" half of A5.9's own text.
+  Continuous RAM/swap/CPU% sampling (A7.2) stays real, distinct,
+  unstarted future work.
+
+  **A5.10 Category extension guide**: `docs/HEARTHBENCH-CATEGORY-
+  GUIDE.md` (a real 5-step walkthrough: declare the `Category`, reuse-
+  or-add a scorer, build real `TestCase`s from a fixture or hand-
+  authored, register it, verify it the same way every shipped category
+  was) + `hearthbench/tests/_template.py` (a real, importable,
+  deliberately UNregistered starter module — the guide's own worked
+  example, not just prose).
+
+  New `scripts/verify_a5_categories.py` (47 checks, all pass — one
+  real test-DATA fix before shipping, not a module bug: the first
+  attempt's own bait-question substring check ("population") never
+  appeared in the actual rendered question text, "How many people
+  live in Marshcroft, exactly?" — fixed to check for "marshcroft"
+  instead). `percentile`/`summarize_scores` verified against hand
+  computation incl. every degrade-to-`None` edge case; all four bait
+  cases verified structurally; `no_unsupported_specifics` verified
+  against a real hedge (passes), a real fabricated name (caught), a
+  real fabricated number (caught), a real supported restatement (not
+  penalized), and real heavy fabrication (capped at 0); `build_
+  structured_output_cases` verified to auto-track `TASK_SCHEMAS`'
+  real contents; `score_structured_output_delta` verified both
+  directions plus the no-data-yet degrade; `summarize_latency`
+  verified against real hand-computed p50/max/tok-per-sec incl. the
+  no-token-counts degrade; the template module and guide doc both
+  confirmed to exist and the template confirmed NOT registered.
+
+  Verified: the new script; `verify_hearthbench_isolation.py`/`verify_
+  hearthbench_adapter_isolation.py` both clean (31 hearthbench files
+  now); `pyflakes` clean; `scripts/verify_a2_model_adapters.py`/
+  `verify_a3_prompt_library.py`/`verify_a4_scoring.py` all re-run
+  clean (unaffected). No native module, `simulation/engine.py` code
+  path, or other production file touched (confirmed via `git status`
+  showing only new `hearthbench/tests/*.py`, the new doc, and the new
+  verify script, plus `hearthbench/tests/__init__.py`'s own real
+  wiring) — no replay-hash/native-soak re-run needed.
 
 - **A4 — SHIPPED, v1.34.278.** **[DECIDED: build both paths]** made
   real: `hearthbench/scoring/` ships all three tiers plus A4.4's
