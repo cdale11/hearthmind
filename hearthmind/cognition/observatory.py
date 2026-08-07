@@ -43,17 +43,22 @@ compare against, unlike a real `retrieve_relevant_memories` call) —
 this is a standing snapshot of what's active, not an answer to a
 specific query.
 
-**E3, competing-goals half: NOT shipped this pass, stated honestly.**
-Investigated first, not assumed: this codebase's real per-agent goal
-selection (`llm/cognition.py`'s `fallback_goal`) is a flat sequential
-if-chain, never a scored competition — there is no real Bid-based
-goal-vs-goal arbitration anywhere in production to render a panel
-over. Building one would be a genuinely NEW mechanism (a per-agent
-`GlobalWorkspace` over candidate goals with real utilities), not a
-presentation pass over already-real state like every other E-item
-shipped so far — flagged as real, distinct future work rather than
-forced through as a fabricated panel over numbers nothing computes
-today.
+**E3, competing-goals half — SHIPPED, Roadmap Phase 3 (explicit user
+instruction "start e3").** Closes the gap this module's own docstring
+had flagged: `hearthmind.cognition.goal_arbitration` is the genuinely
+NEW mechanism a rendering pass alone couldn't have produced — a real
+per-agent `GlobalWorkspace` over the three "content" goals `fallback_
+goal` resolves once every forced branch above it (survival, fear/
+grief, materials-critical, plan-intent) has already ruled itself out.
+`arbitrate_content_goal` scores SOCIALIZE/GATHER/WANDER from the same
+trait/emotion signals the old flat `agent_id % 3` split ignored, and
+B2's staleness gain (keyed on the goal name itself) gives a genuinely
+tied agent real variety over time instead of a fixed caste. Bounded to
+the core cast (`SimulationEngine._goal_workspace_for`, pruned every
+tick against the live cast) — this needed NO new "describe" function
+in this module: `workspace_snapshot` already renders any real
+`GlobalWorkspace` generically, so `_goal_competition_snapshot` in
+`simulation/engine.py` reuses it directly, same as E2's own panel.
 
 **E4** (explicit user instruction "Start E4"): the "learning chart" —
 HCA's own headline falsification test (§8 in the doc's own words):

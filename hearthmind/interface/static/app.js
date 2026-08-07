@@ -435,6 +435,7 @@ devFullReportBtn.addEventListener("click", async () => {
     renderLearningSpecialistCurve(report.engine);
     renderWorkspaceActivity(report.engine);
     renderMemoryActivation(report.engine);
+    renderGoalCompetition(report.engine);
     renderLearningChart(report.engine);
     renderMachineSurface(report.engine);
     renderMusingExplain(report.engine);
@@ -649,6 +650,34 @@ function renderMemoryActivation(engineReport) {
   );
   el.textContent =
 `Real D1 ACT-R activation ranking for ${snapshot.agent_name} (id ${snapshot.agent_id}), highest first
+----------------------------------------------------------------------
+${lines.join("\n")}`;
+}
+
+function renderGoalCompetition(engineReport) {
+  const el = document.getElementById("goal-competition-content");
+  if (!el || !engineReport) return;
+  const snapshot = engineReport.goal_competition_snapshot;
+  if (!snapshot) {
+    el.textContent = "no real arbitration cycle yet — inspect a core-cast agent on the map first, then wait for their next fallback-goal decision";
+    return;
+  }
+  const cycles = snapshot.cycles || [];
+  if (!cycles.length) {
+    el.textContent = `${snapshot.agent_name} has no real arbitration cycle yet`;
+    return;
+  }
+  const lines = cycles.slice().reverse().map((c) => {
+    const winner = c.winner
+      ? `${c.winner.subject} (score ${c.winner.score}) — ${c.winner.reason}`
+      : "(no winner — empty cycle)";
+    const losers = c.losers.length
+      ? c.losers.map((l) => `    lost: ${l.subject} (score ${l.score}) — ${l.reason}`).join("\n")
+      : "    (no losing bids this cycle)";
+    return `cycle ${c.cycle}: ${winner}\n${losers}`;
+  });
+  el.textContent =
+`Real goal-arbitration cycles for ${snapshot.agent_name} (id ${snapshot.agent_id}), newest first
 ----------------------------------------------------------------------
 ${lines.join("\n")}`;
 }

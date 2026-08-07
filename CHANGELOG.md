@@ -4,6 +4,118 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.269] — Roadmap Phase 3, E3: a real per-agent competing-goals workspace
+
+Explicit user instruction: "start e3" — closes Phase 3's last real
+item (E1/H1 already shipped; "confirm B1's headline test live" stays
+deferred, impossible offline). `cognition/observatory.py`'s own prior
+filing had flagged this precisely: `llm/cognition.py`'s `fallback_
+goal` was a flat sequential if-chain, never a scored Bid-based
+competition, so E2's "workspace contents and the losing coalitions"
+panel had nothing real to render for individual goal decisions.
+
+New `hearthmind/cognition/goal_arbitration.py`: `compute_content_goal_
+bids` scores the same three "content" goals `hearthmind.ml.goal_
+policy.GoalPolicy` (Tier 6 L2.2) already scopes itself to — SOCIALIZE/
+GATHER/WANDER, the branch `fallback_goal` resolves once every forced
+override above it (survival hunger/energy, fear/grief, materials-
+critical, plan-intent) has already ruled itself out — from the exact
+trait/emotion signals the old flat `agent_id % 3` split ignored
+(`TRAIT_SOCIABILITY`/`TRAIT_AMBITION`/`TRAIT_OPENNESS`, `EMOTION_JOY`/
+`EMOTION_ANGER`), each scored strictly positive (`GOAL_ARBITRATION_
+BASE_SCORE=1.0` floor) so B2's staleness-gain multiplier always
+behaves. `arbitrate_content_goal` submits all three to a real
+`GlobalWorkspace` (B1/B2) and returns the winner in `fallback_goal`'s
+own `{goal, reason}` shape.
+
+**The real headline mechanism is staleness gain, not the trait
+scoring.** A genuinely tied (neutral-trait) agent's raw scores are all
+equal, so B2's per-subject staleness gain — keyed on the goal name
+itself — makes the winner rotate over successive real cycles instead
+of settling on one fixed branch forever, the way a static `max()`
+over unchanging scores would. Verified directly: a neutral agent
+visits all three goals within 12 real cycles. A real trait standout
+still reliably dominates its matching goal without permanently
+starving the other two, since sustained staleness eventually overtakes
+even a real score gap. This replaces `agent_id % 3`'s fixed,
+population-wide, personality-blind split with genuine per-agent
+variety that accumulates over an individual agent's own history.
+
+**Wiring, deliberately conservative.** `fallback_goal` gained an
+optional `goal_workspace` param, checked ONLY when `goal_policy is
+None` — a real trained `GoalPolicy`, once an operator has weights,
+keeps its existing priority completely unchanged (zero regression for
+a deployment already benefiting from it); the new arbitration
+mechanism is the flat split's replacement, not a silent override of an
+already-shipped one. `goal_workspace=None` (the default, and the only
+path every call site used before this pass) reproduces the exact prior
+behavior byte-for-byte, verified across 9 agent ids.
+
+**Production wiring, bounded to the core cast.** `SimulationEngine.
+_goal_workspaces: dict[int, GlobalWorkspace]` + `_goal_workspace_for`
+lazily creates one real workspace per CORE-CAST agent id only —
+mirroring every other richer per-agent mechanism this codebase already
+gates that way (mind-authoring, per-agent voice) — so the dict can
+never grow past the core cast's own small, fixed size; the much larger
+non-core population keeps the cheap stateless `agent_id % 3` split
+(`goal_workspace=None`). Pruned every real tick, in the one place
+`core_agent_ids` membership can change either way (monthly rotation OR
+`maintain_core_cast`'s own death-prune) — a stale id is dropped from
+`self._goal_workspaces` the same tick it leaves the cast, never left
+to leak. Threaded into both real `fallback_goal` call sites (the
+non-LLM `_schedule_due_cognition` branch, `_run_cognition`'s used_
+fallback branch).
+
+**Observability needed no new "describe" function.** `cognition.
+observatory.workspace_snapshot` was already generic over any real
+`GlobalWorkspace` (built for E2's naming-workspace panel) — the new
+`_goal_competition_snapshot` (mirroring `_memory_activation_snapshot`'s
+own shape exactly) reuses it directly over `_observer_favorite_
+agent()`'s own real goal workspace, surfaced via `full_diagnostics()
+['goal_competition_snapshot']` (honest `None` before that agent has
+ever had a real fallback-goal cycle) and a new dev-console "HCA E3:
+competing goals" panel (`renderGoalCompetition`, `app.js`) — winner,
+every real losing bid, and each bid's own trait/emotion provenance
+string, same presentation shape `renderWorkspaceActivity` already
+established for E2.
+
+New `scripts/verify_e3_competing_goals.py` (41 checks, all pass first
+run — the bid-scoring formula's own correctness across three trait/
+emotion standouts; the headline 12-cycle staleness-rotation proof; a
+`goal_workspace=None` byte-for-byte parity proof across 9 agent ids;
+every forced-branch case — hunger/energy/fear/grief/materials_
+critical — still overriding correctly even with a real workspace
+supplied, and never touching it; the real `goal_policy`-keeps-priority
+precedence proof; a real `SimulationEngine`-driven proof of `_goal_
+workspace_for`'s core-cast gating, idempotence, and per-tick pruning
+via a synthetic stale id — chosen over discarding a real living core
+member specifically because `maintain_core_cast`'s own refill logic
+could silently re-add a still-alive, still-prominent agent the same
+tick, which would have made the prune check pass for the wrong
+reason; and the full `full_diagnostics()` surfacing round-trip).
+
+Verified: the new script (41 checks); `pyflakes` clean on all four
+touched/new Python files (only the six known pre-existing forward-ref
+findings in `engine.py`); `node --check` clean on `app.js`; `scripts/
+verify_h1_machine_domain_budget.py`/`verify_h2_h3_runtime_domain.py`/
+`verify_e6_machine_surface.py`/`verify_e2_workspace_activity.py`/
+`verify_e3_memory_activation.py`/`verify_b15_escalation_ladder.py`/
+`verify_ml_l2_2_goal_policy.py` all re-run clean, confirming this
+pass's `engine.py`/`llm/cognition.py` edits didn't disturb any prior
+Stage E/H wiring or the pre-existing `goal_policy` precedence;
+`scripts/verify_replay_hash.py` (800 ticks, seed 777, `--in-process`)
+— MATCH, byte-identical (load-bearing — `fallback_goal`'s real
+default-path behavior for core-cast agents under LLM-disabled runs is
+now genuinely different from before this pass, since the flat
+`agent_id % 3` split there is real production-live code, not dead
+weight); `scripts/verify_native_soak.py` (seeds 1/55, 800 ticks) —
+MATCH.
+
+**This closes roadmap Phase 3 in full** — every named item except the
+explicitly-deferred "confirm B1's headline test live" (needs a real
+production deployment this offline environment has no way to measure
+against) is now shipped.
+
 ## [1.34.268] — Roadmap Phase 3, H1: a real second MACHINE-domain bidder
 
 Explicit user instruction: "continue with phase 3's remaining items,"

@@ -397,11 +397,42 @@ gap) closed the same way in v1.34.266 — zero open items remain here.
 
 ## Phase 3 — Close the last Tier 7 (HCA) gaps
 
-- **E3, competing-goals half.** The memory-activation half shipped; the
-  competing-goals half needs a genuinely NEW per-agent `GlobalWorkspace`
-  arbitrating candidate goals — `llm/cognition.py`'s `fallback_goal` is
-  still a flat if-chain, not a scored competition. Real new mechanism,
-  not a rendering pass.
+- **E3, competing-goals half — SHIPPED, v1.34.269** (explicit user
+  instruction "start e3"). New `hearthmind/cognition/goal_arbitration.py`:
+  a genuinely NEW per-agent `GlobalWorkspace` arbitrating SOCIALIZE/
+  GATHER/WANDER — the same three "content" goals `hearthmind.ml.
+  goal_policy.GoalPolicy` (L2.2) already scopes itself to, resolved
+  once every forced branch above them (survival/fear-grief/materials-
+  critical/plan-intent) has already ruled itself out; those forced
+  branches stay real, untouched overrides, never part of the
+  competition. `compute_content_goal_bids` scores each goal from the
+  same trait/emotion signals `fallback_goal`'s old flat `agent_id % 3`
+  split ignored (`TRAIT_SOCIABILITY`/`TRAIT_AMBITION`/`TRAIT_OPENNESS`,
+  `EMOTION_JOY`/`EMOTION_ANGER`); B2's staleness gain (keyed on the
+  goal name itself) is the real headline mechanism — a genuinely
+  tied/neutral agent's goal choice ROTATES over many cycles instead of
+  settling on one fixed branch forever, real per-agent variety instead
+  of a population-blind caste. `llm/cognition.py`'s `fallback_goal`
+  gained an optional `goal_workspace` param, checked only when `goal_
+  policy is None` — a real trained `GoalPolicy` keeps its existing
+  priority unchanged, no regression for a deployment already
+  benefiting from it. `SimulationEngine._goal_workspace_for` bounds
+  this to the CORE CAST only (mirroring every other richer per-agent
+  mechanism's own gating precedent), pruned every tick against the
+  live cast so `self._goal_workspaces` can never outgrow it. Needed NO
+  new "describe" function for the Observatory: `cognition.observatory.
+  workspace_snapshot` already renders any real `GlobalWorkspace`
+  generically, reused directly by the new `_goal_competition_snapshot`
+  and surfaced via `full_diagnostics()['goal_competition_snapshot']` +
+  a new dev-console "HCA E3: competing goals" panel. New `scripts/
+  verify_e3_competing_goals.py` (41 checks, all pass first run — incl.
+  a `goal_workspace=None` byte-for-byte parity proof across 9 agent
+  ids, every forced-branch-still-overrides-with-a-workspace-present
+  case, the real `goal_policy`-keeps-priority precedence proof, and the
+  headline staleness-rotation test over 12 real cycles). **This closes
+  roadmap Phase 3 in full** (E3/H1 both shipped; "confirm B1's headline
+  test live" stays explicitly deferred — impossible in this offline
+  environment, no real production deployment to measure against).
 - **H1, per-domain budgets — SHIPPED, v1.34.268.** Write-scope
   enforcement (WORLD/MACHINE/OBSERVER) was already real; this ships the
   real second MACHINE-domain bidder the item itself named as missing.
@@ -651,8 +682,8 @@ a fifth, Reflection, observing all four; persistent per-agent/settlement/
 institution memory, belief, and culture; the full Tier 7 Cognitive
 Architecture (specialists that bid, a real arbitrated global workspace,
 impasse-gated deliberation with chunk caching, ACT-R memory activation,
-and a Cognitive Observatory UI showing all of it — Stages A-D, G, H
-closed in full, Stage E closed but for E3's competing-goals half above);
+and a Cognitive Observatory UI showing all of it — Stages A-H all
+closed in full);
 an Adaptive Runtime (task graph, scheduler, dormancy, hardware-adaptive
 tuning, a real escalation ladder) largely wired to production; and a
 from-genesis-to-digital-era historical ladder with LLM-steered branching.

@@ -48,6 +48,7 @@ from hearthmind.agents.agent import (
     just_now_text as _just_now_text,
     retrieve_relevant_memories,
 )
+from hearthmind.cognition.goal_arbitration import arbitrate_content_goal
 
 _CONTENT_GOAL_REASON = {
     AgentGoal.SOCIALIZE.value: "content, seeking company",
@@ -446,7 +447,7 @@ above, which is why this constant is only consulted after those."""
 def fallback_goal(
     hunger: float, energy: float, agent_id: int = 0, traits: dict | None = None,
     emotions: dict | None = None, plan_intent: str = "", materials_critical: bool = False,
-    goal_policy=None, rng=None,
+    goal_policy=None, rng=None, goal_workspace=None,
 ) -> dict:
     """Deterministic rule-based stand-in for the LLM's choice, used when
     Ollama is disabled, unreachable, or misbehaves. Mirrors the kind of
@@ -484,7 +485,23 @@ def fallback_goal(
     namespaced `random.Random(agent_id)`, reproducible but not shared
     across agents. `goal_policy=None` (the default, and the only path
     every call site used before this pass) reproduces the exact prior
-    id%3/trait-standout behavior byte-for-byte."""
+    id%3/trait-standout behavior byte-for-byte.
+
+    `goal_workspace` (Roadmap Phase 3, E3's "competing-goals half" —
+    `hearthmind.cognition.goal_arbitration`, explicit user instruction
+    "start e3") is an optional real `GlobalWorkspace` (B1/B2) that
+    replaces the SAME final branch with a genuine scored competition
+    among the same three goals, instead of either the flat id%3 split
+    or a trained classifier's single answer — see that module's own
+    docstring for why its staleness-gain mechanic produces real
+    per-agent variety over time rather than a fixed caste. Checked only
+    when `goal_policy is None` — a real trained policy, once an
+    operator has one, keeps its existing priority unchanged (no
+    regression for a deployment already benefiting from it); the
+    arbitration mechanism is the new default's understudy, not a
+    silent override of an already-shipped one. `goal_workspace=None`
+    (the default, and the only path every call site used before this
+    pass) leaves this branch completely unreached."""
     if hunger > SURVIVAL_HUNGER_THRESHOLD:
         reason = FORCED_HUNGER_REASON_POOL[agent_id % len(FORCED_HUNGER_REASON_POOL)]
         return {"goal": AgentGoal.FORAGE.value, "reason": reason}
@@ -547,6 +564,8 @@ def fallback_goal(
         )
         reason = _CONTENT_GOAL_REASON.get(goal, "content")
         return {"goal": goal, "reason": reason}
+    if goal_workspace is not None:
+        return arbitrate_content_goal(goal_workspace, traits, emotions)
     branch = agent_id % 3
     if branch == 0:
         return {"goal": AgentGoal.SOCIALIZE.value, "reason": "content, seeking company"}

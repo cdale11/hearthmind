@@ -742,6 +742,80 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.269)
+
+Explicit user instruction: "start e3" — closes roadmap Phase 3's last
+real item (H1 shipped v1.34.268; "confirm B1's headline test live"
+stays explicitly deferred, impossible in this offline environment).
+
+New `hearthmind/cognition/goal_arbitration.py`: a genuinely NEW
+per-agent `GlobalWorkspace` arbitrating SOCIALIZE/GATHER/WANDER — the
+same three "content" goals `hearthmind.ml.goal_policy.GoalPolicy`
+(L2.2) already scopes itself to, resolved once every forced override
+above them (survival hunger/energy, fear/grief, materials-critical,
+plan-intent) has ruled itself out — replacing `llm/cognition.py`'s old
+flat `agent_id % 3`/trait-standout split. `compute_content_goal_bids`
+scores each goal from the same trait/emotion signals that split
+ignored (`TRAIT_SOCIABILITY`/`TRAIT_AMBITION`/`TRAIT_OPENNESS`,
+`EMOTION_JOY`/`EMOTION_ANGER`), every score strictly positive so B2's
+staleness gain always behaves. **The real headline mechanism**: a
+genuinely tied (neutral-trait) agent's goal choice ROTATES over
+successive real cycles via B2's per-subject staleness gain (keyed on
+the goal name), instead of settling on one fixed branch forever — real
+per-agent variety accumulated over an individual agent's own history,
+not a population-blind caste; verified an agent visits all three goals
+within 12 real cycles, while a real trait standout still reliably
+dominates its matching goal.
+
+`fallback_goal` gained an optional `goal_workspace` param, checked
+ONLY when `goal_policy is None` — a real trained `GoalPolicy` keeps
+its existing priority completely unchanged, zero regression for a
+deployment already using one; `goal_workspace=None` (every call site's
+default before this pass) reproduces the exact prior behavior
+byte-for-byte, verified across 9 agent ids. `SimulationEngine.
+_goal_workspace_for` bounds this to the CORE CAST only (same gating
+precedent every other richer per-agent mechanism already uses),
+pruned every real tick against the live cast (the one shared point
+`core_agent_ids` membership can change either way — monthly rotation
+or `maintain_core_cast`'s own death-prune) so `self._goal_workspaces`
+can never outgrow it. Threaded into both real `fallback_goal` call
+sites. Needed NO new "describe" function: `cognition.observatory.
+workspace_snapshot` already renders any real `GlobalWorkspace`
+generically — the new `_goal_competition_snapshot` reuses it directly
+over `_observer_favorite_agent()`'s own goal workspace, surfaced via
+`full_diagnostics()['goal_competition_snapshot']` and a new
+dev-console "HCA E3: competing goals" panel (`renderGoalCompetition`,
+`app.js`).
+
+New `scripts/verify_e3_competing_goals.py` (41 checks, all pass first
+run — the bid-scoring formula across three trait/emotion standouts;
+the headline 12-cycle staleness-rotation proof; the `goal_workspace=
+None` byte-for-byte parity proof; every forced-branch case still
+overriding correctly with a real workspace present AND never touching
+it; the real `goal_policy`-keeps-priority precedence proof; a real
+`SimulationEngine`-driven proof of core-cast gating/idempotence/
+per-tick pruning via a synthetic stale id — chosen over discarding a
+real living core member specifically because `maintain_core_cast`'s
+own refill logic could silently re-add a still-alive, still-prominent
+agent the same tick, which would have made the prune check pass for
+the wrong reason).
+
+Verified: the new script (41 checks); `pyflakes` clean on all four
+touched/new files (only the six known pre-existing forward-ref
+findings in `engine.py`); `node --check` clean on `app.js`; `scripts/
+verify_h1_machine_domain_budget.py`/`verify_h2_h3_runtime_domain.py`/
+`verify_e6_machine_surface.py`/`verify_e2_workspace_activity.py`/
+`verify_e3_memory_activation.py`/`verify_b15_escalation_ladder.py`/
+`verify_ml_l2_2_goal_policy.py` all re-run clean; `scripts/verify_
+replay_hash.py` (800 ticks, seed 777, `--in-process`) — MATCH,
+byte-identical (load-bearing — the flat `agent_id % 3` split this pass
+replaces for core-cast agents was real, live, production-path
+behavior); `scripts/verify_native_soak.py` (seeds 1/55, 800 ticks) —
+MATCH.
+
+**This closes roadmap Phase 3 in full** except the offline-impossible
+"confirm B1's headline test live" item.
+
 ## Current state (v1.34.268)
 
 Explicit user instruction: "continue with phase 3's remaining items,"

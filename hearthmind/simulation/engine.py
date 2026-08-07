@@ -2954,6 +2954,21 @@ class SimulationEngine:
         actual agent id, hit/miss. Capped the same way `_adaptive_
         tuning_log`/`_workload_learn_log` already are."""
 
+        self._goal_workspaces: dict[int, GlobalWorkspace] = {}
+        """Roadmap Phase 3, E3's "competing-goals half" (explicit user
+        instruction "start e3"): one real WORLD-domain `GlobalWorkspace`
+        per CORE-CAST agent id, feeding `hearthmind.cognition.goal_
+        arbitration.arbitrate_content_goal` at `fallback_goal`'s own
+        two real call sites (`_schedule_due_cognition`'s non-LLM
+        branch, `_run_cognition`'s used_fallback branch) — see `_goal_
+        workspace_for`'s own docstring for why this is bounded to the
+        core cast specifically, not the whole population. Runtime-only,
+        never persisted (same "re-baselines on restart" discipline
+        every other per-agent/per-region runtime history in this
+        codebase already holds to), pruned every tick against the live
+        core cast so it can never grow past its own small, fixed
+        size."""
+
         self._reserved_this_tick = 0
         """Jobs actually scheduled (a task created) so far THIS tick,
         reset to 0 at the top of every `_tick_once`. `CognitionRunner.
@@ -6599,6 +6614,18 @@ class SimulationEngine:
         newly_core = self.world.population.maintain_core_cast(target_cast_size)
         if newly_core:
             self._author_minds(newly_core)
+        # Roadmap Phase 3, E3: `_goal_workspace_for` only ever creates an
+        # entry for a CURRENT core-cast id, but an id can leave the cast
+        # two ways -- monthly rotation (`_maybe_rotate_core_cast`) and
+        # right here (`maintain_core_cast`'s own death-prune, called
+        # every tick) -- so pruning belongs at this single shared point,
+        # not duplicated at both real removal sites. Cheap: bounded to
+        # the core cast's own small size, and a no-op whenever nothing
+        # has ever fallen back to arbitration yet.
+        if self._goal_workspaces:
+            stale_ids = self._goal_workspaces.keys() - self.world.population.core_agent_ids
+            for stale_id in stale_ids:
+                del self._goal_workspaces[stale_id]
         # Explicit user directive: exactly one fixed core-cast pair
         # carries all LLM dialogue; every other pair (including former
         # core-core ones) is now deterministic-only. Cheap every-tick
@@ -7061,6 +7088,7 @@ class SimulationEngine:
                     fallback_goal(
                         agent.hunger, agent.energy, agent.id, dict(agent.traits), dict(agent.emotions), plan_intent,
                         materials_critical, goal_policy=self._goal_policy,
+                        goal_workspace=self._goal_workspace_for(agent.id),
                     ),
                     None,
                 )
@@ -7175,6 +7203,7 @@ class SimulationEngine:
             fallback_dict = fallback_goal(
                 hunger, energy, agent_id, traits, emotions, plan_intent, materials_critical,
                 goal_policy=self._goal_policy,
+                goal_workspace=self._goal_workspace_for(agent_id),
             )
             self._cognition_calls_today += 1  # Tier 7 G2's real workload-forecaster feature
             result, used_fallback, raw_completion, diag = await self._cognition_runner.run(
@@ -7794,6 +7823,52 @@ class SimulationEngine:
             "agent_id": agent.id,
             "agent_name": agent.name,
             "entries": describe_memory_activation(agent, self.world.clock.tick_count),
+        }
+
+    def _goal_workspace_for(self, agent_id: int) -> "GlobalWorkspace | None":
+        """Roadmap Phase 3, E3's "competing-goals half": lazily creates
+        (and returns) a real per-agent `GlobalWorkspace` for a CORE-CAST
+        member, `None` for anyone else. Bounded to the core cast
+        deliberately, mirroring every other richer per-agent mechanism
+        this codebase gates that way (mind-authoring, per-agent voice,
+        etc.) — the core cast is small and fixed-size (`llm_core_cast_
+        size`), so `self._goal_workspaces` can never grow past it; the
+        much larger non-core population keeps the cheap, stateless
+        `agent_id % 3` split `fallback_goal` already had (passing
+        `goal_workspace=None` reproduces that exact behavior). Pruned
+        every tick against the live `core_agent_ids` set (right where
+        `maintain_core_cast` is called, in `_tick_once`) so an outgoing
+        member's workspace — whether they left via monthly rotation or
+        death — is discarded, never left to leak forever."""
+        if agent_id not in self.world.population.core_agent_ids:
+            return None
+        workspace = self._goal_workspaces.get(agent_id)
+        if workspace is None:
+            workspace = GlobalWorkspace()
+            self._goal_workspaces[agent_id] = workspace
+        return workspace
+
+    def _goal_competition_snapshot(self) -> dict | None:
+        """The real dev-console panel payload for E3's competing-goals
+        half -- `workspace_snapshot` over `_observer_favorite_agent()`'s
+        own real goal-arbitration workspace, same "reuse the generic
+        E2 presentation function, no new describe function needed"
+        shape `_memory_activation_snapshot` established just above.
+        `None` when the observer hasn't favored anyone yet, OR when
+        their favorite has never once had a real fallback-goal
+        arbitration cycle (a core-cast agent who has always gotten a
+        live LLM answer so far) -- both are honest, not fabricated,
+        empty states."""
+        agent = self._observer_favorite_agent()
+        if agent is None:
+            return None
+        workspace = self._goal_workspaces.get(agent.id)
+        if workspace is None:
+            return None
+        return {
+            "agent_id": agent.id,
+            "agent_name": agent.name,
+            "cycles": workspace_snapshot(workspace),
         }
 
     def _watched_agent_names(self, limit: int = 5) -> list[str]:
@@ -17791,6 +17866,14 @@ class SimulationEngine:
             # use) -- honest `None` when the observer hasn't inspected
             # anyone yet, matching that function's own contract.
             "memory_activation_snapshot": self._memory_activation_snapshot(),
+            # Roadmap Phase 3, E3's competing-goals half (explicit user
+            # instruction "start e3"): the observer's own favorite core-
+            # cast agent's real goal-arbitration workspace, rendered via
+            # the same generic `workspace_snapshot` E2 already uses --
+            # honest `None` before that agent has ever had a real
+            # fallback-goal arbitration cycle. See `_goal_competition_
+            # snapshot`'s own docstring.
+            "goal_competition_snapshot": self._goal_competition_snapshot(),
             # Tier 7 HCA E4, v1.34.245: the real "learning chart" --
             # deliberative calls and real emergence, both per 1000
             # ticks, plus the §8 falsification-test cost ratio. See
