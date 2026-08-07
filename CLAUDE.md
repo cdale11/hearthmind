@@ -742,6 +742,80 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.273)
+
+Explicit user instruction: "continue phase 5" — of Phase 5's remaining
+two items (B11, B12's cascade/B14.3), shipped B11's real first slice;
+B12/B14.3 both still need a genuinely new mechanism (a chronicle/
+documentary/culture-digest producer chain per compression stage; a
+real batched snapshot writer) and stay explicitly open.
+
+B11.1-B11.3's `Tier`/`MemoryTierManager`/`TransparentHandle`
+(`hierarchical_memory.py`, real and verified since v1.34.178) had
+never been wired to a real consumer. Found one: `GET /agents/{id}/
+memory_log` (`interface/app.py`, the NPC inspector's "full life
+history" fetch) ran a fresh `recent_agent_memory_log` SQL query
+against the durable `agent_memory_log` table on EVERY request — the
+exact "large persisted state, queried on demand" shape these
+primitives were built for and never given a real consumer.
+
+New `SimulationEngine._agent_memory_log_tiers`/`_agent_memory_log_
+cache` (runtime-only, never persisted — same restart-safe discipline
+as every `DormancyManager` instance in this codebase). `cached_agent_
+memory_log(agent_id, limit)` is the real provider, wired to a new
+`WorldBroadcaster.set_agent_memory_log_provider`/`get_agent_memory_
+log` pair (`interface/api.py`) — the first provider hook in that class
+to take real arguments rather than reading an already-computed whole
+structure. Only the ONE request shape any real caller actually makes
+(`limit == AGENT_MEMORY_LOG_CACHE_LIMIT = 100`, the NPC inspector's
+own pre-existing default) engages the cache; a different `limit`
+bypasses it and queries directly. `_load_agent_memory_log` is the real
+`TransparentHandle.load_fn` — `TransparentHandle` itself does no
+storage of its own (only tier/staleness bookkeeping), so this dict is
+what makes it a real cache.
+
+New `_maybe_demote_agent_memory_log_cache` (monthly, ON_EVENT/
+month_end, the same per-job-dedicated-`Scheduler` B0.3 shape every
+dormancy job already uses): `MemoryTierManager.demote_stale` against
+new `AGENT_MEMORY_LOG_TIER_THRESHOLDS` (real elapsed-SIMULATED-tick
+windows — HOT 20,000/WARM 60,000/COLD 200,000), and for every
+migration landing PAST HOT, actually pops the cached rows out of
+`_agent_memory_log_cache` — the real point of tiering (reclaiming RAM
+for an agent nobody's inspected in a long while), not just relabeling.
+A re-fetch at any tier re-queries, re-caches, and promotes straight
+back to HOT via `TransparentHandle.get`'s own `touch()`. `full_
+diagnostics()['agent_memory_log_cache']` surfaces live tier counts +
+cached-agent count. **B11.4 (`pressure_response`, host-pressure-driven
+demotion) deliberately NOT wired this pass** — same "ship the
+interface, wire the first real consumer" pattern every prior Tier
+5/6/7 item here uses; real future work if a second real large-
+persisted-state consumer wants the pressure-aware variant.
+
+New `scripts/verify_b11_agent_memory_log_cache.py` (24 checks, all
+pass first run — cache hit/miss correctness incl. a post-warm DB
+write correctly NOT appearing on a same-limit re-fetch; non-default-
+limit bypass without disturbing tier state; an empty-result agent
+still caching correctly; tier promotion on access; real demotion
+genuinely freeing cached rows and a re-fetch correctly re-populating/
+re-promoting; the real registered demotion method itself (not a
+hand-rolled loop) demoting a genuinely stale agent; a never-requested
+agent as a safe no-op; `_TICK_JOBS`/`_RUNTIME_SCHEDULED_JOB_
+SCHEDULERS`/`_MONTH_END_GATED_JOBS` registration; diagnostics
+surfacing; a real end-to-end `WorldBroadcaster` provider proof incl.
+the no-provider-registered `None` fallback `interface/app.py`'s own
+route relies on; byte-identical parity against the direct uncached
+query; a real 400-tick production soak).
+
+Verified: the new script (24 checks); `scripts/verify_hierarchical_
+memory.py`/`verify_b15_6_and_b15_8.py`/`verify_b15_7_scheduler_
+fuzz.py`/`verify_b0_runtime_migrations.py`/`verify_task_graph.py`/
+`verify_scheduler.py`/`verify_runtime_invariant.py` all re-run clean;
+`pyflakes` clean on all touched/new files (only the six known
+pre-existing forward-ref findings in `engine.py`); `scripts/verify_
+replay_hash.py` (800 ticks, seed 777, `--in-process`) — MATCH,
+byte-identical; `scripts/verify_native_soak.py` (seeds 1/55, 800
+ticks) — MATCH.
+
 ## Current state (v1.34.272)
 
 Explicit user instruction: "continue with phase 5" — of Phase 5's four

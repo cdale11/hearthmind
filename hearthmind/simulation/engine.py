@@ -155,10 +155,11 @@ from hearthmind.llm.cognition import (
 from hearthmind.llm.jobs import CognitionRunner, _ResizableSemaphore
 from hearthmind.llm.recorder import TrainingRecorder
 from hearthmind.simulation.optimization_hypothesis import AdaptationHistory, AdaptationRecord, HypothesisLoop
+from hearthmind.simulation.hierarchical_memory import MemoryTierManager, Tier, TransparentHandle
 from hearthmind.persistence.snapshot import (
     consciousness_log_count, events_by_category, events_since_tick, history_events,
     load_latest_snapshot, log_agent_memory_entry, log_consciousness_entry, log_event, log_metrics,
-    recent_events, recent_events_diverse, recent_metrics, save_snapshot,
+    recent_agent_memory_log, recent_events, recent_events_diverse, recent_metrics, save_snapshot,
 )
 from hearthmind.agents.population import (
     DISPUTE_COOLDOWN_TICKS,
@@ -1427,6 +1428,28 @@ deployment restarts far less than once per tick, and reaching rung 5 at
 all needs `SUSTAINED_PRESSURE_THRESHOLD` consecutive pressured readings
 at the PAUSE rung already) — 100 comfortably outlives any real save
 file's practical inspection window without growing unbounded."""
+
+AGENT_MEMORY_LOG_CACHE_LIMIT = 100
+"""Tier 5 B11's real first consumer (`SimulationEngine.cached_agent_
+memory_log`): the exact default `limit` the NPC inspector's `GET
+/agents/{id}/memory_log` call already used before this pass (`interface/
+app.py`) — the one and only cache key shape this module needs to
+handle, since it's the request shape every real caller actually makes.
+A request for a DIFFERENT limit bypasses the cache entirely (see that
+method's own docstring) rather than needing a second cache dimension."""
+
+AGENT_MEMORY_LOG_TIER_THRESHOLDS = {
+    Tier.HOT: 20_000, Tier.WARM: 60_000, Tier.COLD: 200_000,
+}
+"""Tier 5 B11.2's real demotion policy for the agent-memory-log cache
+— idle REAL simulation ticks (not real wall-clock time) since an
+agent's memory log was last actually fetched before it demotes one
+tier further. An agent the observer is actively watching gets
+re-fetched (and therefore re-promoted to HOT via `TransparentHandle.
+get`'s own `touch()`) far inside these windows; one nobody has looked
+at in a long while eventually reaches ARCHIVE (no further threshold —
+`Tier` has nowhere lower to go) and has its cached rows actually freed,
+not just relabeled — see `_maybe_demote_agent_memory_log_cache`."""
 
 CONCURRENCY_PROBE_TASKS = 12
 """Tier 5 B13's real active-probe measurement (`_probe_concurrency_
@@ -3377,6 +3400,44 @@ class SimulationEngine:
         narrative attention is gated. Runtime scheduling state, never
         persisted — same restart-safe discipline as the three
         siblings."""
+        self._agent_memory_log_tiers = MemoryTierManager()
+        self._agent_memory_log_cache: dict[int, list] = {}
+        """Tier 5 B11's real first consumer: `GET /agents/{id}/memory_
+        log` (`interface/app.py`) previously ran a fresh `recent_agent_
+        memory_log` SQL query against the durable `agent_memory_log`
+        table on EVERY single request — no caching at all, unlike every
+        other on-demand-provider route this codebase already caches
+        nothing for either, but this one is genuinely large persisted
+        state (an agent's whole durable memory history) queried
+        per-observer-click, the exact "large persisted state" shape
+        B11.1-B11.3's `Tier`/`MemoryTierManager`/`TransparentHandle`
+        primitives were built for and never given a real consumer.
+
+        `_agent_memory_log_tiers` tracks WHICH tier each agent id (as a
+        string key, `MemoryTierManager`'s own convention) currently sits
+        in; `_agent_memory_log_cache` is the actual value store a HOT/
+        WARM/COLD agent's rows live in (`TransparentHandle` itself does
+        no storage — see its own docstring — only tier/staleness
+        bookkeeping, so this dict is what makes it a real cache).
+        `_load_agent_memory_log` is the real `load_fn`; `cached_agent_
+        memory_log` is the public method wired to `WorldBroadcaster.
+        set_agent_memory_log_provider`. `_maybe_demote_agent_memory_
+        log_cache` (monthly) demotes an agent's tier once idle past
+        `AGENT_MEMORY_LOG_TIER_THRESHOLDS`'s own real elapsed-SIMULATED-
+        tick windows and, past HOT, actually POPS the cached list out of
+        `_agent_memory_log_cache` — the real point of tiering here is
+        reclaiming RAM for an agent nobody's inspected in a long while,
+        not just relabeling a tier for its own sake. A re-fetch at any
+        tier re-queries, re-caches, and re-promotes to HOT via
+        `TransparentHandle.get`'s own `touch()`. Both dicts are runtime-
+        only, never persisted — same restart-safe discipline as every
+        `DormancyManager` instance above; losing cache state on restart
+        just means the next request for a given agent re-queries once,
+        never a correctness issue. B11.4 (host-pressure-driven demotion,
+        `pressure_response`) is deliberately NOT wired here — this first
+        slice is real, but stays scoped to elapsed-tick demotion alone,
+        same "ship the interface, wire the first real consumer" pattern
+        every prior Tier 5/6/7 item in this codebase has used."""
         self._emergence_compression = CompressionLadder()
         """Tier 5 B12's first real consumer: routes `World.emergence_
         log`'s own evicted-past-cap entries through a real
@@ -4513,6 +4574,23 @@ class SimulationEngine:
         ))
         self._runtime_scheduler_settlement_dormancy = Scheduler(self._runtime_registry_settlement_dormancy)
 
+        # Tier 5 B11's real first consumer: demotes an idle agent's
+        # cached memory-log tier (and, past HOT, actually frees the
+        # cached rows) — see `_agent_memory_log_cache`'s own docstring.
+        self._runtime_registry_agent_memory_log_demotion = TaskRegistry()
+        self._runtime_registry_agent_memory_log_demotion.register(Task(
+            id="agent_memory_log_demotion",
+            subsystem="agent_memory_log_demotion",
+            fn=self._maybe_demote_agent_memory_log_cache,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({"month_end"}),
+            reads=frozenset({"self._agent_memory_log_cache"}),
+            writes=frozenset({"self._agent_memory_log_cache"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_agent_memory_log_demotion = Scheduler(self._runtime_registry_agent_memory_log_demotion)
+
         self._runtime_registry_institution_culture = TaskRegistry()
         self._runtime_registry_institution_culture.register(Task(
             id="institution_culture",
@@ -4563,6 +4641,7 @@ class SimulationEngine:
             self._broadcaster.set_knowledge_tree_provider(self.world.knowledge_tree)
             self._broadcaster.set_causal_threads_provider(self.world.causal_threads_list)
             self._broadcaster.set_emergence_log_provider(self.world.emergence_log_recent)
+            self._broadcaster.set_agent_memory_log_provider(self.cached_agent_memory_log)
 
     @property
     def stop_event(self) -> asyncio.Event:
@@ -6474,6 +6553,7 @@ class SimulationEngine:
         ("_update_idea_dormancy", _JOB_NO_ARGS),
         ("_update_tradition_dormancy", _JOB_NO_ARGS),
         ("_update_settlement_dormancy", _JOB_NO_ARGS),
+        ("_maybe_demote_agent_memory_log_cache", _JOB_NO_ARGS),
         ("_maybe_schedule_institution_culture", _JOB_EVENTS),
         ("_schedule_due_cognition", _JOB_NO_ARGS),
         ("_schedule_due_dialogue", _JOB_NO_ARGS),
@@ -6558,6 +6638,7 @@ class SimulationEngine:
         "_update_idea_dormancy": "_runtime_scheduler_idea_dormancy",
         "_update_tradition_dormancy": "_runtime_scheduler_tradition_dormancy",
         "_update_settlement_dormancy": "_runtime_scheduler_settlement_dormancy",
+        "_maybe_demote_agent_memory_log_cache": "_runtime_scheduler_agent_memory_log_demotion",
         "_maybe_schedule_institution_culture": "_runtime_scheduler_institution_culture",
     }
 
@@ -6566,6 +6647,7 @@ class SimulationEngine:
         "_update_idea_dormancy",
         "_update_tradition_dormancy",
         "_update_settlement_dormancy",
+        "_maybe_demote_agent_memory_log_cache",
         "_maybe_tick_temperament",
         "_maybe_tick_market_prices",
         "_maybe_tick_settlement_trade",
@@ -11921,6 +12003,64 @@ class SimulationEngine:
         for settlement_id in stale:
             del self._settlement_fingerprint[settlement_id]
             del self._settlement_idle_checks[settlement_id]
+
+    def _load_agent_memory_log(self, key: str, tier: "Tier") -> list:
+        """Tier 5 B11.3's real `load_fn` — see `_agent_memory_log_
+        cache`'s own docstring on `__init__`. A cache hit (any tier —
+        this whole module's job is to make the caller not have to
+        branch on tier) returns the already-fetched list; a genuine
+        miss (the common case right after eviction, or the very first
+        request for this agent) runs the real durable query and stores
+        the result, so the NEXT read at any tier hits the dict
+        directly. `tier` itself is unused here on purpose — there is
+        only one real backing store (`agent_memory_log`, a SQLite
+        table) regardless of tier; a future integration with a genuine
+        cold-storage format (e.g. a slower/compressed on-disk cache
+        distinct from the durable table itself) would be the place to
+        actually branch on it."""
+        agent_id = int(key)
+        cached = self._agent_memory_log_cache.get(agent_id)
+        if cached is not None:
+            return cached
+        rows = recent_agent_memory_log(self.conn, agent_id=agent_id, limit=AGENT_MEMORY_LOG_CACHE_LIMIT)
+        self._agent_memory_log_cache[agent_id] = rows
+        return rows
+
+    def cached_agent_memory_log(self, agent_id: int, limit: int) -> list:
+        """Tier 5 B11's real first consumer — wired to `WorldBroadcaster.
+        set_agent_memory_log_provider`, itself consumed by `GET /agents/
+        {id}/memory_log` (`interface/app.py`). Only the ONE real request
+        shape any actual caller makes (`limit == AGENT_MEMORY_LOG_CACHE_
+        LIMIT`, the NPC inspector's own default) goes through the real
+        B11.1-B11.3 tier machinery; a caller asking for a genuinely
+        different `limit` bypasses the cache entirely and queries
+        directly — a second cache dimension keyed on `limit` would add
+        real complexity for a request shape nothing in this codebase
+        actually makes today (see `AGENT_MEMORY_LOG_CACHE_LIMIT`'s own
+        docstring)."""
+        if limit != AGENT_MEMORY_LOG_CACHE_LIMIT:
+            return recent_agent_memory_log(self.conn, agent_id=agent_id, limit=limit)
+        handle = TransparentHandle(manager=self._agent_memory_log_tiers, load_fn=self._load_agent_memory_log)
+        return handle.get(str(agent_id), self.world.clock.tick_count)
+
+    def _maybe_demote_agent_memory_log_cache(self) -> None:
+        """Tier 5 B11.2's real demotion policy, run monthly (ON_EVENT/
+        month_end — an observer-driven cache has no reason to check
+        every single tick). `MemoryTierManager.demote_stale` is the
+        real migration decision (idle SIMULATED ticks since the last
+        real fetch, against `AGENT_MEMORY_LOG_TIER_THRESHOLDS`); this
+        method's own job is just the second half B11's own module
+        docstring calls out as the actual point of tiering — an agent
+        demoted PAST hot has its cached rows genuinely popped out of
+        `_agent_memory_log_cache`, freeing the RAM, not merely
+        relabeled. A `key` never registered (no request has ever been
+        made for that agent) never appears in `demote_stale`'s own
+        migrations list — nothing to demote, nothing to free."""
+        for key, _from_tier, to_tier in self._agent_memory_log_tiers.demote_stale(
+            self.world.clock.tick_count, AGENT_MEMORY_LOG_TIER_THRESHOLDS
+        ):
+            if to_tier is not Tier.HOT:
+                self._agent_memory_log_cache.pop(int(key), None)
 
     def _institution_job_target(self) -> "tuple[Settlement, object] | None":
         """§9 "institutions get their own persistent memory" (docs/IDEAS-
@@ -18433,6 +18573,20 @@ class SimulationEngine:
             # engine restart, round-trips through save/load. Bounded
             # newest-last window, same shape as `history_recent` above.
             "machine_profile_history_recent": list(self.world.machine_profile_history[-10:]),
+            # Tier 5 B11's real first consumer — see `_agent_memory_log_
+            # cache`'s own docstring on `__init__`. `tier_counts` is a
+            # cheap live census of `MemoryTierManager.tiers` (how many
+            # registered agent ids currently sit in each tier);
+            # `cached_agents` is how many actually have a real cached
+            # list in RAM right now (<= the HOT count, since a WARM/
+            # COLD/ARCHIVE tier means its rows were already freed).
+            "agent_memory_log_cache": {
+                "tier_counts": {
+                    tier.value: sum(1 for t in self._agent_memory_log_tiers.tiers.values() if t is tier)
+                    for tier in Tier
+                },
+                "cached_agents": len(self._agent_memory_log_cache),
+            },
             # Tier 7 HCA Stage H, H2: `self._machine_workspace`'s own
             # real arbitration history — dev-console/Observatory-only,
             # per H3's cross-domain isolation rule (a MACHINE broadcast

@@ -50,6 +50,7 @@ class WorldBroadcaster:
         self._knowledge_tree_provider: Callable[[], list] | None = None
         self._causal_threads_provider: Callable[[], list] | None = None
         self._emergence_log_provider: Callable[[], list] | None = None
+        self._agent_memory_log_provider: Callable[[int, int], list] | None = None
         self._interventions: list[dict] = []
         self._paused = False
         self._speed_multiplier = DEFAULT_SPEED_MULTIPLIER
@@ -316,6 +317,19 @@ class WorldBroadcaster:
 
     def get_emergence_log(self) -> list | None:
         return self._emergence_log_provider() if self._emergence_log_provider else None
+
+    def set_agent_memory_log_provider(self, provider: Callable[[int, int], list]) -> None:
+        """Tier 5 B11 (docs/HEARTHBENCH-RUNTIME-2026-07-23.md, Part B,
+        "Hierarchical memory tiering"): `provider` is `SimulationEngine.
+        cached_agent_memory_log`, the real first consumer of B11.1-B11.3's
+        `MemoryTierManager`/`TransparentHandle` — see that method's own
+        docstring. Unlike the other providers above (argless — they read
+        a whole already-computed structure), this one takes `(agent_id,
+        limit)`, since the whole point is to be a real per-key cache."""
+        self._agent_memory_log_provider = provider
+
+    def get_agent_memory_log(self, agent_id: int, limit: int) -> list | None:
+        return self._agent_memory_log_provider(agent_id, limit) if self._agent_memory_log_provider else None
 
     # --- called by the FastAPI app (writer side — interventions only) ---------
 

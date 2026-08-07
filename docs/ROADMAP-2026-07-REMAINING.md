@@ -598,8 +598,45 @@ through in one pass per this project's own "never big-bang" discipline.
 
 ## Phase 5 — Finish wiring the Adaptive Runtime's remaining pieces
 
-- **B11** hierarchical memory tiering has no real large-persisted-state
-  consumer wired to it yet.
+- **B11 — SHIPPED (first slice), v1.34.273.** B11.1-B11.3's `Memory
+  TierManager`/`TransparentHandle` primitives get a real first
+  consumer: `GET /agents/{id}/memory_log` (`interface/app.py`)
+  previously ran a fresh `recent_agent_memory_log` SQL query against
+  the durable `agent_memory_log` table on EVERY request — no caching
+  at all. New `SimulationEngine._agent_memory_log_tiers`/`_agent_
+  memory_log_cache` (runtime-only, never persisted): `cached_agent_
+  memory_log(agent_id, limit)` — the real provider wired to `World
+  Broadcaster.set_agent_memory_log_provider` — only engages the cache
+  for the ONE real request shape any caller actually makes (`limit ==
+  AGENT_MEMORY_LOG_CACHE_LIMIT`, the NPC inspector's own default); a
+  different `limit` bypasses the cache and queries directly, avoiding
+  a second cache dimension for a request shape nothing makes today.
+  New `_maybe_demote_agent_memory_log_cache` (monthly, ON_EVENT/
+  month_end, same B0.3-migrated-scheduler shape as every dormancy
+  job): demotes an idle agent's tier via `MemoryTierManager.demote_
+  stale` against `AGENT_MEMORY_LOG_TIER_THRESHOLDS` (real elapsed-
+  SIMULATED-tick windows, HOT 20k/WARM 60k/COLD 200k) and, past HOT,
+  actually POPS the cached rows out of the dict — the real point of
+  tiering (reclaiming RAM for an agent nobody's inspected in a long
+  while), not just relabeling. A re-fetch at any tier re-queries,
+  re-caches, and promotes straight back to HOT via `Transparent
+  Handle.get`'s own `touch()`. `full_diagnostics()['agent_memory_log_
+  cache']` surfaces live tier counts + cached-agent count. New
+  `scripts/verify_b11_agent_memory_log_cache.py` (24 checks, all pass
+  first run — cache hit/miss, non-default-limit bypass, empty-result
+  caching, tier promotion on access, real demotion freeing RAM, the
+  real registered job's own end-to-end behavior, a never-requested
+  agent as a safe no-op, `_TICK_JOBS`/month_end-gating registration,
+  diagnostics surfacing, a real `WorldBroadcaster`-provider end-to-end
+  proof incl. the no-provider-registered `None` fallback `interface/
+  app.py`'s route itself relies on, byte-identical parity against the
+  direct uncached query, and a real 400-tick production soak).
+  **B11.4 (host-pressure-driven demotion, `pressure_response`)
+  deliberately NOT wired this pass** — this first slice stays scoped
+  to elapsed-tick demotion alone, same "ship the interface, wire the
+  first real consumer" pattern every prior Tier 5/6/7 item here uses;
+  real, distinct future work if a second real large-persisted-state
+  consumer ever wants the pressure-aware variant.
 - **B12** — only the RAW→archived-digest stage is wired (the emergence
   log). The remaining cascade (EPISODE→SUMMARY→HISTORY→CULTURAL_MEMORY)
   needs a real chronicle/documentary/culture-digest producer chain per

@@ -4,6 +4,100 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.273] — Roadmap Phase 5: B11's real first consumer, an agent-memory-log cache
+
+Explicit user instruction: "continue phase 5" — of Phase 5's remaining
+two items (B11, B12's cascade/B14.3), shipped B11's real first slice;
+B12/B14.3 both still need a genuinely new mechanism (a chronicle/
+documentary/culture-digest producer chain per compression stage; a
+real batched snapshot writer, since the writer is still one `INSERT`
+per row) and stay explicitly open.
+
+B11.1-B11.3 (`hierarchical_memory.py`'s `Tier`/`MemoryTierManager`/
+`TransparentHandle`) shipped standalone and verified since v1.34.178
+but had never been wired to a real consumer — a real gap search across
+the codebase found one: `GET /agents/{id}/memory_log` (`interface/
+app.py`, backing the NPC inspector's "full life history" fetch) ran a
+fresh `recent_agent_memory_log` SQL query against the durable
+`agent_memory_log` table on EVERY single request, no caching at all —
+exactly the "large persisted state" shape B11's own primitives were
+built for and never given a real consumer.
+
+New `SimulationEngine._agent_memory_log_tiers`/`_agent_memory_log_
+cache` (runtime-only, never persisted — same "derived, re-baselines on
+restart" discipline as every `DormancyManager` instance in this
+codebase; losing cache state on restart just means the next request
+re-queries once). `cached_agent_memory_log(agent_id, limit)` is the
+real provider wired to a new `WorldBroadcaster.set_agent_memory_log_
+provider`/`get_agent_memory_log` pair (`interface/api.py`) — the first
+provider hook in that class to take real arguments rather than reading
+an already-computed whole structure, since the whole point here is to
+be a real per-key cache. Only the ONE request shape any real caller
+actually makes (`limit == AGENT_MEMORY_LOG_CACHE_LIMIT = 100`, the NPC
+inspector's own pre-existing default) engages the cache at all — a
+different `limit` bypasses it and queries directly, deliberately
+avoiding a second cache dimension for a request shape nothing in this
+codebase makes today. `_load_agent_memory_log` is the real `Transparent
+Handle.load_fn`: a cache hit returns the already-fetched list; a miss
+runs the real query and stores the result so the NEXT read at any tier
+hits the dict directly (`TransparentHandle` itself, per its own
+docstring, does no storage of its own — only tier/staleness
+bookkeeping, so this dict is what makes it a real cache).
+
+New `_maybe_demote_agent_memory_log_cache` (monthly, ON_EVENT/
+month_end — the same per-job-dedicated-`Scheduler` B0.3 migration
+shape every dormancy job in this codebase already uses, registered in
+`_TICK_JOBS`/`_RUNTIME_SCHEDULED_JOB_SCHEDULERS`/`_MONTH_END_GATED_
+JOBS`): calls `MemoryTierManager.demote_stale` against new `AGENT_
+MEMORY_LOG_TIER_THRESHOLDS` (real elapsed-SIMULATED-tick windows —
+HOT 20,000/WARM 60,000/COLD 200,000 ticks since an agent's memory log
+was last actually fetched) and, for every migration landing PAST HOT,
+actually pops the cached rows out of `_agent_memory_log_cache` — the
+real point of tiering here (reclaiming RAM for an agent nobody has
+inspected in a long while), not merely relabeling a tier for its own
+sake. A re-fetch at any tier re-queries, re-caches, and promotes
+straight back to HOT via `TransparentHandle.get`'s own `touch()`.
+`full_diagnostics()['agent_memory_log_cache']` surfaces a live census
+(`tier_counts` per `Tier`, `cached_agents`).
+
+**B11.4 (`pressure_response`, demoting more aggressively under real
+host memory pressure) deliberately NOT wired this pass** — this first
+slice stays scoped to elapsed-tick demotion alone, same "ship the
+interface, wire the first real consumer, don't over-build on day one"
+pattern every prior Tier 5/6/7 item in this codebase has used; real,
+distinct future work if a second large-persisted-state consumer ever
+wants the pressure-aware variant.
+
+New `scripts/verify_b11_agent_memory_log_cache.py` (24 checks, all
+pass first run) — cache miss-then-hit correctness (a row added to the
+DB after the cache is warm correctly does NOT appear on a same-limit
+re-fetch); a different `limit` bypassing the cache without disturbing
+its tier state; an agent with zero real rows still caching correctly
+(an empty list is a valid, real result); tier promotion on access;
+real demotion genuinely freeing the cached rows (not just relabeling)
+and a re-fetch afterward correctly re-populating and re-promoting to
+HOT; the real registered `_maybe_demote_agent_memory_log_cache` method
+itself (not a hand-rolled loop) demoting and freeing a genuinely stale
+agent; a never-requested agent as a safe demotion no-op; the job's own
+real `_TICK_JOBS`/`_RUNTIME_SCHEDULED_JOB_SCHEDULERS`/`_MONTH_END_
+GATED_JOBS` registration; `full_diagnostics()` surfacing; a real
+end-to-end proof through `WorldBroadcaster.set_agent_memory_log_
+provider`/`get_agent_memory_log` incl. the no-provider-registered
+`None` fallback `interface/app.py`'s own route relies on when no
+engine is attached; byte-identical parity between a cache-warming call
+and the direct uncached query; and a real 400-tick production soak
+with the new cache/demotion job live.
+
+Verified: the new script (24 checks); `scripts/verify_hierarchical_
+memory.py`/`verify_b15_6_and_b15_8.py`/`verify_b15_7_scheduler_
+fuzz.py`/`verify_b0_runtime_migrations.py`/`verify_task_graph.py`/
+`verify_scheduler.py`/`verify_runtime_invariant.py` all re-run clean;
+`pyflakes` clean on all touched/new files (only the six known
+pre-existing forward-ref findings in `engine.py`); `scripts/verify_
+replay_hash.py` (800 ticks, seed 777, `--in-process`) — MATCH,
+byte-identical; `scripts/verify_native_soak.py` (seeds 1/55, 800
+ticks) — MATCH.
+
 ## [1.34.272] — Roadmap Phase 5: B15.6/B15.7/B15.8, closing B15 in full
 
 Explicit user instruction: "continue with phase 5" — of Phase 5's four

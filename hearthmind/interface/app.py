@@ -104,8 +104,16 @@ def create_app(broadcaster: WorldBroadcaster, conn: sqlite3.Connection, config: 
         been logged to disk (significant episodic memories once evicted
         past their cap, plus every distilled self-theory), newest first.
         Fetched on demand (not part of the hot broadcast payload) when
-        the NPC inspector's "full life history" section is opened."""
-        entries = recent_agent_memory_log(conn, agent_id=agent_id, limit=limit)
+        the NPC inspector's "full life history" section is opened.
+
+        Tier 5 B11: routed through `broadcaster.get_agent_memory_log`
+        (`SimulationEngine.cached_agent_memory_log`, a real B11.1-B11.3
+        `MemoryTierManager`/`TransparentHandle`-backed cache) when a
+        live engine is attached — falls back to the direct query
+        unchanged (same result, just uncached) when no provider is
+        registered, e.g. a standalone test harness with no engine."""
+        cached = broadcaster.get_agent_memory_log(agent_id, limit)
+        entries = cached if cached is not None else recent_agent_memory_log(conn, agent_id=agent_id, limit=limit)
         return JSONResponse({
             "agent_id": agent_id,
             "total_count": agent_memory_log_count(conn, agent_id=agent_id),
