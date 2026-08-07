@@ -4,6 +4,90 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.274] — Roadmap Phase 5: B12's cascade completion (and the real bug it found)
+
+Explicit user instruction: "continue phase 5" — of Phase 5's one
+remaining item (B14.3, which needs a real new batched-write mechanism
+this pass didn't attempt), shipped B12's own remaining cascade.
+
+Investigating "wire the remaining EPISODE→SUMMARY→HISTORY→CULTURAL_
+MEMORY cascade" found a genuine bug before any new feature work:
+`_emergence_compression.entries[EPISODE]` (and every stage above it)
+had nothing ever calling `maybe_compress` on it — `maybe_compress`
+promotes a RAW compression's condensed digest straight into `entries
+[EPISODE]`, but only RAW itself was ever checked against its own
+threshold, so EPISODE's own in-flight bucket accumulated one more
+entry every `EMERGENCE_COMPRESSION_RAW_THRESHOLD` (100) raw
+observations, forever, with no cap — a real unbounded runtime-only
+growth, the exact "memory-leak pattern to audit first" shape this
+project's own standing lesson names (any dict/list keyed or appended
+to without a cap), just slow enough that it wouldn't show up in an
+ordinary few-thousand-tick soak.
+
+Fixed by completing the cascade for real: new `EMERGENCE_COMPRESSION_
+EPISODE_THRESHOLD`/`_SUMMARY_THRESHOLD`/`_HISTORY_THRESHOLD` (each
+`max_count=5`, `max_age_ticks` set high enough that volume stays the
+real trigger, same reasoning `EMERGENCE_COMPRESSION_RAW_THRESHOLD`'s
+own docstring already gives) and a new shared `condense_fn`, `_merge_
+emergence_digests` — reuses `_condense_emergence_entries`'s own output
+shape (`tick_start`/`tick_end`/`count`/`kind_counts`/`notable_
+summary`) so ONE function composes recursively at every promotion:
+kind tallies sum, the tick range widens to cover every input, and the
+representative `notable_summary` is inherited from whichever input
+digest covered the busiest (highest-`count`) stretch — a proxy for
+"most eventful" once raw per-entry `magnitude` is no longer available
+after a batch has already been condensed once. `_tick_once`'s eviction
+handler now calls `maybe_compress` on EPISODE/SUMMARY/HISTORY right
+after RAW, each a cheap no-op on most ticks (an under-threshold or
+empty bucket returns immediately). CULTURAL_MEMORY stays the permanent
+record, never promoted further (per `CompressionLadder`'s own design),
+bounded only by the existing `EMERGENCE_COMPRESSION_ARCHIVE_MAX` — at
+these thresholds, a CULTURAL_MEMORY entry eventually represents
+roughly `100 x 5 x 5 x 5` = 12,500 raw observations' worth of condensed
+history. `full_diagnostics()['emergence_compression']` gained
+`stage_pending` (a live per-stage bucket-size census across all five
+stages) — the real, cheap, always-checkable proof no stage's own
+in-flight bucket grows without bound, not just a claim in a docstring.
+
+**Deliberately still NOT what the roadmap's own original "needs a real
+chronicle/documentary/culture-digest producer chain per stage" text
+asked for.** Wiring this ladder's promotion events to actually TRIGGER
+those independently-scheduled LLM-authored jobs (each fires on its own
+calendar cadence today, never on a compression event) would be a real,
+larger redesign — explicitly flagged, not attempted this pass. What
+ships here closes the real correctness gap (unbounded growth) with a
+genuinely complete, deterministic cascade; the richer narrative version
+stays open, distinct future work.
+
+New `scripts/verify_b12_cascade_completion.py` (21 checks) — pure
+`_merge_emergence_digests` correctness (tick-range widening, kind-tally
+summing, busiest-stretch summary inheritance, an idempotent output
+shape, and a genuine empty-input degrade case); a real production-path
+proof that one RAW compression promotes exactly one EPISODE entry
+without yet compressing it; a real proof that crossing EPISODE's own
+threshold promotes into SUMMARY and clears EPISODE's bucket back down,
+with the archived SUMMARY digest's `count` matching every underlying
+raw observation exactly (5 episodes x 100 raw entries); a real proof
+the cascade continues all the way to HISTORY (not just one hop); a
+per-stage sweep confirming no stage's own bucket ever exceeds its
+threshold after a real sustained run; `full_diagnostics()` surfacing
+all five stages correctly; and a real 400-tick production soak with
+the whole cascade live. One real bug caught and fixed before shipping,
+not in the module under test but genuinely in the fix itself:
+`_merge_emergence_digests([])` crashed on `max()` of an empty
+sequence — `maybe_compress` never actually calls `condense_fn` on an
+empty bucket in production (it early-returns first), but the function
+is hardened to degrade safely to a genuinely empty digest regardless,
+rather than trusting that caller invariant to hold forever.
+
+Verified: the new script (21 checks); `scripts/verify_b12_emergence_
+compression.py`/`verify_history_compression.py`/`verify_hierarchical_
+memory.py`/`verify_runtime_invariant.py` all re-run clean; `pyflakes`
+clean on the touched file (only the six known pre-existing forward-ref
+findings in `engine.py`); `scripts/verify_replay_hash.py` (800 ticks,
+seed 777, `--in-process`) — MATCH, byte-identical; `scripts/verify_
+native_soak.py` (seeds 1/55, 800 ticks) — MATCH.
+
 ## [1.34.273] — Roadmap Phase 5: B11's real first consumer, an agent-memory-log cache
 
 Explicit user instruction: "continue phase 5" — of Phase 5's remaining

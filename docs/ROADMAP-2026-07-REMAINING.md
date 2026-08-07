@@ -637,10 +637,36 @@ through in one pass per this project's own "never big-bang" discipline.
   first real consumer" pattern every prior Tier 5/6/7 item here uses;
   real, distinct future work if a second real large-persisted-state
   consumer ever wants the pressure-aware variant.
-- **B12** — only the RAW→archived-digest stage is wired (the emergence
-  log). The remaining cascade (EPISODE→SUMMARY→HISTORY→CULTURAL_MEMORY)
-  needs a real chronicle/documentary/culture-digest producer chain per
-  stage.
+- **B12 — cascade completion SHIPPED, v1.34.274; a real LLM-authored
+  producer chain per stage stays open.** Investigating "wire the
+  remaining cascade" found a genuine bug first, not just a gap:
+  `_emergence_compression.entries[EPISODE]` (and every stage above it)
+  had NOTHING ever calling `maybe_compress` on them — a real unbounded
+  runtime-only growth (one entry added per RAW compression, forever),
+  the exact "memory-leak pattern to audit first" shape this file's own
+  standing lesson names, just slow enough to be invisible in an
+  ordinary few-thousand-tick soak. Fixed by wiring EPISODE/SUMMARY/
+  HISTORY compression too — new `EMERGENCE_COMPRESSION_EPISODE_/
+  SUMMARY_/HISTORY_THRESHOLD` (each groups 5 of the stage below it,
+  `max_count=5`) and a shared `_merge_emergence_digests` `condense_fn`
+  that recursively merges the existing digest shape (`tick_start`/
+  `tick_end`/`count`/`kind_counts`/`notable_summary`) at every
+  promotion, so CULTURAL_MEMORY's own archived entries eventually
+  represent ~12,500 raw observations each, still bounded overall by
+  `EMERGENCE_COMPRESSION_ARCHIVE_MAX`. `full_diagnostics()
+  ['emergence_compression']['stage_pending']` surfaces a live per-
+  stage census — the real, cheap proof no stage's bucket grows past
+  its threshold. **Deliberately still NOT what "a real chronicle/
+  documentary/culture-digest producer chain per stage" originally
+  asked for** — that would need those independently-scheduled LLM jobs
+  redesigned to also fire on a compression event, a materially larger
+  change; every stage here condenses deterministically instead, real,
+  distinct future work if the richer narrative version is wanted.
+  New `scripts/verify_b12_cascade_completion.py` (21 checks, all
+  pass — one real bug caught before shipping, `_merge_emergence_
+  digests([])` crashed on `max()` of an empty sequence; `maybe_
+  compress` never actually calls it that way in production, but fixed
+  to degrade safely regardless of that invariant holding forever).
 - **B14.3** — `batch_size_for_storage` has no real batched-write
   mechanism to size for yet (the snapshot writer is still one `INSERT`
   per row); needs real new design, not a cheap wire-up.

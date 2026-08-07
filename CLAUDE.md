@@ -742,6 +742,59 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.274)
+
+Explicit user instruction: "continue phase 5" — of Phase 5's one
+remaining item (B14.3, needing a real new batched-write mechanism —
+not attempted), shipped B12's remaining cascade.
+
+Investigating "wire the remaining cascade" found a real bug first:
+`_emergence_compression.entries[EPISODE]` (and every stage above it)
+had nothing ever calling `maybe_compress` on it — a genuine unbounded
+runtime-only growth (one entry per RAW compression, forever), the
+exact "memory-leak pattern to audit first" shape this file's own
+standing lesson names, just slow enough to be invisible in an ordinary
+few-thousand-tick soak.
+
+Fixed by completing the cascade: new `EMERGENCE_COMPRESSION_EPISODE_/
+SUMMARY_/HISTORY_THRESHOLD` (each `max_count=5`) + a shared `_merge_
+emergence_digests` `condense_fn` reusing `_condense_emergence_
+entries`'s own digest shape so one function composes recursively at
+every promotion (kind tallies sum, tick range widens, `notable_
+summary` inherits from the busiest input). `_tick_once`'s eviction
+handler now compresses EPISODE/SUMMARY/HISTORY right after RAW —
+cheap no-ops on most ticks. CULTURAL_MEMORY stays the permanent
+record (never promoted further), bounded only by the existing
+`EMERGENCE_COMPRESSION_ARCHIVE_MAX`; at these thresholds a CULTURAL_
+MEMORY entry eventually represents ~12,500 raw observations.
+`full_diagnostics()['emergence_compression']['stage_pending']`
+surfaces a live per-stage bucket census — the real, cheap proof no
+stage grows unbounded.
+
+**Deliberately still NOT a real chronicle/documentary/culture-digest
+LLM-authored producer chain per stage** — that would need those
+independently-scheduled jobs redesigned to also fire on a compression
+event, a materially larger change, explicitly left open; every stage
+here condenses deterministically instead.
+
+New `scripts/verify_b12_cascade_completion.py` (21 checks, all pass —
+one real bug caught before shipping: `_merge_emergence_digests([])`
+crashed on `max()` of an empty sequence; unreachable in production
+since `maybe_compress` never calls it that way, but hardened to
+degrade safely regardless).
+
+Verified: the new script (21 checks); `scripts/verify_b12_emergence_
+compression.py`/`verify_history_compression.py`/`verify_hierarchical_
+memory.py`/`verify_runtime_invariant.py` all re-run clean; `pyflakes`
+clean (only the six known pre-existing forward-ref findings in
+`engine.py`); `scripts/verify_replay_hash.py` (800 ticks, seed 777,
+`--in-process`) — MATCH, byte-identical; `scripts/verify_native_
+soak.py` (seeds 1/55, 800 ticks) — MATCH.
+
+**This leaves Phase 5 with exactly one open item: B14.3** (a real
+batched snapshot writer — the current writer is still one `INSERT`
+per row, with nothing yet to size `batch_size_for_storage` for).
+
 ## Current state (v1.34.273)
 
 Explicit user instruction: "continue phase 5" — of Phase 5's remaining

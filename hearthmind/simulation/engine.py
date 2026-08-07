@@ -2553,6 +2553,78 @@ def _condense_emergence_entries(items: list) -> dict:
     }
 
 
+EMERGENCE_COMPRESSION_EPISODE_THRESHOLD = StageThreshold(max_count=5, max_age_ticks=1_000_000)
+EMERGENCE_COMPRESSION_SUMMARY_THRESHOLD = StageThreshold(max_count=5, max_age_ticks=1_000_000)
+EMERGENCE_COMPRESSION_HISTORY_THRESHOLD = StageThreshold(max_count=5, max_age_ticks=1_000_000)
+"""B12's real cascade completion (docs/ROADMAP-2026-07-REMAINING.md,
+Phase 5's own flagged gap: "only the RAW->archived-digest stage is
+wired... the remaining cascade needs a real producer chain per
+stage"). Deliberately a DIFFERENT, smaller answer than that text's own
+"chronicle/documentary/culture-digest producer chain" framing — wiring
+this ladder's promotion events to actually TRIGGER those independent
+LLM-authored jobs would be a real, larger redesign of how each of
+those jobs is scheduled (today each fires on its own calendar cadence,
+never on a compression event) and stays explicitly open, flagged
+below. What ships here closes the real correctness gap instead: before
+this, `_emergence_compression.entries[EPISODE]` (and every stage above
+it) accumulated forever with nothing ever calling `maybe_compress` on
+them — a genuine unbounded runtime-only growth, the exact "memory-leak
+pattern to audit first" shape this file's own standing lesson warns
+about (a list appended to every RAW compression with no cap), just
+slow enough (~1 new entry per `EMERGENCE_COMPRESSION_RAW_THRESHOLD`
+raw observations) that it wouldn't show up in an ordinary few-thousand-
+tick soak.
+
+`_merge_emergence_digests` (the shared `condense_fn` for all three)
+deliberately reuses `_condense_emergence_entries`'s own output SHAPE
+(`tick_start`/`tick_end`/`count`/`kind_counts`/`notable_summary`) so
+one function composes recursively at every promotion — EPISODE's
+condensed digests merge into SUMMARY, SUMMARY's into HISTORY, HISTORY's
+into CULTURAL_MEMORY (CULTURAL_MEMORY has no stage above it, per
+`CompressionLadder`'s own docstring, so it's never itself compressed
+further — its own archived entries are the permanent record, bounded
+only by `prune_to_capacity`). Each stage groups 5 of the stage below
+it (`max_count=5`, `max_age_ticks` set high enough that volume, not
+age, is the real trigger — same reasoning `EMERGENCE_COMPRESSION_RAW_
+THRESHOLD`'s own docstring gives): a CULTURAL_MEMORY entry represents
+roughly `100 * 5 * 5 * 5` = 12,500 raw observations' worth of
+condensed history, a genuinely deep archived memory at a bounded,
+fixed storage cost — `EMERGENCE_COMPRESSION_ARCHIVE_MAX` still caps
+the TOTAL archive across every stage combined, unchanged."""
+
+
+def _merge_emergence_digests(digests: list) -> dict:
+    """The shared `condense_fn` for EPISODE/SUMMARY/HISTORY promotion —
+    see `EMERGENCE_COMPRESSION_EPISODE_THRESHOLD`'s own docstring.
+    Merges several already-condensed digests (each already carrying the
+    real `_condense_emergence_entries` shape) into one coarser digest
+    of the SAME shape: kind tallies sum, the tick range widens to cover
+    every input, and the representative `notable_summary` is inherited
+    from whichever input digest itself covered the busiest (highest
+    `count`) stretch — a proxy for "most eventful," since raw per-entry
+    `magnitude` is no longer available once a batch has already been
+    condensed once. `maybe_compress` never actually calls this on an
+    empty bucket (it early-returns before ever reaching `condense_fn`),
+    but degrades safely to a genuinely empty digest anyway rather than
+    trusting that invariant to hold forever."""
+    if not digests:
+        return {"tick_start": 0, "tick_end": 0, "count": 0, "kind_counts": {}, "notable_summary": ""}
+    kind_counts: dict = {}
+    for entry in digests:
+        for kind, n in entry.get("kind_counts", {}).items():
+            kind_counts[kind] = kind_counts.get(kind, 0) + n
+    starts = [entry.get("tick_start", 0) for entry in digests]
+    ends = [entry.get("tick_end", 0) for entry in digests]
+    busiest = max(digests, key=lambda entry: entry.get("count", 0))
+    return {
+        "tick_start": min(starts),
+        "tick_end": max(ends),
+        "count": sum(entry.get("count", 0) for entry in digests),
+        "kind_counts": kind_counts,
+        "notable_summary": busiest.get("notable_summary", ""),
+    }
+
+
 class SimulationEngine:
     def __init__(
         self, conn: sqlite3.Connection, config: Config, world: World,
@@ -3439,7 +3511,7 @@ class SimulationEngine:
         same "ship the interface, wire the first real consumer" pattern
         every prior Tier 5/6/7 item in this codebase has used."""
         self._emergence_compression = CompressionLadder()
-        """Tier 5 B12's first real consumer: routes `World.emergence_
+        """Tier 5 B12's real first consumer: routes `World.emergence_
         log`'s own evicted-past-cap entries through a real
         `CompressionLadder` (see `_append_emergence`) instead of plain
         truncation — a batch of evicted raw observations condenses into
@@ -3451,7 +3523,19 @@ class SimulationEngine:
         above; a restarted world simply starts accumulating a fresh
         archive rather than losing anything the live `emergence_log`
         window itself still holds (the archive is compressed HISTORY
-        beyond that window, not a substitute for it)."""
+        beyond that window, not a substitute for it).
+
+        As of Roadmap Phase 5's cascade-completion pass, EPISODE/
+        SUMMARY/HISTORY are also genuinely compressed (see `EMERGENCE_
+        COMPRESSION_EPISODE_THRESHOLD`'s own docstring) — this ladder
+        no longer has an unbounded in-flight bucket at any stage.
+        CULTURAL_MEMORY stays the permanent record (never promoted
+        further), bounded only by `prune_to_capacity`. What's still
+        deliberately NOT wired: a real chronicle/documentary/culture-
+        digest LLM-authored producer feeding each promotion, which
+        would need those independently-scheduled jobs redesigned to
+        also fire on a compression event — real, distinct future
+        work; every stage here condenses deterministically."""
         self._emergence_surprise = SurpriseSpecialist()
         """Tier 7 HCA Stage A, A2: the real gate `_append_emergence`
         scores every candidate observation through before deciding
@@ -16604,6 +16688,22 @@ class SimulationEngine:
             self._emergence_compression.maybe_compress(
                 CompressionStage.RAW, tick, EMERGENCE_COMPRESSION_RAW_THRESHOLD, _condense_emergence_entries,
             )
+            # Tier 5 B12's real cascade completion — see EMERGENCE_
+            # COMPRESSION_EPISODE_THRESHOLD's own docstring for why this
+            # closes a genuine unbounded-growth gap, not merely richer
+            # history. Each promotion only ever fires once its OWN
+            # threshold is crossed, so most ticks these three are cheap
+            # no-ops (`maybe_compress` returns immediately on an empty
+            # or under-threshold bucket).
+            self._emergence_compression.maybe_compress(
+                CompressionStage.EPISODE, tick, EMERGENCE_COMPRESSION_EPISODE_THRESHOLD, _merge_emergence_digests,
+            )
+            self._emergence_compression.maybe_compress(
+                CompressionStage.SUMMARY, tick, EMERGENCE_COMPRESSION_SUMMARY_THRESHOLD, _merge_emergence_digests,
+            )
+            self._emergence_compression.maybe_compress(
+                CompressionStage.HISTORY, tick, EMERGENCE_COMPRESSION_HISTORY_THRESHOLD, _merge_emergence_digests,
+            )
             self._emergence_compression.prune_to_capacity(EMERGENCE_COMPRESSION_ARCHIVE_MAX)
 
     def _log_daily_metrics(self) -> None:
@@ -18651,6 +18751,14 @@ class SimulationEngine:
             # a live run, not just present in the code.
             "emergence_compression": {
                 "raw_pending": self._emergence_compression.stage_size(CompressionStage.RAW),
+                # Phase 5's cascade-completion pass: a per-stage census
+                # confirming no stage's in-flight bucket grows without
+                # bound — the real, live proof this isn't just present
+                # in the code (see `_emergence_compression`'s own
+                # docstring on `__init__`).
+                "stage_pending": {
+                    stage.value: self._emergence_compression.stage_size(stage) for stage in CompressionStage
+                },
                 "total_archived": self._emergence_compression.total_archived(),
                 "total_raw_discarded": self._emergence_compression.total_raw_discarded,
                 "newest_digest": (
