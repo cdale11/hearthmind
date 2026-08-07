@@ -39,7 +39,7 @@ def _fresh_registry():
     ))
     registry.register(Tunable(
         name="sensitive_tunable", value=2.0, min_value=1.0, max_value=8.0, step=1.0,
-        safety_class=SafetyClass.SENSITIVE,
+        safety_class=SafetyClass.SENSITIVE, description="synthetic fixture for this verify script's own checks.",
     ))
     return registry
 

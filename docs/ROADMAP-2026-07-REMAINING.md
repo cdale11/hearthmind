@@ -607,12 +607,36 @@ through in one pass per this project's own "never big-bang" discipline.
 - **B14.3** — `batch_size_for_storage` has no real batched-write
   mechanism to size for yet (the snapshot writer is still one `INSERT`
   per row); needs real new design, not a cheap wire-up.
-- **B15.6/B15.7/B15.8** (docs/HEARTHBENCH-RUNTIME-2026-07-23.md) — record
-  host fingerprint/cognition-budget/rung-5 history in the save file +
-  diagnostics; fuzz the scheduler (randomize task order/budgets/
-  dormancy, assert the replay-hash invariant still holds); a semantic-
-  safety class check at tunable *registration* time, not just at
-  hypothesis-apply time.
+- **B15.6/B15.7/B15.8 — SHIPPED, v1.34.272.** New `World.machine_
+  profile_history` (bounded, `MACHINE_PROFILE_HISTORY_MAX=100`,
+  persisted through `to_dict`/`from_dict`, legacy-backfilled): a real
+  `session_started` entry per `SimulationEngine` construction (real
+  host fingerprint) plus `rung5_entered`/`rung5_exited` entries on a
+  genuine `Rung.REDUCE_COGNITION_BREADTH` transition (`_maybe_advance_
+  escalation_ladder`'s own resolver, the only writer) — B15.2's own
+  "save files must record the profile" text, finally real; distinct
+  from `full_diagnostics()['escalation_ladder']['history_recent']`
+  (runtime-only, every rung, wiped on restart) — this is the smaller
+  persisted cross-session subset, surfaced as a sibling `machine_
+  profile_history_recent` diagnostics key. New `scripts/verify_b15_7_
+  scheduler_fuzz.py`: `verify_replay_hash.py`'s own two-independent-
+  runs technique looped over K randomized runtime configs (`llm_max_
+  concurrent`/`snapshot_every_ticks`/forced `dormancy_aggressiveness`)
+  — the correct reading of B15.2's guarantee worked out carefully in
+  the script's own docstring: NOT that different configs must produce
+  the same world state (Mind-layer content legitimately varies by
+  hardware, per B15.2's own "adaptive" half), but that a GIVEN
+  randomized config must still reproduce byte-identically across two
+  independent runs of itself — a genuine fuzz that can catch a hidden
+  nondeterminism the one fixed default config might not exercise.
+  `TunableRegistry.register()` gained two real registration-time
+  checks: an out-of-range starting value is rejected, and a
+  `SafetyClass.SENSITIVE` tunable with no `description` is rejected —
+  the same "constants need a one-line docstring explaining why" this
+  codebase already holds everywhere else, made structural for exactly
+  the tunables risky enough to need B13.2's equivalence gate. New
+  `scripts/verify_b15_6_and_b15_8.py` (20 checks). This closes B15 in
+  full — B15.1-B15.8 all real.
 
 ## Phase 6 — HearthBench (build the benchmark itself)
 

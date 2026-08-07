@@ -89,7 +89,30 @@ class Tunable:
 class TunableRegistry:
     """B6.1's registry — the general framework B6.3 asks the existing
     LLM pacing controller to be re-expressed under, rather than staying
-    a special case."""
+    a special case.
+
+    Tier 5 B15.8: `register()` now enforces two real semantic-safety
+    invariants at REGISTRATION time, not just at B13.2's already-real
+    hypothesis-APPLY-time equivalence gate. Both catch a genuine class
+    of mistake the apply-time gate structurally can't, since it only
+    ever sees a value AFTER a `Tunable` already exists in the registry:
+    (1) `min_value <= value <= max_value` — an out-of-range starting
+    value would otherwise persist unclamped indefinitely (`Tunable.
+    clamp()` is only ever consulted by `adjust`/`set_value`, never at
+    construction, so nothing previously caught this); (2) a
+    `SafetyClass.SENSITIVE` tunable — the class B13.2's own equivalence
+    gate exists specifically to guard, "no equivalence_check_fn is a
+    FAILED gate, never a free pass" — must carry a real, non-empty
+    `description`. B13.2 asks a CALLER of `apply_and_measure` to prove
+    a specific CHANGE is safe; this asks a CALLER of `register` to
+    state, in writing, why the tunable is risky enough to need that
+    proof in the first place — the same "constants need a one-line
+    docstring explaining why the number" discipline this codebase
+    already holds everywhere else, made structural for exactly the
+    tunables where skipping it would matter most. `SAFE` tunables are
+    exempt from (2) — they cannot change simulation outcomes by
+    construction (B6.1's own `SafetyClass` docstring), so there is
+    nothing risky to document."""
 
     def __init__(self) -> None:
         self._tunables: dict[str, Tunable] = {}
@@ -97,6 +120,17 @@ class TunableRegistry:
     def register(self, tunable: Tunable) -> None:
         if tunable.name in self._tunables:
             raise ValueError(f"duplicate tunable name: {tunable.name!r}")
+        if not (tunable.min_value <= tunable.value <= tunable.max_value):
+            raise ValueError(
+                f"tunable {tunable.name!r} registered with value {tunable.value} outside its own "
+                f"legal range [{tunable.min_value}, {tunable.max_value}]"
+            )
+        if tunable.safety_class is SafetyClass.SENSITIVE and not tunable.description.strip():
+            raise ValueError(
+                f"tunable {tunable.name!r} is SafetyClass.SENSITIVE but has no description -- a "
+                f"tunable that CAN change simulation outcomes must state in writing why, at the "
+                f"point it's registered, not left implicit"
+            )
         self._tunables[tunable.name] = tunable
 
     def get(self, name: str) -> Tunable:

@@ -34,7 +34,10 @@ def _fresh_registry():
     registry = TunableRegistry()
     registry.register(Tunable(name="safe_a", value=5.0, min_value=0.0, max_value=10.0, step=1.0, safety_class=SafetyClass.SAFE))
     registry.register(Tunable(name="safe_b", value=5.0, min_value=0.0, max_value=10.0, step=1.0, safety_class=SafetyClass.SAFE))
-    registry.register(Tunable(name="sensitive_c", value=2.0, min_value=1.0, max_value=8.0, step=1.0, safety_class=SafetyClass.SENSITIVE))
+    registry.register(Tunable(
+        name="sensitive_c", value=2.0, min_value=1.0, max_value=8.0, step=1.0,
+        safety_class=SafetyClass.SENSITIVE, description="synthetic sensitive tunable for this verify script's own fixture.",
+    ))
     return registry
 
 

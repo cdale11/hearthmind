@@ -1418,6 +1418,16 @@ budget above. WHICH agents fill this budget stays entirely `due_for_
 cognition`'s own staggered-slot/significance ordering — B15.4's own
 "never a selection" guarantee."""
 
+MACHINE_PROFILE_HISTORY_MAX = 100
+"""Tier 5 B15.6's real bound on `World.machine_profile_history` — a
+`session_started` entry per real process run against this world plus a
+`rung5_entered`/`rung5_exited` pair per genuine sustained-pressure
+episode, both genuinely low-volume in ordinary use (a long-lived
+deployment restarts far less than once per tick, and reaching rung 5 at
+all needs `SUSTAINED_PRESSURE_THRESHOLD` consecutive pressured readings
+at the PAUSE rung already) — 100 comfortably outlives any real save
+file's practical inspection window without growing unbounded."""
+
 CONCURRENCY_PROBE_TASKS = 12
 """Tier 5 B13's real active-probe measurement (`_probe_concurrency_
 wait_ms`): how many synthetic asyncio tasks compete for the throwaway
@@ -2909,6 +2919,12 @@ class SimulationEngine:
         # runner exists to request one.
         self._escalation_ladder = EscalationLadder()
         self._cognition_budget = CognitionBudget(count=ESCALATION_COGNITION_BASE_BUDGET)
+        # Tier 5 B15.6: one real "which machine has run this world"
+        # entry per process construction, persisted into `World.
+        # machine_profile_history` — see that field's own docstring for
+        # why this differs from the machine-profile file itself
+        # (per-host state, not per-world history).
+        self._record_machine_profile_history("session_started")
 
         self._machine_workspace = GlobalWorkspace()
         """Tier 7 HCA Stage H, H2 (docs/ROADMAP-2026-07-REMAINING.md,
@@ -5560,10 +5576,26 @@ class SimulationEngine:
         tick = self.world.clock.tick_count
 
         def resolver(pressured: bool = pressured, tick: int = tick) -> None:
+            # Tier 5 B15.6: mirror a genuine rung-5 entry/exit into the
+            # persisted `World.machine_profile_history` — the one real
+            # rung transition B15.4's own text calls out as doing
+            # "real, visible work," so it's the one worth a durable
+            # cross-session record (every other rung stays runtime-only
+            # diagnostics, per `full_diagnostics()['escalation_ladder']`).
+            rung_before = self._escalation_ladder.current_rung
             self._escalation_ladder.observe(tick, pressured)
+            rung_after = self._escalation_ladder.current_rung
             self._cognition_budget = self._escalation_ladder.cognition_budget_for_rung(
                 ESCALATION_COGNITION_BASE_BUDGET, ESCALATION_COGNITION_REDUCED_BUDGET,
             )
+            if rung_after is Rung.REDUCE_COGNITION_BREADTH and rung_before is not Rung.REDUCE_COGNITION_BREADTH:
+                self._record_machine_profile_history(
+                    "rung5_entered", rung=rung_after, cognition_budget=self._cognition_budget.count,
+                )
+            elif rung_before is Rung.REDUCE_COGNITION_BREADTH and rung_after is not Rung.REDUCE_COGNITION_BREADTH:
+                self._record_machine_profile_history(
+                    "rung5_exited", rung=rung_after, cognition_budget=self._cognition_budget.count,
+                )
 
         bid = runtime_specialist.propose_escalation_bid(tick, resolver, pressured)
         self._machine_workspace.submit(bid)
@@ -5692,6 +5724,27 @@ class SimulationEngine:
             self._last_strategy.dormancy_aggressiveness, 1.0,
         )
         return max(1, round(base_threshold * multiplier))
+
+    def _record_machine_profile_history(
+        self, event: str, rung: "Rung | None" = None, cognition_budget: "int | None" = None,
+    ) -> None:
+        """Tier 5 B15.6's one real writer for `World.machine_profile_
+        history` — bounded append, oldest evicted first past `MACHINE_
+        PROFILE_HISTORY_MAX`, same shape every other bounded append-
+        only log in this codebase already uses. `rung`/`cognition_
+        budget` are only ever set on a real rung-5 transition; a bare
+        `"session_started"` entry carries neither (there is no rung
+        transition to name at construction time)."""
+        history = self.world.machine_profile_history
+        history.append({
+            "tick": self.world.clock.tick_count,
+            "host_fingerprint": self._machine_profile.host_fingerprint,
+            "event": event,
+            "rung": rung.name if rung is not None else None,
+            "cognition_budget": cognition_budget,
+        })
+        if len(history) > MACHINE_PROFILE_HISTORY_MAX:
+            del history[: len(history) - MACHINE_PROFILE_HISTORY_MAX]
 
     def _effective_emergence_log_cap(self) -> int:
         """Tier 5 B7.3 closed this gap, v1.34.214: `select_strategy`'s
@@ -18375,6 +18428,11 @@ class SimulationEngine:
                     for event in self._escalation_ladder.history[-10:]
                 ],
             },
+            # Tier 5 B15.6: the PERSISTED, cross-session subset of the
+            # above — `World.machine_profile_history`, survives an
+            # engine restart, round-trips through save/load. Bounded
+            # newest-last window, same shape as `history_recent` above.
+            "machine_profile_history_recent": list(self.world.machine_profile_history[-10:]),
             # Tier 7 HCA Stage H, H2: `self._machine_workspace`'s own
             # real arbitration history — dev-console/Observatory-only,
             # per H3's cross-domain isolation rule (a MACHINE broadcast

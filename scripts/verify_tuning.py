@@ -69,7 +69,7 @@ def check_clamping() -> None:
 def check_bang_bang_basic_direction() -> None:
     reg = TunableRegistry()
     reg.register(Tunable(name="concurrency", value=2, min_value=1, max_value=8, step=1,
-                          safety_class=SafetyClass.SENSITIVE))
+                          safety_class=SafetyClass.SENSITIVE, description="synthetic fixture."))
     ctrl = BangBangController(tunable_name="concurrency", target=50.0, hysteresis=5.0,
                                increases_measurement=True)
     # Measured (10) well below target (50) -> push tunable UP.
@@ -83,7 +83,7 @@ def check_bang_bang_basic_direction() -> None:
 def check_bang_bang_inverted_direction() -> None:
     reg = TunableRegistry()
     reg.register(Tunable(name="slowdown_ratio", value=0.5, min_value=0.1, max_value=1.0,
-                          step=0.05, safety_class=SafetyClass.SENSITIVE))
+                          step=0.05, safety_class=SafetyClass.SENSITIVE, description="synthetic fixture."))
     # Raising this tunable LOWERS the measured pressure (it triggers
     # slowdown pacing sooner) -- increases_measurement=False.
     ctrl = BangBangController(tunable_name="slowdown_ratio", target=1.0, hysteresis=0.05,

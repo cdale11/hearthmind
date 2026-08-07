@@ -4,6 +4,98 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.272] — Roadmap Phase 5: B15.6/B15.7/B15.8, closing B15 in full
+
+Explicit user instruction: "continue with phase 5" — of Phase 5's four
+named items (B11, B12's remaining cascade, B14.3, B15.6-8), shipped
+the three genuinely tractable B15 sub-items in one batch; B11/B12/
+B14.3 all need real new-consumer/new-mechanism design (a large-
+persisted-state consumer, a chronicle/documentary/culture-digest
+producer chain per compression stage, a real batched snapshot writer
+respectively) and stay explicitly open.
+
+**B15.6.** New `World.machine_profile_history` (bounded, `MACHINE_
+PROFILE_HISTORY_MAX=100`, persisted through `to_dict`/`from_dict`,
+legacy-backfilled to `[]`): B15.2's own "[DECIDED]" text names the
+exact consequence this closes — "the same seed on different hardware
+produces different stories... save files must record the profile."
+Every prior B15 item (`EscalationLadder`/`MachineProfile`/
+`CognitionBudget`) lived in runtime-only `SimulationEngine` state or a
+SEPARATE per-host machine-profile file, never in the world's own
+persisted history. New `SimulationEngine._record_machine_profile_
+history` is the one writer: a `session_started` entry (real `host_
+fingerprint()`) once per real process construction, plus `rung5_
+entered`/`rung5_exited` entries on a genuine `Rung.REDUCE_COGNITION_
+BREADTH` transition inside `_maybe_advance_escalation_ladder`'s own
+resolver — the one rung B15.4's own text calls out as doing "real,
+visible work," so it's the one worth a durable cross-session record;
+every other rung stays exactly as runtime-only as before. Surfaced as
+a new `machine_profile_history_recent` sibling to the existing
+runtime-only `escalation_ladder.history_recent` diagnostics key.
+
+**B15.7.** New `scripts/verify_b15_7_scheduler_fuzz.py`. Worked out
+the correct reading of B15.2's "replay-identical regardless of any
+runtime decision" claim carefully before writing anything (recorded in
+the script's own docstring, since it's easy to get wrong): NOT that
+two DIFFERENT runtime configs must produce the SAME world state — the
+"adaptive" half of B15.2 explicitly allows Mind-layer content
+(beliefs, dormancy-narrowed narration targets) to legitimately differ
+by hardware, with "the same seed on different hardware produces
+different stories" named as an accepted consequence, not a bug. What
+must hold is the narrower claim `verify_replay_hash.py` already proves
+for ONE fixed config: a GIVEN runtime configuration must still
+reproduce byte-identically across two independent runs of ITSELF. This
+script is that same two-independent-subprocess-runs technique, looped
+over K randomized configs (`llm_max_concurrent`/`snapshot_every_
+ticks`/a forced `dormancy_aggressiveness` via `SimulationEngine.
+_last_strategy`) instead of the one default — a genuine fuzz that can
+surface a hidden nondeterminism (unseeded RNG, unstable dict/set
+iteration order, a real threading race) the fixed default config might
+not happen to exercise. 8 randomized trials confirmed clean.
+
+**B15.8.** `TunableRegistry.register()` gained two real registration-
+time semantic-safety checks, distinct from B13.2's already-real
+hypothesis-APPLY-time equivalence gate (which only ever sees a value
+AFTER a `Tunable` already exists): (1) a starting `value` outside its
+own `[min_value, max_value]` range is now rejected outright — `Tunable.
+clamp()` was previously only ever consulted by `adjust`/`set_value`,
+so an out-of-range starting value would have persisted unclamped
+indefinitely; (2) a `SafetyClass.SENSITIVE` tunable — the class B13.2's
+gate exists specifically to guard — must carry a real, non-empty
+`description`. The same "constants need a one-line docstring
+explaining why the number" discipline this codebase already holds
+everywhere else, made structural for exactly the tunables risky enough
+to need that proof in the first place. Four existing test-fixture
+`Tunable(...)` calls across `scripts/verify_tuning.py`/`verify_
+optimization_hypothesis.py`/`verify_tunable_evolution.py` needed a real
+description added (all four real production registrations already had
+one).
+
+New `scripts/verify_b15_6_and_b15_8.py` (20 checks — registration-time
+bounds/description rejection and acceptance incl. exact-boundary
+values and a whitespace-only description; the real `register_llm_
+pacing_tunables`/`register_snapshot_tunables` production registrations
+still pass cleanly; `session_started`'s real host fingerprint recorded
+at construction; a real forced rung-5 entry AND exit both recorded
+correctly; ordinary non-rung-5 churn never persisted; bounded
+eviction; `to_dict`/`from_dict` round-trip + legacy backfill;
+`full_diagnostics()` surfacing; a real 400-tick production soak with
+the new writer live).
+
+**This closes Tier 5 B15 in full** — B15.1 (v1.34.102) through B15.8
+(this pass) are all real. Verified: both new scripts; `scripts/verify_
+tuning.py`/`verify_optimization_hypothesis.py`/`verify_tunable_
+evolution.py`/`verify_persistence_scheduling.py`/`verify_b15_
+escalation_ladder.py`/`verify_b13_5_pacing_genome_evolution.py`/
+`verify_h2_h3_runtime_domain.py`/`verify_b13_dev_console_endpoint.py`/
+`verify_runtime_diagnostics.py`/`verify_scheduler.py`/`verify_task_
+graph.py`/`verify_dormancy.py`/`verify_runtime_invariant.py`/`verify_
+b0_runtime_migrations.py` all re-run clean; `pyflakes` clean on all
+touched/new files (only the six known pre-existing forward-ref
+findings in `engine.py`); `scripts/verify_replay_hash.py` (800 ticks,
+seed 777, `--in-process`) — MATCH, byte-identical; `scripts/verify_
+native_soak.py` (seeds 1/55, 800 ticks) — MATCH.
+
 ## [1.34.271] — Roadmap Phase 4, B9.3 closed + a stale B4.2 doc fix (docs-only)
 
 Explicit user instruction: "continue with phase 4's remaining items" —

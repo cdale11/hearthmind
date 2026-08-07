@@ -816,6 +816,30 @@ class World:
     next_advisory_id: int = 1
     """Monotonic id counter for `advisory_proposals` — never reused,
     same discipline as every other id counter in this codebase."""
+    machine_profile_history: list[dict] = field(default_factory=list)
+    """Tier 5 B15.6 (docs/HEARTHBENCH-RUNTIME-2026-07-23.md, Part B):
+    B15.2's own "[DECIDED]" text names the consequence directly —
+    "the same seed on different hardware produces different stories...
+    save files must record the profile." Every prior B15 item
+    (`EscalationLadder`/`MachineProfile`/`CognitionBudget`, `simulation/
+    escalation.py`/`hardware_profile.py`) lived purely in `Simulation
+    Engine` runtime state or a SEPARATE machine-profile file next to
+    `db_path` — genuinely durable, but not part of THIS world's own
+    persisted history, so a save file resumed on different hardware, or
+    inspected after the fact, carried no trace of what machine actually
+    shaped its cognition breadth. Bounded (`MACHINE_PROFILE_HISTORY_
+    MAX`), append-only, newest-last, same shape as `self_tuning_
+    actions`/`advisory_proposals`: `{tick, host_fingerprint, event,
+    rung, cognition_budget}` — `event` is `"session_started"` (written
+    once per `SimulationEngine` construction, i.e. once per real
+    process run against this world) or `"rung5_entered"`/`"rung5_
+    exited"` (a genuine `Rung.REDUCE_COGNITION_BREADTH` transition —
+    see `SimulationEngine._maybe_advance_escalation_ladder`, the only
+    writer). Distinct from `full_diagnostics()['escalation_ladder']
+    ['history_recent']`, which reads the RUNTIME-only `EscalationLadder.
+    history` (every rung transition, not just rung-5, and wiped on
+    restart) — this field is the smaller, persisted, cross-session
+    subset a resumed/inspected save file can actually see."""
     _water_tiles: set = field(default=None, compare=False, repr=False)  # type: ignore[assignment]
     """Cached set of water-biome tile coords for `_tick_disasters` —
     previously rebuilt with a full terrain scan every tick even though
@@ -1957,6 +1981,7 @@ class World:
             "self_tuning_actions": list(self.self_tuning_actions),
             "advisory_proposals": list(self.advisory_proposals),
             "next_advisory_id": self.next_advisory_id,
+            "machine_profile_history": list(self.machine_profile_history),
             "consciousness_memory": list(self.consciousness_memory),
             "consciousness_personality": dict(self.consciousness_personality),
             "consciousness_objectives": list(self.consciousness_objectives),
@@ -2327,5 +2352,6 @@ class World:
             self_tuning_actions=list(data.get("self_tuning_actions", [])),
             advisory_proposals=list(data.get("advisory_proposals", [])),
             next_advisory_id=data.get("next_advisory_id", 1),
+            machine_profile_history=list(data.get("machine_profile_history", [])),
             migrated_subsystems=migrated_subsystems,
         )
