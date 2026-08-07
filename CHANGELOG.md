@@ -4,6 +4,93 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.276] — Roadmap Phase 6 begins: HearthBench A2, the Model Adapter Layer
+
+Explicit user instruction: "continue phase 6" — Phase 6 is building
+HearthBench itself, in strict dependency order starting with A2 (the
+model adapter layer everything else — prompt fixtures, scoring, run
+modes, process isolation — is built against). Only A0 (confirmed
+reusable pieces) and A1.1/A1.2 (package skeleton + isolation firewall)
+existed before this pass.
+
+Ships all four A2 sub-items in one batch. A2.1: `hearthbench/adapters/
+protocol.py`'s `ModelAdapter` — a `typing.Protocol` (structural typing,
+no shared inheritance needed) plus `AdapterResult`/`AdapterCapabilities`/
+`AdapterDescribe`/`HealthStatus` dataclasses, matching the checklist's
+own literal `generate()`/`capabilities()`/`describe()`/`health()` shape.
+Giving `seed` honest support needed one small additive change to a live
+production file: `hearthmind.llm.client`'s `OllamaClient`/`LlamaCppClient.
+generate_json` gained a trailing `seed_override` param, mirroring the
+already-established `num_predict_override`/`temperature_override`
+pattern exactly — appended last so every existing positional call site
+(`llm/jobs.py`'s `asyncio.to_thread(self.client.generate_json, ...)`)
+stays byte-identical with `None` implicitly supplied. Without it, the
+wrapping adapters would have had to falsely report `capabilities().seed
+= False` for a capability both backends' wire protocols genuinely
+support, purely to avoid reimplementing the HTTP call a second time —
+this is A0.1's own "reuse, don't rebuild" applied one layer deeper than
+the adapter itself.
+
+A2.2: `LlamaCppAdapter`/`OllamaAdapter` thin-wrap `hearthmind.llm.
+client`'s existing `LlamaCppClient`/`OllamaClient` — real reuse, not a
+second HTTP implementation; confirmed safe against A1.2's isolation
+firewall since `hearthmind.llm.client` itself imports nothing from
+`hearthmind.simulation`/`.agents`/`.world`. `OpenAICompatAdapter` is
+genuinely new (no existing "any OpenAI-compatible server" client
+existed) — self-contained JSON recovery rather than reaching into
+`hearthmind.llm.client`'s own underscore-prefixed private helpers
+across the package boundary. New `hearthbench/adapters/registry.py`'s
+`ADAPTER_REGISTRY`/`build_adapter`, mirroring the sim-side registry's
+"add one class, add one line" shape. The checklist's own explicit ask
+("enforce with a lint rule banning model-name string comparisons
+outside `adapters/`") shipped as `scripts/verify_hearthbench_adapter_
+isolation.py` — an AST scan flagging any string literal containing a
+model-family substring (nemotron/qwen/llama/gemma/gpt/claude/mistral/
+mixtral/phi/deepseek) used as a comparison operand anywhere under
+`hearthbench/` outside `hearthbench/adapters/`.
+
+A2.3: `hearthbench/adapters/conformance.py`'s `run_conformance_suite` —
+adapter-shape-agnostic (calls only the four Protocol methods), checking
+schema honoring, token accounting, error taxonomy, and the Protocol's
+own "`generate()` never raises" contract. Verified against a REAL local
+stdlib HTTP server serving canned, shape-accurate responses (the
+success path — a genuine HTTP round-trip through the real parse code,
+not a fake) and a REAL unreachable host (the failure path — a genuine
+connection-refused error), plus a deliberately-broken synthetic adapter
+proving the suite actually catches a real contract violation rather
+than rubber-stamping everything. "Cancellation" (named in the
+checklist's own text) scoped out honestly — `generate()` is
+synchronous/blocking by contract, so there's no in-adapter cancellation
+surface independent of a future A11 runner.
+
+A2.4: `hearthbench/adapters/lifecycle.py`'s `build_llama_server_command`
+(pure — model path + tuning knobs -> the exact argv, mirroring `scripts/
+run.sh`'s own confirmed-working defaults without depending on the shell
+script) + `ServerLifecycle` (a generic subprocess launch/stop/health-
+poll wrapper, deliberately knowing nothing about `llama-server`
+specifically). Verified against a real generic subprocess — this
+offline environment has no `llama-server` binary to launch, so start/
+is_running/double-start-rejection/stop/exit-code-recording/health-poll-
+bails-out-on-a-dead-process are all proven against genuine
+`subprocess.Popen` mechanics rather than a fake.
+
+New `scripts/verify_a2_model_adapters.py` (52 checks, all pass first
+run — every adapter's real success/failure paths, the conformance
+suite against a real healthy backend/a real unreachable one/a
+deliberately-broken one, the registry, `build_llama_server_command`,
+`ServerLifecycle`, and the `seed_override` wiring reaching the real
+wire payload for both `OllamaClient`/`LlamaCppClient`).
+
+Verified: the new script (52 checks); `scripts/verify_hearthbench_
+isolation.py`/`verify_hearthbench_adapter_isolation.py` both clean;
+`pyflakes` clean on all touched/new files; `scripts/verify_replay_
+hash.py` (800 ticks, seed 777, `--in-process`) — MATCH, byte-identical;
+`scripts/verify_native_soak.py` (seeds 1/55, 800 ticks) — MATCH (both
+re-run since `hearthmind/llm/client.py`, a live production file, was
+touched — confirming the additive `seed_override` param changes
+nothing on its default `None` path). A3 (prompt library/test
+definitions) is the next dependency-ordered Phase 6 item.
+
 ## [1.34.275] — Roadmap Phase 5, closed: B14.3's batched event writer
 
 Explicit user instruction: "continue phase 5" — the last open item,

@@ -87,10 +87,13 @@ themselves.
   daemon, not the sim engine. Not attempted — needs A2 (adapter layer)
   and A11 (run modes) to exist first.
 
-## A2 — Model Adapter Layer [PARTIAL]
+## A2 — Model Adapter Layer [SHIPPED, v1.34.276]
 
-- [ ] **A2.1 — `ModelAdapter` Protocol.** One interface all backends
-  implement:
+- [x] **A2.1 — `ModelAdapter` Protocol — SHIPPED.** `hearthbench/
+  adapters/protocol.py`: a `typing.Protocol` (not an ABC — no shared
+  inheritance needed, only structural typing), plus `AdapterResult`/
+  `AdapterCapabilities`/`AdapterDescribe`/`HealthStatus` dataclasses,
+  matching the spec's literal shape:
   ```
   generate(prompt, system, schema|None, max_tokens, temperature, seed)
       -> AdapterResult(text, parsed, prompt_tokens, completion_tokens,
@@ -102,18 +105,64 @@ themselves.
   ```
   `capabilities()` is what lets tests degrade gracefully (a backend
   without schema support gets scored on raw-JSON validity instead of
-  being disqualified).
-- [ ] **A2.2 — Three adapters at launch:** `LlamaCppAdapter` (wrapping
-  the existing client + `/metrics` polling), `OllamaAdapter`,
-  `OpenAICompatAdapter` (any `/v1/chat/completions`). Adapters are the
-  *only* place model-specific logic may live — enforce with a lint rule
-  banning model-name string comparisons outside `adapters/`.
-- [ ] **A2.3 — Adapter conformance suite.** A test each new adapter must
-  pass (schema honoring, token accounting, seed behavior, timeout,
-  cancellation, error taxonomy).
-- [ ] **A2.4 — Server lifecycle management.** Optionally launch/stop the
-  backend itself (llama-server with given flags), recording exact
-  command line, so a run is reproducible from the stored record alone.
+  being disqualified). `seed` support needed one small additive
+  upstream change: `hearthmind.llm.client`'s `OllamaClient`/
+  `LlamaCppClient.generate_json` gained a trailing `seed_override`
+  param (mirrors the existing `num_predict_override`/`temperature_
+  override` pattern exactly) so the wrapping adapters can honestly
+  report `seed=True` for a capability the backend genuinely has,
+  rather than reporting it falsely `False` to avoid reimplementing the
+  HTTP call — A0.1's own "reuse, don't rebuild" applied one level
+  deeper than the adapter itself.
+- [x] **A2.2 — Three adapters at launch — SHIPPED.** `LlamaCppAdapter`/
+  `OllamaAdapter` (`hearthbench/adapters/llamacpp.py`/`ollama.py`) thin-
+  wrap `hearthmind.llm.client`'s existing `LlamaCppClient`/
+  `OllamaClient` (real reuse, not reimplemented HTTP calls — `hearthmind.
+  llm.client` imports nothing from `hearthmind.simulation`/`.agents`/
+  `.world`, so this stays within A1.2's firewall); `LlamaCppAdapter`
+  also exposes `poll_metrics()` reusing `fetch_llama_server_metrics`
+  directly. `OpenAICompatAdapter` (`openai_compat.py`) is genuinely
+  new — a model-family-agnostic client for any `/v1/chat/completions`
+  endpoint, self-contained JSON-recovery rather than reaching into
+  `hearthmind.llm.client`'s own underscore-private helpers. New
+  `hearthbench/adapters/registry.py`'s `ADAPTER_REGISTRY`/`build_
+  adapter`, mirroring the sim-side registry's own one-line-per-backend
+  shape. The lint rule shipped as `scripts/verify_hearthbench_adapter_
+  isolation.py` — an AST scan flagging any string literal containing a
+  model-family substring (nemotron/qwen/llama/gemma/gpt/claude/
+  mistral/mixtral/phi/deepseek) used as a comparison operand anywhere
+  under `hearthbench/` outside `hearthbench/adapters/`; clean on the
+  real tree today.
+- [x] **A2.3 — Adapter conformance suite — SHIPPED.**
+  `hearthbench/adapters/conformance.py`'s `run_conformance_suite`:
+  adapter-shape-agnostic (only calls the four `ModelAdapter` Protocol
+  methods), checking schema honoring, token accounting, error
+  taxonomy, and the Protocol's own "`generate()` never raises"
+  contract — verified against a REAL local stdlib HTTP server (canned,
+  shape-accurate responses) for the success path and a REAL
+  unreachable host (a genuine connection-refused error, not a mock)
+  for the failure path, plus a deliberately-broken synthetic adapter
+  proving the suite genuinely catches a real contract violation rather
+  than rubber-stamping every adapter. "Cancellation" scoped out
+  honestly (a future runner's concern — `generate()` is synchronous/
+  blocking by contract, so there's no in-adapter cancellation surface
+  to check independently of A11).
+- [x] **A2.4 — Server lifecycle management — SHIPPED.**
+  `hearthbench/adapters/lifecycle.py`'s `build_llama_server_command`
+  (pure — model path + tuning knobs -> the exact argv, mirroring
+  `scripts/run.sh`'s own confirmed-working defaults without depending
+  on the shell script) + `ServerLifecycle` (a generic subprocess
+  launch/stop/health-poll wrapper — deliberately knows nothing about
+  `llama-server` specifically, all of that lives in the command-
+  builder). Deliberately scoped narrower than `run.sh`'s full ~20-flag
+  tuning surface (an `extra_args` escape hatch covers the rest) — the
+  real deliverable is the reproducibility record (`LaunchRecord`:
+  command/pid/started_at/stopped_at/exit_code), not flag-for-flag
+  parity. Verified against a real generic subprocess (this offline
+  environment has no `llama-server` binary to launch) — start/is_
+  running/double-start-rejection/stop/exit-code-recording/health-poll-
+  bails-out-on-a-dead-process all proven against genuine `subprocess.
+  Popen` mechanics, not a fake.
 
 ## A3 — Prompt Library & Test Definitions [MISSING]
 

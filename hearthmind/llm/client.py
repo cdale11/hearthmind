@@ -245,12 +245,25 @@ class LLMAdapter(ABC):
         json_schema: dict | None = None,
         num_predict_override: int | None = None, temperature_override: float | None = None,
         reasoning: bool = False, timeout_override: float | None = None,
+        seed_override: int | None = None,
     ) -> dict:
         """Blocking call — issue one request to the backend and return
         the parsed JSON response as a plain dict. See the class
         docstring above for the full contract every implementation must
         honor. Callers running inside the event loop must wrap this in
-        `asyncio.to_thread`; this method itself must do no async work."""
+        `asyncio.to_thread`; this method itself must do no async work.
+
+        `seed_override` (v1.34.276, HearthBench A2.1): both backends'
+        wire protocols already accept a per-request `seed` — added here,
+        appended last so every existing positional call site (`llm/
+        jobs.py`'s `asyncio.to_thread(self.client.generate_json, ...)`)
+        stays byte-identical with `None` implicitly supplied. No live
+        Hearthmind call site sets this yet (determinism/reproducibility
+        is explicitly not a project requirement — see CLAUDE.md's
+        workflow rules); it exists so `hearthbench.adapters.ModelAdapter`
+        implementations wrapping these classes can honestly report
+        `capabilities().seed = True` instead of a false `False` for a
+        capability the backend genuinely has."""
         raise NotImplementedError
 
     @classmethod
@@ -325,11 +338,16 @@ class OllamaClient(LLMAdapter):
         json_schema: dict | None = None,
         num_predict_override: int | None = None, temperature_override: float | None = None,
         reasoning: bool = False, timeout_override: float | None = None,
+        seed_override: int | None = None,
     ) -> dict:
         """Blocking call — issue one generate request and parse the
         response as JSON. Callers running inside the event loop must wrap
         this in `asyncio.to_thread` (see hearthmind/llm/jobs.py); this
         method itself does no async work.
+
+        `seed_override`: sent as `options["seed"]` when given — see
+        `LLMAdapter.generate_json`'s docstring for why this exists.
+        `None` (every live call site) omits it, server default.
 
         `timeout_override` (v1.4.4, companion to `num_predict_override`):
         a `reasoning=True` call legitimately generates more tokens (a
@@ -389,6 +407,8 @@ class OllamaClient(LLMAdapter):
         effective_temperature = temperature_override if temperature_override is not None else self.temperature
         if effective_temperature is not None:
             options["temperature"] = effective_temperature
+        if seed_override is not None:
+            options["seed"] = seed_override
         reasoning_prefix = _REASONING_ON_PROMPT if reasoning else _REASONING_OFF_PROMPT
         effective_system = f"{reasoning_prefix}\n{system}" if system else reasoning_prefix
         payload = {
@@ -534,6 +554,7 @@ class LlamaCppClient(LLMAdapter):
         json_schema: dict | None = None,
         num_predict_override: int | None = None, temperature_override: float | None = None,
         reasoning: bool = False, timeout_override: float | None = None,
+        seed_override: int | None = None,
     ) -> dict:
         """Blocking call — issue one `/v1/chat/completions` request and
         parse the response as JSON. Callers running inside the event loop
@@ -543,6 +564,11 @@ class LlamaCppClient(LLMAdapter):
         own chat template handles system/user role formatting correctly
         per-model, matching how `OllamaClient` separates `system`/`prompt`
         without this project needing to know each model's prompt format.
+
+        `seed_override`: sent as the top-level OpenAI-compatible `seed`
+        field when given — see `LLMAdapter.generate_json`'s docstring for
+        why this exists. `None` (every live call site) omits it, server
+        default (a fresh seed per call).
 
         `timeout_override`: see `OllamaClient.generate_json`'s docstring
         — same contract (`None` keeps `self.timeout_seconds`).
@@ -615,6 +641,8 @@ class LlamaCppClient(LLMAdapter):
             payload["top_p"] = self.top_p
         if self.min_p is not None:
             payload["min_p"] = self.min_p
+        if seed_override is not None:
+            payload["seed"] = seed_override
 
         effective_timeout = timeout_override if timeout_override is not None else self.timeout_seconds
         request = urllib.request.Request(

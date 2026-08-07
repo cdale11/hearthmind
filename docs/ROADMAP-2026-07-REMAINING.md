@@ -749,17 +749,54 @@ through in one pass per this project's own "never big-bang" discipline.
 
 ## Phase 6 — HearthBench (build the benchmark itself)
 
-Only `A0` (confirmed reusable pieces) and `A1.1`/`A1.2` (package skeleton
-+ import-isolation firewall) exist. Everything else, in dependency order:
+`A0` (confirmed reusable pieces), `A1.1`/`A1.2` (package skeleton +
+import-isolation firewall), and now `A2` (model adapter layer) are
+shipped. Remaining, in dependency order:
 
-`A2` model adapter layer → `A3` prompt library/test definitions → `A4`
-scoring ("the judge problem," the doc's own central design fork) → `A5`
-the 9 benchmark categories → `A6` structured-output validator → `A7`/`A8`/
-`A9` metrics collector/diagnostics/reports → `A10` the HearthBench Score
-→ `A11` run modes (unblocks **B15.5**'s `reference_mode`, currently
-built but unused for lack of this) → `A1.3` process isolation (gated on
-A2+A11) → `A12` web UI → `A13` CI prompt-regression guard (needs the
+`A3` prompt library/test definitions → `A4` scoring ("the judge
+problem," the doc's own central design fork) → `A5` the 9 benchmark
+categories → `A6` structured-output validator → `A7`/`A8`/`A9` metrics
+collector/diagnostics/reports → `A10` the HearthBench Score → `A11` run
+modes (unblocks **B15.5**'s `reference_mode`, currently built but unused
+for lack of this) → `A1.3` process isolation (gated on A2+A11, A2 now
+real) → `A12` web UI → `A13` CI prompt-regression guard (needs the
 whole pipeline first).
+
+- **A2 — SHIPPED, v1.34.276.** A2.1 `hearthbench/adapters/protocol.py`'s
+  `ModelAdapter` `typing.Protocol` + `AdapterResult`/`AdapterCapabilities`/
+  `AdapterDescribe`/`HealthStatus` dataclasses, matching the spec's
+  literal `generate()`/`capabilities()`/`describe()`/`health()` shape.
+  `seed` support needed one small additive upstream change:
+  `hearthmind.llm.client`'s `OllamaClient`/`LlamaCppClient.generate_json`
+  gained a trailing `seed_override` param (mirrors the existing `num_
+  predict_override`/`temperature_override` pattern, zero behavior
+  change for every existing positional call site) so the wrapping
+  adapters can honestly report `seed=True` instead of a false `False`.
+  A2.2 `LlamaCppAdapter`/`OllamaAdapter` thin-wrap `hearthmind.llm.
+  client`'s existing clients (real reuse — that module has no
+  `hearthmind.simulation`/`.agents`/`.world` dependency, staying within
+  A1.2's firewall); `OpenAICompatAdapter` is genuinely new, self-
+  contained, model-family-agnostic. New `hearthbench/adapters/
+  registry.py`'s `build_adapter`. The checklist's own "enforce with a
+  lint rule banning model-name string comparisons outside `adapters/`"
+  shipped as `scripts/verify_hearthbench_adapter_isolation.py` (an AST
+  scan over comparison operands, clean on the real tree). A2.3
+  `conformance.py`'s `run_conformance_suite` — adapter-shape-agnostic,
+  verified against a real local stdlib HTTP server (success path) and
+  a real unreachable host (failure path, genuine connection-refused,
+  not a mock), plus a deliberately-broken synthetic adapter proving the
+  suite catches a real contract violation. A2.4 `lifecycle.py`'s
+  `build_llama_server_command` (pure, mirrors `scripts/run.sh`'s own
+  confirmed defaults) + `ServerLifecycle` (a generic subprocess
+  wrapper, verified against a real subprocess since no `llama-server`
+  binary exists in this offline environment). New `scripts/verify_a2_
+  model_adapters.py` (52 checks, all pass first run). Verified:
+  `verify_hearthbench_isolation.py`/`verify_hearthbench_adapter_
+  isolation.py` both clean; `pyflakes` clean; `scripts/verify_replay_
+  hash.py` (800 ticks, seed 777) — MATCH; `scripts/verify_native_
+  soak.py` (seeds 1/55, 800 ticks) — MATCH (the `seed_override` addition
+  to `hearthmind/llm/client.py` touches a live production file, both
+  re-run to confirm zero behavior change on the default `None` path).
 
 ## Phase 7 — Native performance (opportunistic, not gated on anything)
 

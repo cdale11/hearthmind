@@ -742,6 +742,59 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.276)
+
+Explicit user instruction: "continue phase 6" — starts Phase 6
+(HearthBench itself, `docs/ROADMAP-2026-07-REMAINING.md`'s
+dependency-ordered A2→A3→A4→A5→A6→A7/A8/A9→A10→A11→A1.3→A12→A13),
+shipping A2 (Model Adapter Layer) — the first item every later
+HearthBench piece is built against. Only A0/A1.1/A1.2 existed before
+this pass.
+
+A2.1: `hearthbench/adapters/protocol.py`'s `ModelAdapter` — a
+`typing.Protocol` (structural typing, no shared inheritance) +
+`AdapterResult`/`AdapterCapabilities`/`AdapterDescribe`/`HealthStatus`
+dataclasses, matching the checklist's own literal shape. Honest `seed`
+support needed one small additive change to a live production file:
+`hearthmind.llm.client`'s `OllamaClient`/`LlamaCppClient.generate_json`
+gained a trailing `seed_override` param, mirroring the existing `num_
+predict_override`/`temperature_override` pattern exactly — appended
+last, `None` reproduces every existing positional call site byte-for-
+byte. Without it the wrapping adapters would have had to falsely
+report `seed=False` for a capability both backends' wire protocols
+genuinely have, purely to avoid a second HTTP implementation — A0.1's
+own "reuse, don't rebuild" applied one layer deeper.
+
+A2.2: `LlamaCppAdapter`/`OllamaAdapter` thin-wrap `hearthmind.llm.
+client`'s existing clients (real reuse — that module has no
+`hearthmind.simulation`/`.agents`/`.world` dependency, so wrapping it
+stays inside A1.2's isolation firewall); `OpenAICompatAdapter` is
+genuinely new, self-contained, model-family-agnostic. New
+`hearthbench/adapters/registry.py`'s `build_adapter`. The checklist's
+own "enforce with a lint rule banning model-name string comparisons
+outside `adapters/`" shipped as `scripts/verify_hearthbench_adapter_
+isolation.py` (AST scan over comparison operands, clean on the real
+tree). A2.3: `conformance.py`'s `run_conformance_suite` — adapter-
+shape-agnostic, verified against a real local stdlib HTTP server
+(success path, a genuine HTTP round-trip) and a real unreachable host
+(failure path, genuine connection-refused, never a mock), plus a
+deliberately-broken synthetic adapter proving the suite genuinely
+catches a real contract violation. A2.4: `lifecycle.py`'s `build_
+llama_server_command` (pure, mirrors `scripts/run.sh`'s own confirmed
+defaults) + `ServerLifecycle` (generic subprocess wrapper, verified
+against a real subprocess since no `llama-server` binary exists in
+this offline environment).
+
+New `scripts/verify_a2_model_adapters.py` (52 checks, all pass first
+run). Verified: the new script; `scripts/verify_hearthbench_
+isolation.py`/`verify_hearthbench_adapter_isolation.py` both clean;
+`pyflakes` clean on all touched/new files; `scripts/verify_replay_
+hash.py` (800 ticks, seed 777, `--in-process`) — MATCH, byte-
+identical; `scripts/verify_native_soak.py` (seeds 1/55, 800 ticks) —
+MATCH (both re-run since `hearthmind/llm/client.py` was touched).
+A3 (prompt library/test definitions) is the next dependency-ordered
+Phase 6 item — resume only on future explicit direction.
+
 ## Current state (v1.34.275)
 
 Explicit user instruction: "continue phase 5" — closes Phase 5's last
