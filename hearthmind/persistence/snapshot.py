@@ -354,6 +354,26 @@ def log_event(
         conn.commit()
 
 
+def log_events_batch(conn: sqlite3.Connection, rows: list[tuple[int, float, str, str]]) -> None:
+    """Tier 5 B14.3's real first consumer (`SimulationEngine._flush_
+    event_write_buffer`): one `executemany()` INSERT for several
+    buffered rows instead of `log_event`'s own one-`execute()`-per-row
+    shape — the real batched-write mechanism `batch_size_for_storage`
+    (`simulation/persistence_scheduling.py`) was built to size, and
+    never had a live consumer until this pass. `rows` are `(tick,
+    logged_at, category, description)` tuples, the exact positional
+    shape a single `log_event` call already inserts — never
+    auto-commits, same `commit=False` convention every other logger in
+    this module already follows (the caller decides when to commit,
+    exactly as before this function existed)."""
+    if not rows:
+        return
+    conn.executemany(
+        "INSERT INTO events (tick, logged_at, category, description) VALUES (?, ?, ?, ?)",
+        rows,
+    )
+
+
 def log_metrics(conn: sqlite3.Connection, tick: int, metrics: dict, commit: bool = False) -> None:
     """Append one time-series row (see database.py's `metrics` table).
     Called by the engine once per sim-day — same batched-commit

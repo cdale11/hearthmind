@@ -4,6 +4,89 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.275] — Roadmap Phase 5, closed: B14.3's batched event writer
+
+Explicit user instruction: "continue phase 5" — the last open item,
+B14.3, closing Phase 5 in full (B11 v1.34.273, B12 v1.34.274, B15.6-8
+v1.34.272).
+
+`simulation/persistence_scheduling.py`'s `batch_size_for_storage`
+(real, tested since earlier B14 work: `batch_bytes = write_speed *
+target_latency`, driven by B7.2's measured `MachineProfile.storage_
+write_mb_s`) had no real batched-write mechanism to size for.
+Investigated both candidate consumers: the `snapshots` table is
+correctly NOT one — each snapshot legitimately IS one row/one JSON
+blob, batching one thing doesn't apply. The `events` table is: the
+calendar-events loop and the `last_life_events` loop inside `_tick_
+once`, plus every `_log(...)` call from dialogue/rumor/chronicle/
+tradition/invention/festival/intervention/town-brain async apply()
+closures, were still one `conn.execute()` INSERT per row — a genuine
+per-tick hot path with real, un-batched write volume.
+
+New `persistence.snapshot.log_events_batch(conn, rows)`: one real
+`conn.executemany()` call over a list of row tuples instead of N
+`execute()` calls (empty list is a genuine no-op). New `Simulation
+Engine._event_write_buffer` (plain list, runtime-only) + `_buffer_
+event`/`_event_batch_byte_budget`/`_flush_event_write_buffer`. `_log`
+and both of `_tick_once`'s direct event-logging loops now call `_
+buffer_event` instead of writing immediately; the buffer auto-flushes
+the moment its accumulated byte size crosses `_event_batch_byte_
+budget()` — real `batch_size_for_storage` output against the live
+`MachineProfile.storage_write_mb_s` reading, falling back to `EVENT_
+BATCH_MIN_BYTES` on an unmeasured host, capped at `EVENT_BATCH_MAX_
+BYTES`.
+
+Correctness required tracing every real `conn.commit()` call site in
+the whole engine first, not just wiring a buffer and hoping — there
+are exactly two: `_tick_once`'s own end-of-tick commit, and `run_
+forever`'s shutdown `finally:` block (which calls `persistence.
+snapshot.save_snapshot` directly, bypassing `_tick_once` entirely).
+Both now force-flush the buffer immediately beforehand. Confirmed
+directly (not assumed) that no event-generating code runs between
+`_tick_once`'s own commit and its later in-tick periodic-snapshot
+call, so the buffer is guaranteed already empty by the time that
+second, incidental `save_snapshot`-internal commit is reached — no
+third flush call site needed. This introduces zero NEW data-loss
+risk beyond what `_log`'s own pre-existing docstring already
+documented: an async apply() closure's event is scheduled via `asyncio.
+create_task`, outside `_tick_once`'s synchronous sequence, and could
+already land "at most one tick" late before this change — buffering
+the `execute()` itself, not just deferring the `commit()`, stays
+inside that same already-accepted window. `full_diagnostics()
+['event_write_batching']` surfaces `buffered_pending`/`byte_budget`/
+`flush_count`.
+
+New `scripts/verify_b14_3_event_batching.py` (22 checks, all pass) —
+`log_events_batch`'s real `executemany` write incl. the empty-list
+no-op; a buffered-but-unflushed row genuinely absent from the table
+until flush; an empty-buffer flush being a real no-op (never counted);
+the byte-budget formula against real `storage_write_mb_s` readings
+(unmeasured floor, a fast disk earning a genuinely larger budget, the
+ceiling clamp, a slow disk staying near the floor); a small forced
+budget genuinely auto-flushing mid-tick from just two short events,
+not waiting for a once-per-tick boundary; both `_tick_once` loops
+routing through the buffer; the flush-before-commit guarantee proven
+at both real commit sites (the shutdown one driven the same sequence
+`run_forever`'s own finally-block uses); diagnostics surfacing; and a
+real 400-tick production soak confirming events — including real
+`day_end` calendar rows — land correctly through the batched path
+with at least one genuine automatic flush along the way. One real
+test-fixture bug caught and fixed before shipping, not a bug in the
+module under test: a "buffered row not yet visible" check assumed
+zero pre-existing events, but world creation itself already logs one
+real synchronous genesis event outside this buffer — fixed to filter
+by the test's own specific category instead of an absolute count.
+
+Verified: the new script (22 checks); `scripts/verify_b14_
+persistence_scheduling.py`/`verify_b14_snapshot_diff.py`/`verify_
+runtime_invariant.py` re-run clean; `pyflakes` clean on all touched/
+new files (only the six known pre-existing forward-ref findings in
+`engine.py`); `scripts/verify_replay_hash.py` (800 ticks, seed 777,
+`--in-process`) — MATCH, byte-identical; `scripts/verify_native_
+soak.py` (seeds 1/55, 800 ticks) — MATCH. **This closes Phase 5 in
+full** — B11, B12, B14.3 (all this session) join B15.6-B15.8, leaving
+no open item.
+
 ## [1.34.274] — Roadmap Phase 5: B12's cascade completion (and the real bug it found)
 
 Explicit user instruction: "continue phase 5" — of Phase 5's one

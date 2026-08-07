@@ -742,6 +742,77 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.275)
+
+Explicit user instruction: "continue phase 5" — closes Phase 5's last
+open item, B14.3 (`batch_size_for_storage`, real, tested since earlier
+B14 work, had no real batched-write mechanism to size for).
+
+Investigated both candidate consumers before writing code: the
+`snapshots` table correctly stays one `INSERT` per row (each snapshot
+legitimately IS one row/one JSON blob — batching doesn't apply there).
+The `events` table did have a genuine gap: the calendar-events loop
+and the `last_life_events` loop inside `_tick_once`, plus every
+`_log(...)` call from dialogue/rumor/chronicle/tradition/invention/
+festival/intervention/town-brain async apply() closures, were still
+one `conn.execute()` per row — real per-tick write volume, un-batched.
+
+New `persistence.snapshot.log_events_batch(conn, rows)`: one real
+`conn.executemany()` call over buffered row tuples (empty list is a
+genuine no-op). New `SimulationEngine._event_write_buffer` (plain
+list, runtime-only) + `_buffer_event`/`_event_batch_byte_budget`/
+`_flush_event_write_buffer`. `_log` and both `_tick_once` event loops
+now buffer instead of writing immediately; the buffer auto-flushes
+once its accumulated size crosses `_event_batch_byte_budget()` — real
+`batch_size_for_storage` output against the live `MachineProfile.
+storage_write_mb_s` reading (falls back to `EVENT_BATCH_MIN_BYTES`
+unmeasured, capped at `EVENT_BATCH_MAX_BYTES`).
+
+Correctness needed tracing every real `conn.commit()` site first, not
+just wiring a buffer — exactly two exist: `_tick_once`'s own end-of-
+tick commit, and `run_forever`'s shutdown `finally:` block (calls
+`save_snapshot` directly, bypassing `_tick_once`). Both now force-
+flush the buffer immediately beforehand; confirmed directly that no
+event-generating code runs between `_tick_once`'s own commit and its
+later in-tick periodic-snapshot call, so no third flush site is
+needed. Introduces zero NEW data-loss risk beyond what `_log`'s own
+pre-existing docstring already documented — an async apply()
+closure's event, scheduled via `asyncio.create_task` outside `_tick_
+once`'s synchronous sequence, could already land "at most one tick"
+late before this change; buffering the `execute()` itself stays
+inside that same already-accepted window. `full_diagnostics()
+['event_write_batching']` surfaces `buffered_pending`/`byte_budget`/
+`flush_count`.
+
+New `scripts/verify_b14_3_event_batching.py` (22 checks, all pass —
+`log_events_batch`'s real `executemany` write incl. empty-list no-op;
+a buffered-but-unflushed row genuinely absent until flush; an empty-
+buffer flush as a real no-op; the byte-budget formula against real
+`storage_write_mb_s` readings incl. the unmeasured floor and ceiling
+clamp; a small forced budget genuinely auto-flushing mid-tick from
+just two short events; both `_tick_once` loops routing through the
+buffer; the flush-before-commit guarantee at both real commit sites,
+the shutdown one driven the same sequence `run_forever`'s own finally-
+block uses; diagnostics surfacing; a real 400-tick production soak
+confirming events — including real `day_end` calendar rows — land
+correctly with a genuine automatic flush along the way). One real
+test-fixture bug caught and fixed before shipping, not a bug in the
+module under test: a "buffered row not yet visible" check assumed
+zero pre-existing events, but world creation itself already logs one
+real synchronous genesis event outside this buffer — fixed to filter
+by the test's own specific category instead of an absolute count.
+
+Verified: the new script (22 checks); `scripts/verify_b14_
+persistence_scheduling.py`/`verify_b14_snapshot_diff.py`/`verify_
+runtime_invariant.py` re-run clean; `pyflakes` clean on all touched/
+new files (only the six known pre-existing forward-ref findings in
+`engine.py`); `scripts/verify_replay_hash.py` (800 ticks, seed 777,
+`--in-process`) — MATCH, byte-identical; `scripts/verify_native_
+soak.py` (seeds 1/55, 800 ticks) — MATCH. **This closes Phase 5 in
+full** — B11 (v1.34.273), B12 (v1.34.274), B14.3 (this pass) join
+B15.6-B15.8 (v1.34.272); no open item remains in Phase 5 — resume
+only on future explicit direction naming a new phase or item.
+
 ## Current state (v1.34.274)
 
 Explicit user instruction: "continue phase 5" — of Phase 5's one

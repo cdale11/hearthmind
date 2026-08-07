@@ -143,7 +143,7 @@ from hearthmind.ml.goal_policy import GoalPolicy, build_distillation_examples
 from hearthmind.ml.law_scorer import LawCandidateScorer
 from hearthmind.ml.llm_cost import CostPredictionAccuracyTracker, LLMCostRegressor, should_preflight_defer
 from hearthmind.ml.specialist import LearningSpecialist
-from hearthmind.simulation.persistence_scheduling import SnapshotPolicy, SnapshotScheduler
+from hearthmind.simulation.persistence_scheduling import SnapshotPolicy, SnapshotScheduler, batch_size_for_storage
 from hearthmind.simulation.escalation import CognitionBudget, EscalationLadder, Rung
 from hearthmind.llm.client import build_llm_client, fetch_llama_server_metrics
 from hearthmind.llm.review_diagnostics import context_reflects_any
@@ -158,7 +158,7 @@ from hearthmind.simulation.optimization_hypothesis import AdaptationHistory, Ada
 from hearthmind.simulation.hierarchical_memory import MemoryTierManager, Tier, TransparentHandle
 from hearthmind.persistence.snapshot import (
     consciousness_log_count, events_by_category, events_since_tick, history_events,
-    load_latest_snapshot, log_agent_memory_entry, log_consciousness_entry, log_event, log_metrics,
+    load_latest_snapshot, log_agent_memory_entry, log_consciousness_entry, log_event, log_events_batch, log_metrics,
     recent_agent_memory_log, recent_events, recent_events_diverse, recent_metrics, save_snapshot,
 )
 from hearthmind.agents.population import (
@@ -1451,6 +1451,29 @@ at in a long while eventually reaches ARCHIVE (no further threshold —
 `Tier` has nowhere lower to go) and has its cached rows actually freed,
 not just relabeled — see `_maybe_demote_agent_memory_log_cache`."""
 
+EVENT_BATCH_TARGET_WRITE_LATENCY_S = 0.01
+"""Tier 5 B14.3's real first consumer (`SimulationEngine._event_
+batch_byte_budget`): the target wall-clock cost of ONE batched
+`events`-table write, fed into `batch_size_for_storage` alongside this
+machine's own measured `storage_write_mb_s`. A reasoned starting
+point (10ms) — small enough that a batched flush is never itself a
+visible stutter, large enough that a fast disk earns a real batch
+bigger than one row at a time."""
+
+EVENT_BATCH_MIN_BYTES = 2_000
+"""The conservative floor `batch_size_for_storage` falls back to on
+unmeasured/slow storage — close to a single ordinary event row's own
+byte size (~50-200 bytes), so an unmeasured host still batches a
+handful of rows together rather than degenerating to one `execute()`
+per row exactly like before this pass."""
+
+EVENT_BATCH_MAX_BYTES = 200_000
+"""The hard ceiling on a buffered batch's byte estimate regardless of
+how fast this machine's storage measures — bounds how large a single
+`executemany()` call (and the RAM it holds before flushing) can grow
+even on very fast storage, and bounds how long a burst of many events
+in one tick could go before its own mid-tick flush."""
+
 CONCURRENCY_PROBE_TASKS = 12
 """Tier 5 B13's real active-probe measurement (`_probe_concurrency_
 wait_ms`): how many synthetic asyncio tasks compete for the throwaway
@@ -2680,6 +2703,28 @@ class SimulationEngine:
         drains this into the payload's `life_events` and clears it. See
         docs/DECISIONS.md, "LLM-as-brain batch,\" fix: live event
         stream gap."""
+        self._event_write_buffer: list[tuple[int, float, str, str]] = []
+        self._event_write_buffer_bytes = 0
+        self._event_write_flush_count = 0
+        """Tier 5 B14.3's real first consumer: every real `events`-table
+        write (calendar events, `World.last_life_events`, and `_log`'s
+        own broader set) now lands in this in-memory buffer instead of
+        issuing its own individual `conn.execute()` — flushed as ONE
+        real `executemany()` write (`_flush_event_write_buffer`, via
+        the new `log_events_batch`) once the buffered byte estimate
+        crosses this machine's own real storage-throughput-derived
+        budget (`_event_batch_byte_budget`, `batch_size_for_storage`),
+        or unconditionally at `_tick_once`'s own existing per-tick
+        commit point — never held longer than the exact same "at most
+        one tick" window `log_event`'s own `commit=False` convention
+        already documented; this only changes WHEN the underlying
+        INSERT is issued, never when it becomes durable. `_event_
+        write_flush_count` is the real, live proof batching is actually
+        happening on a run, not just present in the code — surfaced via
+        `full_diagnostics()['event_write_batching']`. Runtime-only,
+        never persisted (a restart starts with an empty buffer, same
+        "derived, re-baselines on restart" discipline as every other
+        runtime-only Tier 5 state in this codebase)."""
 
         client = None
         if config.llm_enabled:
@@ -6572,6 +6617,13 @@ class SimulationEngine:
                     task.cancel()
                 await asyncio.gather(*self._background_tasks, return_exceptions=True)
             logger.info("Engine stopping — saving final snapshot at tick %s.", self.world.clock.tick_count)
+            # Tier 5 B14.3: this bypasses `_tick_once`'s own flush point
+            # entirely (a clean shutdown, not another tick) — any event
+            # rows still sitting in the write buffer MUST be flushed
+            # here or they'd never reach the database at all (never
+            # even `execute()`d, unlike the old commit=False shape,
+            # which had at least issued the INSERT already).
+            self._flush_event_write_buffer()
             save_snapshot(self.conn, self.world)
             self._snapshots_saved += 1
 
@@ -6847,21 +6899,14 @@ class SimulationEngine:
         total_materials = sum(s.materials for s in self.world.settlements)
         self._materials_level_history.append((self.world.clock.tick_count, total_materials))
         for event in events:
-            log_event(
-                self.conn,
-                tick=self.world.clock.tick_count,
-                category=event,
-                description=_CALENDAR_EVENT_DESCRIPTIONS.get(event, event),
-                commit=False,  # one commit per tick, at the end of _tick_once
-            )
+            # Tier 5 B14.3: real batched writer (`_buffer_event`) — see
+            # its own docstring; still committed at the exact same
+            # per-tick point, only the INSERT itself is now batched.
+            self._buffer_event(event, _CALENDAR_EVENT_DESCRIPTIONS.get(event, event))
         theft_count_this_tick = 0
         built_kinds_this_tick: list[str] = []
         for category, description in self.world.last_life_events:
-            log_event(
-                self.conn, tick=self.world.clock.tick_count,
-                category=category, description=description,
-                commit=False,
-            )
+            self._buffer_event(category, description)
             if category == "theft":
                 theft_count_this_tick += 1
             elif category == "construction_started":
@@ -7081,6 +7126,10 @@ class SimulationEngine:
         # double-count without reopening the original same-tick gap the
         # v0.81.0 fix closed.
         self._reserved_this_tick = 0
+        # Tier 5 B14.3: must flush before the commit below -- see
+        # `_flush_event_write_buffer`'s own docstring on why this is
+        # one of exactly two required call sites.
+        self._flush_event_write_buffer()
         self.conn.commit()  # one commit for everything this tick logged (see log_event's commit param)
         self._last_tick_duration_ms = (time.perf_counter() - tick_start) * 1000
         self._tick_durations_ms.append(self._last_tick_duration_ms)
@@ -16592,11 +16641,69 @@ class SimulationEngine:
         showing up via the one-shot `/events` fetch on page load. See
         `_pending_broadcast_events`, docs/DECISIONS.md, "LLM-as-brain
         batch,\" fix: live event stream gap."""
-        # commit=False: the next tick's end-of-tick commit (or the final
-        # shutdown snapshot's) lands this — one fsync per tick, not per
-        # event. A result arriving between ticks waits at most one tick.
-        log_event(self.conn, tick=self.world.clock.tick_count, category=category, description=description, commit=False)
+        # Tier 5 B14.3: the durable write itself now goes through the
+        # real batched-write buffer (`_buffer_event`) instead of its
+        # own individual `log_event(..., commit=False)` call — same
+        # "at most one tick" durability window as before, see `_event_
+        # write_buffer`'s own docstring on `__init__`.
+        self._buffer_event(category, description)
         self._pending_broadcast_events.append({"category": category, "description": description})
+
+    def _buffer_event(self, category: str, description: str) -> None:
+        """Tier 5 B14.3's real first consumer: appends one real
+        `events`-table row to the in-memory write buffer instead of
+        issuing its own individual `conn.execute()` — flushed as one
+        real batched `executemany()` write (`_flush_event_write_
+        buffer`) either once the buffered byte estimate crosses this
+        machine's own real storage-throughput-derived budget
+        (`_event_batch_byte_budget`), or unconditionally at `_tick_
+        once`'s own existing per-tick commit point. This only changes
+        WHEN the underlying INSERT statement is issued, never when it
+        becomes durable — a row buffered here is committed at the
+        exact same point an individually-`execute()`d row already was."""
+        row = (self.world.clock.tick_count, time.time(), category, description)
+        self._event_write_buffer.append(row)
+        # A cheap per-row byte estimate (fixed int/float overhead plus
+        # the two real text fields' own encoded length) — doesn't need
+        # to match SQLite's actual on-disk encoding exactly, just needs
+        # to track order of magnitude well enough for the threshold
+        # below to mean something real.
+        self._event_write_buffer_bytes += 24 + len(category.encode("utf-8")) + len(description.encode("utf-8"))
+        if self._event_write_buffer_bytes >= self._event_batch_byte_budget():
+            self._flush_event_write_buffer()
+
+    def _event_batch_byte_budget(self) -> int:
+        """The real, live B14.3 consumer of `batch_size_for_storage`:
+        this machine's own measured storage throughput (`self._
+        machine_profile.storage_write_mb_s`, honestly `None` before the
+        first real benchmark) decides how large a buffered batch grows
+        before it's actually written — faster storage tolerates (and
+        benefits from) a bigger batch; unmeasured/slow storage stays
+        conservative, close to flushing nearly every event, same as
+        before this pass."""
+        return batch_size_for_storage(
+            self._machine_profile.storage_write_mb_s,
+            EVENT_BATCH_TARGET_WRITE_LATENCY_S, EVENT_BATCH_MIN_BYTES, EVENT_BATCH_MAX_BYTES,
+        )
+
+    def _flush_event_write_buffer(self) -> None:
+        """Writes every buffered row in ONE real `executemany()` call
+        (`log_events_batch`) instead of N separate `execute()`s — never
+        auto-commits (matches every other logger's `commit=False`
+        convention); the caller's own existing commit point (`_tick_
+        once`'s end-of-tick `self.conn.commit()`, or the shutdown
+        path's final snapshot save) is what actually makes a flushed
+        batch durable, same as before this pass for a single
+        un-batched `execute()`. MUST be called before every real
+        `conn.commit()` this engine ever issues — there are exactly two
+        (`_tick_once`'s own, and `run_forever`'s shutdown-path final
+        snapshot save), both call this first."""
+        if not self._event_write_buffer:
+            return
+        log_events_batch(self.conn, self._event_write_buffer)
+        self._event_write_flush_count += 1
+        self._event_write_buffer = []
+        self._event_write_buffer_bytes = 0
 
     def _append_highlight(self, kind: str, detail: str) -> None:
         """§5 "Anomaly/highlight log" (docs/IDEAS-2026-07-EMERGENCE.md):
@@ -18686,6 +18793,18 @@ class SimulationEngine:
                     for tier in Tier
                 },
                 "cached_agents": len(self._agent_memory_log_cache),
+            },
+            # Tier 5 B14.3's real first consumer — see `_event_write_
+            # buffer`'s own docstring on `__init__`. `flush_count` is
+            # the real, live proof batching is actually happening (a
+            # value that only ever grows via genuine flushes, never a
+            # placeholder); `byte_budget` is the currently-computed
+            # `batch_size_for_storage` result for this machine's own
+            # measured (or unmeasured) storage throughput.
+            "event_write_batching": {
+                "buffered_pending": len(self._event_write_buffer),
+                "byte_budget": self._event_batch_byte_budget(),
+                "flush_count": self._event_write_flush_count,
             },
             # Tier 7 HCA Stage H, H2: `self._machine_workspace`'s own
             # real arbitration history — dev-console/Observatory-only,

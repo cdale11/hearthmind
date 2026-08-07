@@ -667,9 +667,55 @@ through in one pass per this project's own "never big-bang" discipline.
   digests([])` crashed on `max()` of an empty sequence; `maybe_
   compress` never actually calls it that way in production, but fixed
   to degrade safely regardless of that invariant holding forever).
-- **B14.3** — `batch_size_for_storage` has no real batched-write
-  mechanism to size for yet (the snapshot writer is still one `INSERT`
-  per row); needs real new design, not a cheap wire-up.
+- **B14.3 — SHIPPED, v1.34.275.** `batch_size_for_storage` had no real
+  batched-write mechanism to size for -- the `snapshots` table stays
+  one `INSERT` per row (correctly; each snapshot is legitimately one
+  row/one JSON blob, not a batching opportunity), but the `events`
+  table's writer was ALSO still one `execute()` per row, a genuine
+  per-tick hot path (the calendar-events loop plus `last_life_events`
+  inside `_tick_once`, plus every `_log(...)` call from dialogue/
+  rumor/chronicle/tradition/invention/festival/intervention/town-brain
+  async apply() closures). New `SimulationEngine._event_write_buffer`
+  (a plain list, runtime-only) + `_buffer_event`/`_event_batch_byte_
+  budget`/`_flush_event_write_buffer`, backed by a new `persistence.
+  snapshot.log_events_batch` (one real `conn.executemany()` call
+  instead of N `execute()` calls). `_log` and both of `_tick_once`'s
+  direct event-logging loops now buffer instead of writing immediately;
+  the buffer flushes automatically once it crosses `_event_batch_byte_
+  budget()` (real `batch_size_for_storage` output, driven by B7.2's
+  measured `MachineProfile.storage_write_mb_s` -- an unmeasured host
+  falls back to `EVENT_BATCH_MIN_BYTES`) and is force-flushed at
+  exactly the two real `conn.commit()` call sites in the whole engine
+  (`_tick_once`'s own end-of-tick commit; `run_forever`'s shutdown
+  `finally:` block, which bypasses `_tick_once` entirely and needed
+  its own explicit flush). Traced every commit site and every `_log`
+  call path first to confirm this introduces zero NEW data-loss risk
+  beyond what `_log`'s own docstring already documented (an async
+  apply() closure's event can already land "at most one tick" late,
+  since it's scheduled via `asyncio.create_task` outside `_tick_once`'s
+  synchronous sequence) -- buffering the `execute()` itself, not just
+  deferring the commit, stays inside that same existing window.
+  `full_diagnostics()['event_write_batching']` surfaces `buffered_
+  pending`/`byte_budget`/`flush_count`. New `scripts/verify_b14_3_
+  event_batching.py` (22 checks, all pass -- `log_events_batch`'s real
+  `executemany` write incl. an empty-list no-op; buffering genuinely
+  deferring the DB write until flush; the byte-budget formula against
+  real `storage_write_mb_s` readings incl. the unmeasured-floor and
+  ceiling-clamp cases; a small forced budget genuinely auto-flushing
+  mid-tick, not just once per tick; both loops inside `_tick_once`
+  routing through the buffer; the flush-before-commit guarantee at
+  both real commit sites, the shutdown one driven the same way `run_
+  forever`'s own finally-block does it; diagnostics surfacing; a real
+  400-tick production soak confirming events -- including real
+  `day_end` calendar rows -- land correctly through the batched path).
+  One real test-fixture bug caught and fixed before shipping (not a
+  bug in the module under test): a "buffered row not yet visible"
+  check assumed zero pre-existing events, but world creation itself
+  already logs one real synchronous genesis event outside this buffer
+  -- fixed to filter by the test's own specific category instead of
+  an absolute count. **This closes Phase 5 in full** -- B11
+  (v1.34.273), B12 (v1.34.274), B14.3 (this pass) join B15.6-B15.8
+  (v1.34.272), leaving no open item in Phase 5.
 - **B15.6/B15.7/B15.8 — SHIPPED, v1.34.272.** New `World.machine_
   profile_history` (bounded, `MACHINE_PROFILE_HISTORY_MAX=100`,
   persisted through `to_dict`/`from_dict`, legacy-backfilled): a real
