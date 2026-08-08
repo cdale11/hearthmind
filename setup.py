@@ -124,6 +124,7 @@ try:
                 "cpp/src/terrain_neighbor_count.cpp",
                 "cpp/src/memory_salience_decay.cpp",
                 "cpp/src/immune_modulation.cpp",
+                "cpp/src/disease_death_chance.cpp",
             ]),
             cxx_std=17,
             extra_compile_args=_EXTRA_COMPILE_ARGS,

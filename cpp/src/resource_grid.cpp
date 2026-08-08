@@ -213,6 +213,7 @@ void register_ca_operators(py::module_ &m);
 void register_terrain_neighbor_count(py::module_ &m);
 void register_memory_salience_decay(py::module_ &m);
 void register_immune_modulation(py::module_ &m);
+void register_disease_death_chance(py::module_ &m);
 
 PYBIND11_MODULE(_native, m) {
     m.doc() = "Hearthmind native (C++) hot-path extensions. Optional — "
@@ -263,4 +264,5 @@ PYBIND11_MODULE(_native, m) {
     register_terrain_neighbor_count(m);
     register_memory_salience_decay(m);
     register_immune_modulation(m);
+    register_disease_death_chance(m);
 }

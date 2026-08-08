@@ -4,6 +4,51 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.293] — R8 third batch: disease death-chance chain ported
+
+Explicit user instruction: "continue R8 with the next batch" — the
+same "big bang" batching scope (v1.34.292) continues, since that
+batch shipped cleanly with no issue.
+
+Surveyed `population.py`/`ledger.py` again for further safe scalar
+candidates before writing code. Confirmed the earlier reasoning still
+holds: `decay_debts` (sparse, its own docstring already argues against
+porting it — measured-need bar not cleared), `tick_plans`/`_tick_
+mourning`'s memory-string-construction branches, and `_apply_deaths`/
+reputation aggregation (object-graph-heavy, not pure scalar) all
+correctly stay out of scope. Found one real remaining piece: `_tick_
+disease`'s hospital/medicine/resilience death-chance multiplier chain
+— real per-tick work for every currently-sick agent, a meaningful
+population fraction during a live outbreak, previously only partially
+ported (the immune-modulation term alone, v1.34.292).
+
+New `cpp/src/disease_death_chance.cpp`'s `disease_death_chance_
+multiplier`: takes the base chance plus already-resolved bools/floats
+(in-hospital-settlement, has-medicine, resilience) and applies the
+hospital/medicine/resilience reductions in order, floored at 0.0 after
+the resilience term — matching the original inline Python exactly.
+The immune-modulation term is deliberately kept as a separate call
+into the already-ported `immune_modulation_factor` rather than
+duplicated inside this new function. Medicine consumption
+(`agent.inventory["medicine"] -= ...`) stays a plain Python side
+effect afterward, still guarded by the identical `if medicine > 0.0`
+condition the original code used.
+
+Verified: a 200,000-trial randomized-equivalence test against a
+Python reference, covering every hospital/medicine/resilience branch
+combination (0 mismatches); a real production-path proof forcing six
+agents through every branch (sick + medicated/unmedicated + in/out of
+a hospital settlement + a resilience spread from -1 to +1) through
+4,000 real ticks — 3 genuine disease deaths occurred via the actual
+production path, not a synthetic call; `scripts/verify_native_soak.py`
+(3 seeds x 3000 ticks, new `_native_disease_death_chance_multiplier`
+toggle) — MATCH, byte-identical full `World.to_dict()` state every
+tick, native vs. Python fallback; `pyflakes` clean.
+
+`docs/ROADMAP-2026-07-REMAINING.md`'s R8 bullet extended with the full
+batch detail. Resume with the next batch or function only on future
+explicit direction.
+
 ## [1.34.292] — R8 second slice, "big bang" batch: three more scalar sites ported/wired
 
 Explicit user instruction: "continue R8 with the next method and do

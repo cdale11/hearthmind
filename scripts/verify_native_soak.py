@@ -138,6 +138,9 @@ _NATIVE_TOGGLES = [
     # modulation.cpp), exercised via the per-tick _tick_disease call
     # path whenever a sick or colocated-healthy agent exists.
     (_population, "_native_immune_modulation_factor"),
+    # R8, third batch: _tick_disease's hospital/medicine/resilience
+    # death-chance multiplier chain (cpp/src/disease_death_chance.cpp).
+    (_population, "_native_disease_death_chance_multiplier"),
 ]
 
 

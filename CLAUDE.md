@@ -742,6 +742,41 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.293)
+
+Explicit user instruction: "continue R8 with the next batch" — the
+same "big bang" batching scope (v1.34.292) continues since that batch
+shipped cleanly.
+
+Surveyed `population.py`; object/string-heavy loops (deaths, disease
+narration, reputation aggregation) and genuinely sparse per-agent
+state (debts, active plans) were deliberately left alone — "big bang"
+means batching every SAFE candidate, not abandoning the project's own
+measured-need bar. New `cpp/src/immune_modulation.cpp`'s
+`immune_modulation_factor` (v1.34.292) unlocked the natural next
+piece: `_tick_disease`'s hospital/medicine/resilience death-chance
+multiplier chain.
+
+New `cpp/src/disease_death_chance.cpp`'s `disease_death_chance_
+multiplier`: hospital/medicine/resilience reductions applied in order,
+floored at 0.0 after the resilience term — the object-shaped lookups
+(settlement/hospital/medicine/trait) stay in Python, only the already-
+resolved bool/float arithmetic crosses over. Immune modulation stays a
+separate call into the already-ported function, not duplicated.
+Medicine consumption stays a plain Python side effect, same `if
+medicine > 0.0` guard as before.
+
+Verified: a 200,000-trial randomized-equivalence test (0 mismatches,
+every branch combination); a real production-path proof forcing six
+agents through every branch (sick/medicated/hospital/resilience
+spread) through 4,000 real ticks — 3 genuine disease deaths occurred;
+`scripts/verify_native_soak.py` (3 seeds x 3000 ticks, new toggle) —
+MATCH, byte-identical `World.to_dict()` state every tick; `pyflakes`
+clean.
+
+Resume with the next batch or function only on future explicit
+direction.
+
 ## Current state (v1.34.292)
 
 Explicit user instruction: "continue R8 with the next method and do

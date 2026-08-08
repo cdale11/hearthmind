@@ -1843,6 +1843,37 @@ measured need, never a default next step.
   Resume with the next function only on future explicit direction —
   the "big bang" instruction covered this one batch, not a standing
   change to the discipline going forward.
+  **Third batch, v1.34.293** (explicit user instruction: "continue R8
+  with the next batch" — the same "big bang" scope continues since
+  v1.34.292 shipped cleanly): new `cpp/src/disease_death_chance.cpp`'s
+  `disease_death_chance_multiplier` ports `_tick_disease`'s hospital/
+  medicine/resilience death-chance multiplier chain — real per-tick
+  work for every currently-sick agent, a meaningful population
+  fraction during a live outbreak. Every object-shaped lookup (which
+  settlement, standing-hospital membership, carried medicine, trait
+  value) stays resolved in Python; only the already-resolved bool/
+  float arithmetic crosses over, same `_update_needs` split. The
+  immune-modulation term stays a separate call into the already-ported
+  `immune_modulation_factor` (v1.34.292) rather than being duplicated
+  inside the new function — one shared formula, not two copies.
+  Medicine consumption (`agent.inventory["medicine"] -= ...`) stays a
+  plain Python side effect, unconditioned by the native call, matching
+  the original's exact `if medicine > 0.0` guard. Surveyed the rest of
+  `population.py`/`ledger.py` first for further batch candidates —
+  `decay_debts` (sparse, own docstring already reasons against
+  porting), `tick_plans`/`_tick_mourning`'s memory-string branches, and
+  `_apply_deaths`/reputation-aggregation (object-graph-heavy, not pure
+  scalar) all correctly stayed out of scope, same bar the second batch
+  already held to. Verified: a 200,000-trial randomized-equivalence
+  test against a Python reference (0 mismatches, every hospital/
+  medicine/resilience branch combination); a real production-path
+  proof forcing six agents through every branch (sick + medicated/
+  unmedicated + in/out of a hospital settlement + a resilience spread)
+  through 4,000 real ticks, confirming genuine disease deaths occurred
+  via the actual production path (3 real deaths, not zero); `scripts/
+  verify_native_soak.py` (3 seeds x 3000 ticks, new `_native_disease_
+  death_chance_multiplier` toggle) — MATCH, byte-identical full
+  `World.to_dict()` state every tick; `pyflakes` clean.
 - ~~Re-audit `world/weather.py`'s 3x3 `WEATHER_REGION_GRID` spatial-
   region handling for a real unported per-tile hot loop~~ **CLOSED,
   v1.34.290 — re-confirmed already resolved, no code change needed.**

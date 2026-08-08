@@ -140,6 +140,17 @@ workflow rule once a pattern is proven (v1.34.196's own precedent).
 `None` when the extension wasn't built -- falls back to the equivalent
 inline Python formula in that case."""
 
+try:
+    from hearthmind._native import disease_death_chance_multiplier as _native_disease_death_chance_multiplier
+except ImportError:
+    _native_disease_death_chance_multiplier = None
+"""R8, third batch: `Population._tick_disease`'s hospital/medicine/
+resilience death-chance multiplier chain (module: `cpp/src/disease_
+death_chance.cpp`). The immune-modulation term stays a separate call
+(`_native_immune_modulation_factor` above) -- one shared formula, not
+duplicated. `None` when the extension wasn't built -- falls back to
+the equivalent inline Python chain in that case."""
+
 from hearthmind.agents import agent_store
 from hearthmind.agents.agent import (
     CRITICAL_HUNGER_THRESHOLD,
@@ -3126,28 +3137,42 @@ class Population:
                     agent.immune_ticks -= 1
                 continue
             agent.sick_ticks += 1
-            agent_death_chance = death_chance
             # Care is a home-community benefit: the hospital that treats
             # you is your own settlement's (a bedridden patient isn't
             # commuting to the neighbors').
-            if agent.settlement_id in hospital_settlement_ids:
-                agent_death_chance *= (1.0 - SICKNESS_HOSPITAL_KILL_CHANCE_REDUCTION)
+            in_hospital = agent.settlement_id in hospital_settlement_ids
             # H4 extension: personal medicine is a second, individually-
             # earned layer of protection on top of the settlement-wide
             # hospital reduction above — see MEDICINE_DEATH_CHANCE_
             # REDUCTION. Drawn down each tick it's helping, so sustained
             # treatment through a full bout needs ongoing production.
             medicine = agent.inventory.get("medicine", 0.0)
-            if medicine > 0.0:
-                agent_death_chance *= (1.0 - MEDICINE_DEATH_CHANCE_REDUCTION)
-                agent.inventory["medicine"] = max(0.0, medicine - MEDICINE_CONSUMPTION_PER_TICK)
             # Integration milestone: personal resilience stacks with
             # medicine/hospital, same shape as the predator-attack side
             # of TRAIT_RESILIENCE_DEATH_CHANCE_INFLUENCE.
             resilience = agent.traits.get(TRAIT_RESILIENCE, 0.0)
-            agent_death_chance = max(
-                0.0, agent_death_chance * (1.0 - resilience * TRAIT_RESILIENCE_DEATH_CHANCE_INFLUENCE)
-            )
+            # R8 third batch: hospital/medicine/resilience chain in one
+            # native call (cpp/src/disease_death_chance.cpp) — the
+            # object-shaped lookups above stay in Python, only the
+            # already-resolved bool/float arithmetic crosses over.
+            if _native_disease_death_chance_multiplier is not None:
+                agent_death_chance = _native_disease_death_chance_multiplier(
+                    death_chance,
+                    in_hospital, SICKNESS_HOSPITAL_KILL_CHANCE_REDUCTION,
+                    medicine > 0.0, MEDICINE_DEATH_CHANCE_REDUCTION,
+                    resilience, TRAIT_RESILIENCE_DEATH_CHANCE_INFLUENCE,
+                )
+            else:
+                agent_death_chance = death_chance
+                if in_hospital:
+                    agent_death_chance *= (1.0 - SICKNESS_HOSPITAL_KILL_CHANCE_REDUCTION)
+                if medicine > 0.0:
+                    agent_death_chance *= (1.0 - MEDICINE_DEATH_CHANCE_REDUCTION)
+                agent_death_chance = max(
+                    0.0, agent_death_chance * (1.0 - resilience * TRAIT_RESILIENCE_DEATH_CHANCE_INFLUENCE)
+                )
+            if medicine > 0.0:
+                agent.inventory["medicine"] = max(0.0, medicine - MEDICINE_CONSUMPTION_PER_TICK)
             # A14 (roadmap Stage IV step 23): the continuous immune-state
             # modulation, stacking with resilience/medicine/hospital
             # above rather than replacing any of them — see
