@@ -742,6 +742,40 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.291)
+
+Explicit user instruction: "continue R8" — v1.34.290's own
+investigation correctly deferred a FULL R8 port as too large for one
+pass; this ships the first real slice instead, following the same
+"never big-bang, one function at a time" discipline every other
+`cpp/src/` module already carries.
+
+New `cpp/src/memory_salience_decay.cpp`'s `memory_salience_decay_
+step`: replaces `Population.decay_memory_salience`'s per-memory rate-
+select/multiply/floor arithmetic — same per-scalar-call shape module
+12's `bounded_random_walk_step`/module 20's `relationship_decay_step`
+already established. Chosen because `Agent.memory_salience`/`memory_
+causes` are plain per-instance Python lists (index-aligned with
+`Agent.memories`), NOT part of the native `AgentStore`'s fixed scalar
+fields — a genuine new native surface, not a re-registration. Called
+once per real sim-day (`day_end`), bounded by `population *
+MAX_AGENT_MEMORIES`. `None` when the extension isn't built reproduces
+the exact prior inline-Python branching byte-for-byte.
+
+Verified: a direct 200,000-trial randomized-equivalence test against a
+Python reference (0 mismatches, incl. near-threshold draws); a real
+production-path proof driving 1,500 ticks through `SimulationEngine.
+_tick_once()` confirming the native path is genuinely reached with
+real agent memory data; `scripts/verify_native_soak.py` (3 seeds x
+3000 ticks, new `_native_memory_salience_decay_step` toggle) — MATCH,
+byte-identical full `World.to_dict()` state every tick; `pyflakes`
+clean on both touched Python files (only the six known pre-existing
+forward-ref findings elsewhere).
+
+R8 remains genuinely open — one function of the dozens this item
+ultimately needs is now real; resume with the next one only on future
+explicit direction naming it.
+
 ## Current state (v1.34.290)
 
 Explicit user instruction: "continue phase 6 and then phase 7"

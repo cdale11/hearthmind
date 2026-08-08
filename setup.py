@@ -122,6 +122,7 @@ try:
                 "cpp/src/hydrology_tick.cpp",
                 "cpp/src/ca_operators.cpp",
                 "cpp/src/terrain_neighbor_count.cpp",
+                "cpp/src/memory_salience_decay.cpp",
             ]),
             cxx_std=17,
             extra_compile_args=_EXTRA_COMPILE_ARGS,

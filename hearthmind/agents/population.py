@@ -113,6 +113,19 @@ sibling call sites already delegates to this function. `None` when the
 extension wasn't built -- falls back to the equivalent inline Python
 arithmetic in that case."""
 
+try:
+    from hearthmind._native import memory_salience_decay_step as _native_memory_salience_decay_step
+except ImportError:
+    _native_memory_salience_decay_step = None
+"""R8, first slice (docs/ROADMAP-2026-07-REMAINING.md's Phase 7):
+agent tick *logic* ported to C++ one function at a time, following the
+same randomized-equivalence + full-`World.to_dict()` hash-soak
+discipline as every other `cpp/src/` module -- never big-bang. This is
+the per-memory decay step behind `Population.decay_memory_salience`
+(module: `cpp/src/memory_salience_decay.cpp`). `None` when the
+extension wasn't built -- falls back to the equivalent inline Python
+branching in that case."""
+
 from hearthmind.agents import agent_store
 from hearthmind.agents.agent import (
     CRITICAL_HUNGER_THRESHOLD,
@@ -7596,7 +7609,19 @@ class Population:
                 # formation) still gets the slow rate WHILE its current
                 # salience remains high, a lighter-weight bonus without
                 # the same permanence guarantee.
-                if causes[i] if i < len(causes) else False:
+                has_cause = causes[i] if i < len(causes) else False
+                if _native_memory_salience_decay_step is not None:
+                    # Native fast path (R8 first slice, cpp/src/memory_
+                    # salience_decay.cpp): the enum/list-index resolution
+                    # above stays in Python — only the rate-selection/
+                    # multiply/floor arithmetic crosses into C++.
+                    salience[i] = _native_memory_salience_decay_step(
+                        salience[i], bool(has_cause),
+                        MEMORY_MAJOR_EVENT_SALIENCE_THRESHOLD, MEMORY_MAJOR_EVENT_DECAY_PER_DAY,
+                        MEMORY_FADE_DECAY_PER_DAY, MEMORY_FADE_FLOOR,
+                    )
+                    continue
+                if has_cause:
                     rate = MEMORY_MAJOR_EVENT_DECAY_PER_DAY
                 elif salience[i] >= MEMORY_MAJOR_EVENT_SALIENCE_THRESHOLD:
                     rate = MEMORY_MAJOR_EVENT_DECAY_PER_DAY

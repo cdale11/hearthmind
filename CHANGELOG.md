@@ -4,6 +4,51 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.291] — R8 first slice: `Population.decay_memory_salience` ported to C++
+
+Explicit user instruction: "continue R8." v1.34.290's own investigation
+correctly deferred the FULL R8 port as too large for one pass (dozens
+of tick methods in `population.py`, needing the same per-function
+randomized-equivalence + hash-soak discipline every other native
+module already carries, one function at a time, never big-bang). This
+ships the first real slice, proving the pattern rather than attempting
+the whole item.
+
+New `cpp/src/memory_salience_decay.cpp`'s `memory_salience_decay_
+step`: a pure scalar function replacing the rate-select/multiply/floor
+arithmetic inside `Population.decay_memory_salience`'s inner loop —
+the same per-scalar-call shape module 12's `bounded_random_walk_step`
+and module 20's `relationship_decay_step`/`relationship_gain_step`
+already established. Chosen deliberately: `Agent.memory_salience`/
+`memory_causes` are plain per-instance Python lists (index-aligned
+with `Agent.memories`), not part of the native `AgentStore`'s fixed
+scalar fields — this is a genuine new native surface, not a
+re-registration of already-native state. Called once per real sim-day
+(`day_end`), bounded by `population * MAX_AGENT_MEMORIES`. `None` when
+the extension isn't built reproduces the exact prior inline-Python
+branching byte-for-byte.
+
+Registered in `cpp/src/resource_grid.cpp`'s `PYBIND11_MODULE` and
+`setup.py`'s source list; wired at `Population.decay_memory_salience`'s
+one real call site in `agents/population.py`.
+
+Verified: a direct 200,000-trial randomized-equivalence test against a
+Python reference implementation (0 mismatches, including near-
+threshold-boundary draws); a real production-path proof driving 1,500
+ticks through `SimulationEngine._tick_once()` confirming the native
+path is genuinely exercised with real agent memory data, not just
+unit-tested in isolation; `scripts/verify_native_soak.py` (3 seeds x
+3000 ticks, extended with a new `_native_memory_salience_decay_step`
+toggle) — MATCH, byte-identical full `World.to_dict()` state every
+tick, native vs. Python fallback; `pyflakes` clean on both touched
+Python files (only the six known pre-existing forward-ref findings
+elsewhere in `engine.py`, unrelated to this change).
+
+`docs/ROADMAP-2026-07-REMAINING.md`'s R8 bullet updated with the full
+slice detail — R8 remains genuinely open (one function of the dozens
+this item ultimately needs); resume with the next one only on future
+explicit direction naming it.
+
 ## [1.34.290] — Roadmap Phase 7 investigated: native-performance items resolved
 
 Explicit user instruction: "continue phase 6 and then phase 7." Phase 6

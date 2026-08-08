@@ -128,6 +128,10 @@ _NATIVE_TOGGLES = [
     # neighbor count (cpp/src/terrain_neighbor_count.cpp), exercised
     # via the weekly maybe_reclaim -> _tick_fallow call path.
     (_terrain_evolution, "_native_forest_neighbor_counts"),
+    # R8 first slice: Population.decay_memory_salience's per-memory
+    # decay step (cpp/src/memory_salience_decay.cpp) -- exercised via
+    # the day_end-cadence decay_memory_salience call path.
+    (_population, "_native_memory_salience_decay_step"),
 ]
 
 

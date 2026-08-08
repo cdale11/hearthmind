@@ -1767,21 +1767,48 @@ measured need, never a default next step.
 - **R8** — agent tick *logic* (`population.py`'s methods, still reading/
   writing through the already-native `AgentStore`) ported to C++. The
   largest remaining native-porting item. **Investigated, v1.34.290,
-  deliberately not attempted**: `population.py`'s tick methods number
-  in the dozens (needs/movement/reproduction/repair/occupations/
-  construction/vehicles/dormancy/skills/inheritance/psychology, each
-  with its own real conditionals and RNG draws), several already read/
-  write through the native `AgentStore` piecemeal — a genuine port
-  needs the SAME per-function randomized-equivalence + full-`World.
-  to_dict()` hash-soak discipline every other native module in `cpp/
-  src/` already carries, one function at a time, never big-bang, per
-  this project's own standing R6/R7 porting discipline. Correctly
-  deferred as real, scoped, future work rather than rushed through in
-  one opportunistic pass — Ollama/LLM latency (tens of seconds per
+  deliberately not attempted in full**: `population.py`'s tick methods
+  number in the dozens (needs/movement/reproduction/repair/
+  occupations/construction/vehicles/dormancy/skills/inheritance/
+  psychology, each with its own real conditionals and RNG draws),
+  several already read/write through the native `AgentStore`
+  piecemeal — a genuine full port needs the SAME per-function
+  randomized-equivalence + full-`World.to_dict()` hash-soak discipline
+  every other native module in `cpp/src/` already carries, one
+  function at a time, never big-bang, per this project's own standing
+  R6/R7 porting discipline. Ollama/LLM latency (tens of seconds per
   call) still dominates the real tick budget (sub-millisecond) by
   several orders of magnitude, so there is no live-measured need
-  driving this pass; resume only once one exists, or on future
-  explicit direction naming a specific method to port first.
+  driving a wholesale port.
+  **First real slice shipped, v1.34.291** (explicit user instruction:
+  "continue R8"), proving the pattern rather than attempting the whole
+  item: `Population.decay_memory_salience`'s per-memory decay step —
+  new `cpp/src/memory_salience_decay.cpp`'s `memory_salience_decay_
+  step` (a pure scalar rate-select/multiply/floor function, same
+  per-scalar-call shape module 12's `bounded_random_walk_step`/
+  module 20's `relationship_decay_step` already established) crosses
+  the pybind11 boundary once per `(agent, memory-index)` pair — chosen
+  because `Agent.memory_salience`/`memory_causes` are plain per-
+  instance Python lists (index-aligned with `memories`), NOT part of
+  the native `AgentStore`'s fixed scalar fields, so this is a genuine
+  new native surface, not a re-registration of already-native state.
+  Called once per real sim-day (`day_end`), bounded by `population *
+  MAX_AGENT_MEMORIES` — real, if lighter-cadence, work. `None` when
+  the extension isn't built reproduces the exact prior inline-Python
+  branching. Verified: a 200,000-trial randomized-equivalence test
+  against a direct Python reference (0 mismatches, including near-
+  threshold edge cases); a real production-path proof driving 1,500
+  ticks through `SimulationEngine._tick_once()` confirming the native
+  path is genuinely reached with real accumulated agent memories;
+  `scripts/verify_native_soak.py` (3 seeds x 3000 ticks, new
+  `_native_memory_salience_decay_step` toggle added to its
+  `_NATIVE_TOGGLES` list) — MATCH, byte-identical full `World.
+  to_dict()` state every tick, native vs. Python fallback; `pyflakes`
+  clean on both touched files (only the six known pre-existing
+  forward-ref findings elsewhere). One real function of the dozens R8
+  ultimately needs — resume with the next one only on future explicit
+  direction naming it, same "never big-bang" discipline as every prior
+  slice.
 - ~~Re-audit `world/weather.py`'s 3x3 `WEATHER_REGION_GRID` spatial-
   region handling for a real unported per-tile hot loop~~ **CLOSED,
   v1.34.290 — re-confirmed already resolved, no code change needed.**

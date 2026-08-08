@@ -211,6 +211,7 @@ void register_biology_ticks(py::module_ &m);
 void register_hydrology_tick(py::module_ &m);
 void register_ca_operators(py::module_ &m);
 void register_terrain_neighbor_count(py::module_ &m);
+void register_memory_salience_decay(py::module_ &m);
 
 PYBIND11_MODULE(_native, m) {
     m.doc() = "Hearthmind native (C++) hot-path extensions. Optional — "
@@ -259,4 +260,5 @@ PYBIND11_MODULE(_native, m) {
     register_hydrology_tick(m);
     register_ca_operators(m);
     register_terrain_neighbor_count(m);
+    register_memory_salience_decay(m);
 }
