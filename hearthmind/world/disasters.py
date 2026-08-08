@@ -66,17 +66,23 @@ happened — this only replaces the per-building/vehicle condition
 subtraction loop."""
 
 try:
-    from hearthmind._native import roll_passes_tick as _native_roll_passes_tick
+    from hearthmind._native import roll_passes_weighted as _native_roll_passes_weighted
 except ImportError:
-    _native_roll_passes_tick = None
-"""Optional compiled fast path for `tick_wildfire`'s spread roll
-(module 15's `roll_passes_tick`, reused here — see cpp/src/roll_batch.
-cpp). Each (active tile, neighbor) pair's spread eligibility depends
-only on the pre-loop snapshot of `active_wildfire_tiles` and terrain
-biomes, never on another pair's outcome within the same pass — own-
-tile conversion draws no RNG at all, so it stays a separate, ordinary
-Python pass before the roll batch. `None` when the extension wasn't
-built — falls back to the equivalent pure-Python loop."""
+    _native_roll_passes_weighted = None
+"""Optional compiled fast path for `tick_wildfire`'s SPREAD roll (module
+15's `roll_passes_weighted`, see cpp/src/roll_batch.cpp) — A2 (docs/
+ROADMAP-2026-07-REMAINING.md, Phase 8): the doc's own flagged gap was
+that only the ignition SITE was contiguity-weighted (v1.34.68's
+`compute_forest_contiguity`); whether an already-burning fire actually
+spreads to a given neighbor stayed a flat `WILDFIRE_SPREAD_CHANCE`
+regardless of how much fuel surrounds that neighbor. Each (active tile,
+neighbor) candidate's spread chance is now scaled by that same
+contiguity reading — a real forest interior burns on more readily than
+an isolated stand next to open ground — computed fresh each active-fire
+tick (already-burned tiles have turned to GRASSLAND by then, so
+contiguity genuinely shifts as a fire eats into a stand). `None` when
+the extension wasn't built — falls back to the equivalent pure-Python
+per-candidate roll."""
 
 FLOOD_PRESSURE_GAIN = 0.04
 FLOOD_PRESSURE_DECAY = 0.03
@@ -218,7 +224,23 @@ forest cluster is genuinely more likely to be where the next one
 starts. Reweights WHICH forest tile catches first only — a non-forest
 tile scores exactly 0 and stays excluded from the candidate list
 up front, same as before this change; nothing here alters WHETHER or
-HOW OFTEN a wildfire starts (`WILDFIRE_CHANCE_PER_WEEK` untouched)."""
+HOW OFTEN a wildfire starts (`WILDFIRE_CHANCE_PER_WEEK` untouched).
+
+Second real consumer, v1.34.297 (Phase 8's A2 — "cellular_step's
+fuller fire-spread mechanics... today only ignition-SITE is weighted"):
+the SAME `compute_forest_contiguity` reading now also scales each
+active-tile-to-neighbor spread roll (`WILDFIRE_SPREAD_CHANCE * contiguity
+[neighbor]`, capped at 1.0 — contiguity's own range is [1.0, 1.0+this
+weight], so at the default weight of 1.0 the capped ceiling is never
+actually reached: 0.35 * 2.0 = 0.70). One shared weight for both
+decisions is deliberate, not an oversight — the same physical
+reasoning applies to catching in the first place and to spreading once
+already alight, so there is no reason to tune them independently
+unless a live diagnostic later shows otherwise. WHETHER/HOW OFTEN a
+fire starts is still untouched; this only reshapes the fire's own
+SHAPE once it exists — a real cluster now burns through a dense stand
+and gutters out at a sparse edge, instead of spreading as a uniform
+random walk regardless of what's actually there to burn."""
 
 STORM_WIND_THRESHOLD = 0.55
 STORM_CHANCE_PER_TICK = 0.01
@@ -540,13 +562,12 @@ def tick_wildfire(
         frontier = set()
         at_cap = len(state.active_wildfire_tiles) >= WILDFIRE_MAX_TILES
         if not at_cap:
-            # Native fast path (module 15's roll_passes_tick, reused):
-            # each (active tile, neighbor) pair's spread eligibility
-            # depends only on the pre-loop `active_list`/terrain
-            # snapshot, never on another pair's outcome within this
-            # same pass — a shared neighbor of two active tiles still
-            # gets rolled twice here, exactly like the pure-Python
-            # original, since `frontier` (not `active_wildfire_tiles`)
+            # A2 (Phase 8): each (active tile, neighbor) pair's spread
+            # eligibility depends only on the pre-loop `active_list`/
+            # terrain snapshot, never on another pair's outcome within
+            # this same pass — a shared neighbor of two active tiles
+            # still gets rolled twice here, exactly like before this
+            # change, since `frontier` (not `active_wildfire_tiles`)
             # accumulates the result and isn't consulted for
             # eligibility mid-pass.
             candidates: list[tuple[int, int]] = []
@@ -558,15 +579,27 @@ def tick_wildfire(
                         and terrain[ny][nx].biome is Biome.FOREST
                     ):
                         candidates.append((nx, ny))
-            if _native_roll_passes_tick is not None:
-                rolls = [rng.random() for _ in candidates]
-                for (nx, ny), did_pass in zip(candidates, _native_roll_passes_tick(rolls, WILDFIRE_SPREAD_CHANCE)):
-                    if did_pass:
-                        frontier.add((nx, ny))
-            else:
-                for (nx, ny) in candidates:
-                    if rng.random() < WILDFIRE_SPREAD_CHANCE:
-                        frontier.add((nx, ny))
+            if candidates:
+                # Recomputed fresh each active-fire tick, not reused
+                # from ignition time: tiles this same fire has already
+                # consumed are GRASSLAND by now, so a neighbor's real
+                # fuel density genuinely shifts as the fire eats into a
+                # stand — see WILDFIRE_CONTIGUITY_WEIGHT's docstring.
+                contiguity = compute_forest_contiguity(terrain)
+                chances = [
+                    min(1.0, WILDFIRE_SPREAD_CHANCE * contiguity[ny][nx]) for (nx, ny) in candidates
+                ]
+                if _native_roll_passes_weighted is not None:
+                    rolls = [rng.random() for _ in candidates]
+                    for (nx, ny), did_pass in zip(
+                        candidates, _native_roll_passes_weighted(rolls, chances)
+                    ):
+                        if did_pass:
+                            frontier.add((nx, ny))
+                else:
+                    for (nx, ny), chance in zip(candidates, chances):
+                        if rng.random() < chance:
+                            frontier.add((nx, ny))
         state.active_wildfire_tiles |= frontier
         return events
 

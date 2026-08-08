@@ -4,6 +4,69 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.297] — A2: contiguity-weighted wildfire spread + A3: settled as LLM-authored
+
+Explicit user instruction: "start a2 and a3 of phase 8" (docs/ROADMAP-
+2026-07-REMAINING.md). Both were the two genuinely-open, non-stale
+items left after v1.34.295's staleness audit — A2 named a concrete
+remaining implementation gap, A3 named a real open design question.
+
+**A2.** `tick_wildfire`'s spread step weighted only WHICH forest tile
+ignites first (`compute_forest_contiguity`, v1.34.68) — an already-
+burning fire's per-neighbor spread roll stayed a flat `WILDFIRE_
+SPREAD_CHANCE=0.35` regardless of how much forest actually surrounded
+that neighbor. New `cpp/src/roll_batch.cpp`'s `roll_passes_weighted`
+(module 15's sibling to `roll_passes_tick` — the same "compare a
+pre-drawn roll against a threshold" primitive, but a distinct
+threshold per candidate instead of one shared scalar) backs the real
+fix: each (active tile, neighbor) candidate's spread chance is now
+`min(1.0, WILDFIRE_SPREAD_CHANCE * contiguity[neighbor])`, contiguity
+recomputed fresh every active-fire tick (a tile the same fire has
+already consumed is GRASSLAND by then, so a neighbor's real remaining
+fuel density genuinely shifts as the fire eats into a stand — not a
+static snapshot from ignition time). Reuses the SAME `WILDFIRE_
+CONTIGUITY_WEIGHT` the ignition-site pick already uses rather than a
+second independent constant — "a fire needs continuous fuel both to
+catch and to keep spreading" is one physical claim, not two that
+happen to need separate tuning. `_native_roll_passes_tick`'s import
+was left with no consumer once the spread step moved off it — removed
+as genuinely dead, confirmed via a whole-file grep first.
+
+Verified: a direct native-vs-fallback parity check on `roll_passes_
+weighted` itself (500 rolls x mixed per-candidate chances, native
+result == pure-Python `roll < chance` list, byte-identical); a direct
+scenario test — a dense 3x3 forest cluster's own neighbor-spread rate
+measured ~95% over 3000 trials vs. a sparse two-tile "finger"'s ~36%,
+confirming the mechanic produces a real, substantial difference, not
+just a formula that compiles; a 2500-tick LLM-disabled production-path
+soak with a clean `World.to_dict()`/`from_dict()` round-trip; `scripts/
+verify_native_soak.py` (3 seeds x 3000 ticks) — MATCH, byte-identical.
+
+**A3.** Re-audited every real settlement/culture-generation call site
+(`llm/world_genesis.py`'s founding sentence, `llm/culture.py`'s
+tradition/festival/custom, `llm/religion.py`'s crystallization, `llm/
+folklore.py`/`llm/legend.py`'s tales) for the one shape that's
+repeatedly justified a decision/narration split in this codebase
+before — v1.3.35's five conversions (town_brain priority, era branch,
+institution objectives, narrative direction, geography naming) plus
+the six Tier 6 `DecisionPolicy` sites (dispute/fission/migration/
+founding/laws). None remains: each of these calls is a single
+interpretive act with no ground truth separable from its own content
+— `culture.py`'s "influence" classification (which of 4 mechanical
+categories a freshly-invented tradition strengthens) is the clearest
+worked example, since the LLM decides both what the tradition IS and
+what it means in the same act; there is nothing left over to
+precompute independently. Converting what remains onto deterministic
+procgen would directly contradict CLAUDE.md's own standing priority
+("everything involving judgement, interpretation, creativity...
+should default to the local LLM... don't replace LLM reasoning with a
+rule system just because it's easier") for zero engineering
+justification — the identical reasoning v1.34.159 already used once
+to reject a ritual/recipe structure grammar on the same grounds.
+Recorded as a real, investigated, closed decision in `docs/ROADMAP-
+2026-07-REMAINING.md` (docs-only for this half — no code changed, none
+was warranted).
+
 ## [1.34.296] — R1: first `population.py` decomposition slice (pathfinding)
 
 Explicit user instruction: "Start the next Phase 8 item," continuing

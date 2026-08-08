@@ -1959,16 +1959,53 @@ genuinely still open, or (A12) not re-verified this pass.
   `FieldGrid` companion reading, not a replacement" for either scar
   dict's own tile-precise consumers, which correctly remain the
   source of truth for those.
-- **A2** — `cellular_step`'s fuller fire-spread mechanics (today only
-  ignition-SITE is weighted, per v1.34.68's real `compute_forest_
-  contiguity` consumer, re-confirmed via direct code read this pass;
-  whether/how-often/how fire actually spreads stays the native-backed
-  mechanism, deliberately not forced onto). Genuinely still open, not
-  stale — this bullet already accurately describes its own remaining
-  scope.
-- **A3** — whether settlement/culture generation should ever move off
+- ~~**A2** — `cellular_step`'s fuller fire-spread mechanics (today only
+  ignition-SITE is weighted)~~ **SHIPPED, v1.34.297.** New `cpp/src/
+  roll_batch.cpp`'s `roll_passes_weighted` (module 15's sibling —
+  `roll_passes_tick` takes one flat chance for the whole batch,
+  `roll_passes_weighted` takes a distinct pre-computed chance per
+  candidate) backs `tick_wildfire`'s spread step: each (active tile,
+  neighbor) candidate's spread chance is now `WILDFIRE_SPREAD_CHANCE *
+  compute_forest_contiguity(terrain)[neighbor]`, capped at 1.0 —
+  recomputed fresh every active-fire tick (already-burned tiles are
+  GRASSLAND by then, so a stand's real remaining fuel density genuinely
+  shifts as a fire eats into it), reusing the SAME `WILDFIRE_
+  CONTIGUITY_WEIGHT` the ignition-site pick already used rather than a
+  second independent tuning constant — "a fire needs continuous fuel
+  both to catch and to keep spreading" is one physical claim, not two.
+  WHETHER/HOW OFTEN a wildfire starts is untouched; only its own SHAPE
+  once alight — a dense forest interior now measurably burns through
+  while a sparse edge gutters out, instead of a uniform random walk
+  blind to what's actually there to burn (verified directly: a dense
+  3x3 cluster's neighbor-spread rate ~95% over 3000 trials vs. a
+  two-tile sparse "finger"'s ~36%). Old `roll_passes_tick` import in
+  `world/disasters.py` removed as genuinely dead (this was its only
+  consumer).
+- ~~**A3** — whether settlement/culture generation should ever move off
   LLM-authored and onto deterministic procgen stays a real open design
-  question, not a closed one.
+  question, not a closed one~~ **DECIDED, v1.34.297: no, stays LLM-
+  authored — a real, investigated decision, not a default.** Re-audited
+  every real settlement/culture-generation call site this pass looking
+  for the one shape that's repeatedly justified conversion before
+  (v1.3.35's five town_brain/era_branch/institution-objective/
+  narrative-direction/geography-naming sites, plus the six Tier 6
+  `DecisionPolicy` sites — dispute/fission/migration/founding/laws): an
+  objective DECISION buried inside an otherwise-creative call, separable
+  from its narration. None remains — `world_genesis.py`'s founding
+  sentence, `culture.py`'s tradition/festival/custom, `religion.py`'s
+  crystallization, `folklore.py`/`legend.py`'s tales are each a single
+  interpretive act with no ground truth to compute independently of the
+  content itself (`culture.py`'s own "influence" classification is a
+  worked example of why: which of 4 mechanical categories a FRESHLY-
+  INVENTED tradition strengthens isn't separable from inventing it — the
+  LLM decides both in the same act, there's nothing to precompute).
+  Converting what remains would directly contradict CLAUDE.md's own
+  standing design priority ("everything involving judgement,
+  interpretation, creativity... should default to the local LLM...
+  don't replace LLM reasoning with a rule system just because it's
+  easier") for zero engineering justification — same reasoning
+  v1.34.159 already applied once to reject a ritual/recipe structure
+  grammar on identical grounds. A real, closed answer, not a deferral.
 - ~~**A4** — migrate `RoadNetwork.wear`/gossip contagion onto
   `FieldGrid` proper~~ **The `RoadNetwork.wear` half SHIPPED, v1.34.36**
   (re-confirmed via direct code read this pass: `world/state.py` calls

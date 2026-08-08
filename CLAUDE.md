@@ -742,6 +742,54 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.297)
+
+Explicit user instruction: "start a2 and a3 of phase 8" — the two
+genuinely-open, non-stale Phase 8 items left after v1.34.295's own
+staleness audit closed 17 of ~20 named bullets.
+
+**A2, shipped.** `tick_wildfire`'s spread step only weighted WHICH
+forest tile ignites first (`compute_forest_contiguity`, v1.34.68); an
+already-burning fire's per-neighbor spread roll stayed a flat
+`WILDFIRE_SPREAD_CHANCE` regardless of local fuel density. New
+`cpp/src/roll_batch.cpp`'s `roll_passes_weighted` (module 15's sibling
+to `roll_passes_tick` — a distinct pre-computed chance per candidate
+instead of one flat scalar for the whole batch) backs the fix: each
+(active tile, neighbor) candidate's spread chance is now `min(1.0,
+WILDFIRE_SPREAD_CHANCE * contiguity[neighbor])`, contiguity recomputed
+fresh every active-fire tick (already-consumed tiles are GRASSLAND by
+then, so real remaining fuel density genuinely shifts as a fire eats
+into a stand). Reuses `WILDFIRE_CONTIGUITY_WEIGHT` rather than adding
+a second tuning constant — one physical claim ("fire needs continuous
+fuel to catch AND to spread"), not two. `_native_roll_passes_tick`'s
+import removed as genuinely dead — the spread step was its only
+consumer.
+
+Verified: a direct native-vs-fallback parity check on `roll_passes_
+weighted` (byte-identical against the pure-Python `roll < chance`
+reference); a direct scenario test — a dense 3x3 forest cluster's
+neighbor-spread rate ~95% over 3000 trials vs. a sparse two-tile
+"finger"'s ~36%, confirming a real, substantial mechanical effect; a
+2500-tick LLM-disabled production soak with a clean round-trip;
+`scripts/verify_native_soak.py` (3 seeds x 3000 ticks) — MATCH.
+
+**A3, decided — no code change, none warranted.** Re-audited every
+real settlement/culture-generation call site (`world_genesis.py`'s
+founding sentence, `culture.py`'s tradition/festival/custom,
+`religion.py`'s crystallization, `folklore.py`/`legend.py`'s tales)
+for the shape that's repeatedly justified a decision/narration split
+before — v1.3.35's five conversions plus the six Tier 6 `DecisionPolicy`
+sites. None remains: each call is a single interpretive act with no
+ground truth separable from its own content — `culture.py`'s own
+"influence" classification is the clearest example (which of 4
+mechanical categories a FRESHLY-INVENTED tradition strengthens isn't
+separable from inventing it; the LLM decides both in the same act).
+Converting what remains would contradict CLAUDE.md's own standing
+priority for zero engineering justification — the same reasoning
+v1.34.159 already used once to reject a ritual/recipe structure
+grammar. Recorded as a real, closed decision in `docs/ROADMAP-2026-07-
+REMAINING.md`, not a deferral.
+
 ## Current state (v1.34.296)
 
 Explicit user instruction: "Start the next Phase 8 item," continuing

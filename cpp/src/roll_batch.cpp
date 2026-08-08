@@ -30,6 +30,24 @@ std::vector<bool> roll_passes_tick(const std::vector<double> &rolls, double chan
     return results;
 }
 
+// A2 (docs/ROADMAP-2026-07-REMAINING.md, Phase 8): `roll_passes_tick`'s
+// per-candidate sibling for when eligibility isn't a single flat
+// probability — each candidate gets its OWN pre-computed chance (e.g.
+// wildfire spread weighted by `ca_operators.cellular_step`-derived
+// forest contiguity, world/disasters.py), rather than a single scalar
+// shared by the whole batch. Same "compare pre-drawn roll against a
+// threshold" triviality, same shared-tested-building-block reasoning —
+// `rolls`/`chances` must be the same length (the Python call site
+// builds both from the same candidate list, in the same order).
+std::vector<bool> roll_passes_weighted(const std::vector<double> &rolls, const std::vector<double> &chances) {
+    std::vector<bool> results;
+    results.reserve(rolls.size());
+    for (size_t i = 0; i < rolls.size(); ++i) {
+        results.push_back(rolls[i] < chances[i]);
+    }
+    return results;
+}
+
 }  // namespace
 
 void register_roll_batch(py::module_ &m) {
@@ -40,4 +58,10 @@ void register_roll_batch(py::module_ &m) {
           "eligibility doesn't depend on other candidates' outcomes "
           "within the same pass — see apply_local_activity's "
           "deforestation roll (world/terrain_evolution.py).");
+    m.def("roll_passes_weighted", &roll_passes_weighted,
+          py::arg("rolls"), py::arg("chances"),
+          "Per-candidate sibling of roll_passes_tick: for each pre-drawn "
+          "roll, whether roll < chances[i] (a distinct threshold per "
+          "candidate, not one shared value) — see wildfire spread's "
+          "contiguity-weighted chance (world/disasters.py).");
 }
