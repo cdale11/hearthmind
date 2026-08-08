@@ -4,6 +4,88 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.296] — R1: first `population.py` decomposition slice (pathfinding)
+
+Explicit user instruction: "Start the next Phase 8 item," continuing
+directly off v1.34.295's own staleness audit — R1 (docs/REFACTOR-2026-
+07.md's "split `population.py` into a mixin-based package") was one of
+the few items left genuinely untouched by that audit, and the roadmap
+doc's own text frames it as the "highest-value remaining item." Real
+staleness correction found while starting: `agents/population.py` is
+9,060 lines, not the doc's long-carried "~3,930" estimate.
+
+**First real slice: pathfinding**, following the doc's own "safest to
+move first, almost entirely pure" reasoning. New sibling module
+`hearthmind/agents/_population_pathfinding.py`: `PathfindingMixin`
+holds `_choose_explore_target`/`_step_toward`/`_bfs_step`/`_reachable_
+tiles`/`_maybe_move` — all five were already `@staticmethod`s with zero
+`self`/`cls`-dependent state, confirmed directly before moving anything
+— plus the 4 free functions `_is_walkable`/`_bridge_tiles_from_
+settlements`/`_walkable_tiles`/`_find_bridge_span` and their 6
+supporting constants (`WALKABLE_BIOMES`/`MOUNTAIN_WALKABLE_BIOMES`/
+`WATER_CROSSABLE_BIOMES`/`_NEIGHBOR_OFFSETS`/`_WATER_BIOMES`/`BRIDGE_
+MAX_SPAN`). `class Population(PathfindingMixin):` (was bare `class
+Population:`) makes every existing `self._x(...)`/`cls._x(...)` call
+site resolve unchanged via the MRO — exactly the doc's own "mixins
+preserve self/cls/MRO exactly, no call-site changes" claim, now proven
+against a real extraction rather than only asserted.
+
+**Deliberate departure from the doc's literal proposed package layout**
+(`hearthmind/agents/population/` with an `__init__.py` re-export
+layer): this slice keeps `population.py` as a single module at its
+exact unchanged import path instead, re-importing the extracted names
+(`PathfindingMixin`, the 4 free functions, `_NEIGHBOR_OFFSETS`) into
+its own namespace. A real package conversion would need to exhaustively
+re-export dozens of underscore-prefixed module-level names to preserve
+every external access pattern — confirmed via grep that `scripts/
+verify_native_soak.py` alone reaches ~16 `_native_*`/`_Native*` toggles
+via bare attribute access (`_population.NAME`), on top of every
+underscore name `engine.py`'s own multi-name `from hearthmind.agents.
+population import (...)` block already pulls in — missing even one
+during a package conversion would silently break something. The
+sibling-module shape achieves the identical decomposition goal (a
+genuinely separate, independently-readable module; `population.py`'s
+own line count reduced 9,060 -> 8,716) with zero re-export risk, since
+`from X import Y` binds `Y` into the importing module's own namespace
+regardless of which file it lives in. A real package conversion, if
+ever warranted, can follow once several such sibling-module slices
+exist to fold in at once — recorded as the deliberate, non-permanent
+choice it is in both `docs/REFACTOR-2026-07.md`'s own R1 section and
+the new sibling module's own docstring, not silently substituted for
+the doc's stated design.
+
+One necessary behavior-preserving textual edit inside the extracted
+code: `_find_bridge_span`'s internal call `Population._reachable_tiles
+(terrain, origin)` -> `PathfindingMixin._reachable_tiles(terrain,
+origin)` — avoids a circular import between the new sibling module and
+`population.py`, behaviorally identical since it was always a plain
+staticmethod call. Six now-genuinely-dead imports removed from
+`population.py` after the extraction (`from collections import deque`;
+`MOVE_CHANCE` from the `hearthmind.agents.agent` import block; `ROAD_
+PAVED_SPEED_MULTIPLIER`/`ROAD_SPEED_MULTIPLIER`/`road_condition_
+multiplier` from the `hearthmind.world.roads` import block, collapsed
+to just `RoadNetwork`, still used at ~7 other sites) — each confirmed
+via a whole-file grep to have zero remaining usage before removal, not
+trusted from `pyflakes`'s own findings blindly.
+
+Verified: `pyflakes` clean on both files; every real external
+consumer's exact import/attribute-access pattern re-confirmed live
+(`engine.py`'s full multi-name import block, `world/state.py`,
+`scripts/verify_native_soak.py`'s 16-name native-toggle attribute-
+access list — `import hearthmind.agents.population as _population;
+_population.ATTR` for each); a direct 6000-tick production-path smoke
+test (LLM disabled, seed 17, 32x32 map, 14 initial population) —
+genuine agent movement, population growth 14 -> 22, a clean `World.
+to_dict()`/`from_dict()` round-trip; `scripts/verify_native_soak.py`
+(3 seeds x 3000 ticks) — MATCH, byte-identical.
+
+The remaining slices the doc's own proposed layout names (`_needs.py`/
+`_social.py`/`_settlement_ops.py`/`core.py`-equivalent groupings) stay
+open — resume with the next cohesive method-group only on future
+explicit direction, same "one slice at a time, never big-bang against
+the single largest file with no test net" discipline this item's text
+has always specified.
+
 ## [1.34.295] — Phase 8 staleness audit + B6: advisory-outcome tracking
 
 Explicit user instruction: "Start the next Phase 8 item." Picking A9

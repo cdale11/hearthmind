@@ -2130,11 +2130,46 @@ genuinely still open, or (A12) not re-verified this pass.
   this pass: `cognition/pillar.py`'s `remember()` carries a real
   `memory_access`-aware reinforce/reinterpret/append-fresh branch.
   CLAUDE.md's v1.34.66 entry: "B8 'reinforce'/'reinterpret' — CLOSED."
-- **R1** (docs/REFACTOR-2026-07.md) — split `population.py`
-  (~3,930 lines) into a mixin-based package (`_pathfinding.py`/
-  `_needs.py`/`_social.py`/`_settlement_ops.py`/`core.py`); a fully
-  scoped, never-executed maintainability refactor, the single largest
-  named piece of structural debt in the codebase.
+- **R1** (docs/REFACTOR-2026-07.md) — split `population.py` into a
+  mixin-based package — **PARTIAL, first slice shipped v1.34.296.**
+  Stale line-count corrected while starting this: the file was 9,060
+  lines, not the doc's own long-stated "~3,930" estimate. First real
+  slice extracted, in the spirit of the doc's own proposed
+  `_pathfinding.py` grouping but NOT its literal full-package layout:
+  new sibling module `hearthmind/agents/_population_pathfinding.py`
+  (`PathfindingMixin` — `_choose_explore_target`/`_step_toward`/
+  `_bfs_step`/`_reachable_tiles`/`_maybe_move`, all already-pure
+  `@staticmethod`s with zero `self`/`cls` state, exactly the doc's own
+  "safest to move first" reasoning — plus the 4 free functions
+  `_is_walkable`/`_bridge_tiles_from_settlements`/`_walkable_tiles`/
+  `_find_bridge_span` and their 6 supporting constants).
+  `class Population(PathfindingMixin):` makes every existing
+  `self._x(...)` call site resolve unchanged via the MRO.
+  Deliberately NOT a real `hearthmind/agents/population/` package with
+  an `__init__.py` re-export surface — `population.py` stays a single
+  importable module at its exact unchanged path, with the extracted
+  names re-imported into its own namespace, because a real package
+  conversion would need to exhaustively re-export dozens of
+  underscore-prefixed module-level names (confirmed via grep: ~16
+  `_native_*`/`_Native*` toggles `scripts/verify_native_soak.py`
+  reaches via bare attribute access, plus every underscore name
+  `engine.py`'s own multi-name import block pulls in) — missing even
+  one during a package conversion would silently break something,
+  real risk for no real gain on a first slice. Verified: `pyflakes`
+  clean on both files (6 now-dead imports removed from `population.py`
+  after the extraction, each confirmed unused via a whole-file grep
+  first, not trusted blindly); every real external consumer's exact
+  import/attribute-access pattern re-confirmed live (`engine.py`,
+  `world/state.py`, `verify_native_soak.py`'s 16-name toggle list); a
+  real 6000-tick production-path soak (LLM disabled, genuine agent
+  movement, population growth) with a clean `World.to_dict()`/
+  `from_dict()` round-trip; `scripts/verify_native_soak.py` (3 seeds x
+  3000 ticks) — MATCH, byte-identical. `_needs.py`/`_social.py`/
+  `_settlement_ops.py`/`core.py`-equivalent slices remain open —
+  resume with the next cohesive method-group only on future explicit
+  direction, same "one slice at a time, never big-bang against the
+  single largest file with no test net" discipline this item's own
+  text always specified.
 - ~~**R3** (docs/REFACTOR-2026-07.md) — finish the `clamp()` migration~~
   **SHIPPED, v1.34.294.** A real grep sweep found 60 actual
   `max(lo, min(hi, x))`-shaped matches (more than this item's own

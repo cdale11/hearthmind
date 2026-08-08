@@ -35,9 +35,12 @@ tick-time problem demanded it — CLAUDE.md's standing escalation order
 measured need") still governs any *future* optimization request.
 
 **Maintainability: three oversized modules remain the only real
-structural debt** — `agents/population.py` (~3,930 lines), `settlement/
+structural debt** — `agents/population.py` (9,060 lines as of v1.34.296
+— corrected from a long-stale "~3,930" estimate carried by this doc
+across many intervening sessions; see R1 below), `settlement/
 buildings.py` (~2,140), `simulation/engine.py` (~2,090). Splitting
-`population.py` (R1, below) is the highest-value remaining item.
+`population.py` (R1, below) is the highest-value remaining item; its
+first real slice shipped v1.34.296.
 
 ## Done (dedup pass, v0.69.0)
 
@@ -48,12 +51,13 @@ copies across `population.py`/`world/state.py`/`simulation/engine.py`
 of `max(lo, min(hi, x))` sites. Proven byte-identical over a 7000-tick
 run before vs. after.
 
-## R1 — Split `population.py` into a mixin-based package [OPEN]
+## R1 — Split `population.py` into a mixin-based package [PARTIAL,
+first slice v1.34.296]
 
-Highest-value remaining refactor; deferred because it touches the
-single largest, hottest file with no test net — must be done one
-cohesive method-group at a time, each verified against a full-state
-soak before the next. Tracked in the roadmap's Phase 8.
+Highest-value remaining refactor; deferred for a long time because it
+touches the single largest, hottest file with no test net — must be
+done one cohesive method-group at a time, each verified against a
+full-state soak before the next. Tracked in the roadmap's Phase 8.
 
 **Why mixins, not free functions:** `Population`'s ~60 methods call
 each other as `cls._x`/`self._x` and read module-level constants;
@@ -63,15 +67,52 @@ Mixins preserve `self`/`cls`/MRO exactly, so `class Population
 same "compose, don't rewrite" spirit as the `Settlement` domain-object
 split.
 
-**Proposed package layout** (`hearthmind/agents/population/`):
-`__init__.py` (re-exports, external import paths unchanged),
-`_pathfinding.py` (walkability/movement/target-search — safest to move
-first, almost entirely pure), `_needs.py` (needs/forage/gather/plant/
-disease/predator), `_social.py` (relationships/teaching/reproduction/
-councils/guilds/migrants), `_settlement_ops.py` (construction/repair/
-site-choice/vehicles/fission/carrying-capacity), `core.py` (the
-dataclass, `tick()`, mixin composition). Verify one mixin move at a
-time against a full-state soak before proceeding to the next.
+**First slice shipped, v1.34.296 — pathfinding, with one deliberate
+departure from the layout below.** New sibling module `hearthmind/
+agents/_population_pathfinding.py`: `PathfindingMixin` holds
+`_choose_explore_target`/`_step_toward`/`_bfs_step`/`_reachable_tiles`/
+`_maybe_move` (all already-pure `@staticmethod`s, exactly this doc's
+own "safest to move first, almost entirely pure" reasoning), plus the
+free functions `_is_walkable`/`_bridge_tiles_from_settlements`/
+`_walkable_tiles`/`_find_bridge_span` and their 6 constants.
+`class Population(PathfindingMixin):` makes every call site resolve
+unchanged via the MRO, exactly as this section predicted.
+
+**Deliberately NOT the literal `hearthmind/agents/population/` package
+proposed below, this slice** — `population.py` stays a single module
+at its unchanged import path, with the extracted names re-imported
+into its own namespace, rather than converting to a real package with
+an `__init__.py` re-export layer. Reason: a real package conversion
+needs to exhaustively re-export dozens of underscore-prefixed
+module-level names to preserve every external access pattern —
+confirmed via grep that `scripts/verify_native_soak.py` alone reaches
+~16 `_native_*`/`_Native*` toggles via bare attribute access
+(`_population.NAME`), on top of every underscore name `engine.py`'s
+own multi-name `from hearthmind.agents.population import (...)` block
+pulls in. Missing even one during a package conversion would silently
+break something the same way a package's `__init__.py` always risks —
+real regression surface for no real gain on a first slice, when the
+sibling-module shape achieves the identical decomposition goal (a
+genuinely separate, independently-readable module; `population.py`'s
+own line count reduced) with zero re-export risk, since `from X import
+Y` binds `Y` into the importing module's own namespace regardless.
+A real package conversion, if ever warranted, can follow once several
+such sibling-module slices exist to fold in at once.
+
+**Proposed package layout** (`hearthmind/agents/population/`,
+un-adopted this slice, kept here as the shape future slices can still
+converge toward): `__init__.py` (re-exports, external import paths
+unchanged), `_pathfinding.py` (shipped as a sibling module instead,
+see above), `_needs.py` (needs/forage/gather/plant/disease/predator),
+`_social.py` (relationships/teaching/reproduction/councils/guilds/
+migrants), `_settlement_ops.py` (construction/repair/site-choice/
+vehicles/fission/carrying-capacity), `core.py` (the dataclass,
+`tick()`, mixin composition). Verify one mixin move at a time against
+a full-state soak before proceeding to the next — same discipline the
+pathfinding slice itself followed (pyflakes clean, every external
+consumer's exact access pattern re-confirmed, a real 6000-tick
+production soak, `scripts/verify_native_soak.py` MATCH across 3 seeds
+x 3000 ticks).
 
 ## R2 — Declarative tick-job dispatch table [DONE, v0.71.x]
 

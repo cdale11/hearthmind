@@ -742,6 +742,76 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.296)
+
+Explicit user instruction: "Start the next Phase 8 item," continuing
+directly off v1.34.295's own staleness audit — picked **R1**
+(docs/REFACTOR-2026-07.md's "split `population.py` into a mixin-based
+package"), the roadmap's own "highest-value remaining item" and one of
+the few genuinely-still-open items that audit left untouched. Real
+staleness correction found while starting: `agents/population.py` is
+**9,060 lines**, not the doc's long-carried "~3,930" estimate.
+
+**First real slice: pathfinding**, following the doc's own "safest to
+move first, almost entirely pure" reasoning. New sibling module
+`hearthmind/agents/_population_pathfinding.py`: `PathfindingMixin`
+holds `_choose_explore_target`/`_step_toward`/`_bfs_step`/`_reachable_
+tiles`/`_maybe_move` — confirmed all five were already `@staticmethod`s
+with zero `self`/`cls`-dependent state before moving anything — plus
+the 4 free functions `_is_walkable`/`_bridge_tiles_from_settlements`/
+`_walkable_tiles`/`_find_bridge_span` and their 6 supporting constants.
+`class Population(PathfindingMixin):` (was bare `class Population:`)
+makes every existing `self._x(...)`/`cls._x(...)` call site resolve
+unchanged via the MRO — the doc's own "mixins preserve self/cls/MRO
+exactly, no call-site changes" claim, now proven against a real
+extraction.
+
+**Deliberate departure from the doc's literal proposed package layout**
+(`hearthmind/agents/population/` with an `__init__.py` re-export
+layer): kept `population.py` as a single module at its exact unchanged
+import path, re-importing the extracted names into its own namespace
+instead. A real package conversion would need to exhaustively re-
+export dozens of underscore-prefixed module-level names — confirmed
+via grep that `scripts/verify_native_soak.py` alone reaches ~16
+`_native_*`/`_Native*` toggles via bare attribute access, on top of
+every underscore name `engine.py`'s own multi-name import block
+already pulls in — missing even one during a package conversion would
+silently break something. The sibling-module shape achieves the
+identical decomposition goal (a genuinely separate, independently-
+readable module; `population.py`'s own line count reduced 9,060 ->
+8,716) with zero re-export risk, since `from X import Y` binds `Y`
+into the importing module's own namespace regardless of which file it
+lives in. A real package conversion, if ever warranted, can follow
+once several such sibling-module slices exist to fold in at once —
+recorded as the deliberate, non-permanent choice it is in both
+`docs/REFACTOR-2026-07.md`'s own R1 section and the new module's own
+docstring.
+
+One necessary behavior-preserving textual edit inside the extracted
+code: `_find_bridge_span`'s internal call `Population._reachable_tiles
+(...)` -> `PathfindingMixin._reachable_tiles(...)` — avoids a circular
+import between the sibling module and `population.py`, behaviorally
+identical since it was always a plain staticmethod call. Six now-
+genuinely-dead imports removed from `population.py` after the
+extraction (`deque`, `MOVE_CHANCE`, three now-unused `hearthmind.
+world.roads` names collapsed to just `RoadNetwork`) — each confirmed
+via a whole-file grep to have zero remaining usage before removal, not
+trusted from `pyflakes` blindly.
+
+Verified: `pyflakes` clean on both files; every real external
+consumer's exact import/attribute-access pattern re-confirmed live
+(`engine.py`'s full import block, `world/state.py`, `scripts/verify_
+native_soak.py`'s 16-name native-toggle attribute-access list); a
+direct 6000-tick production-path smoke test (LLM disabled, seed 17,
+32x32 map, 14 initial population) — genuine agent movement, population
+growth 14 -> 22, a clean `World.to_dict()`/`from_dict()` round-trip;
+`scripts/verify_native_soak.py` (3 seeds x 3000 ticks) — MATCH,
+byte-identical. `_needs.py`/`_social.py`/`_settlement_ops.py`/`core.py`-
+equivalent slices remain open — resume with the next cohesive method-
+group only on future explicit direction, same "one slice at a time,
+never big-bang against the single largest file with no test net"
+discipline this item's text has always specified.
+
 ## Current state (v1.34.295)
 
 Explicit user instruction: "Start the next Phase 8 item." Picking A9
