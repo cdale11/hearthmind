@@ -761,25 +761,21 @@ model, plus `A5.10`'s guide) AND all six SUBJECTIVE categories
 run record + recomputable metrics)/`A11.4` (resume), `A9`/`A10`
 (reports + the real weighted composite Score), **C5** (the model
 passport, both halves — real emission on the `hearthbench` side, real
-runtime consumption on the `hearthmind` side), and `A12.1`-`A12.5`
-(the bench daemon's own first slice — start/poll/cancel/browse,
-through a real page clearly marked "not the live sim") are all
-shipped. **This closes both step 6 AND step 7 of the checklist's own
-SEQUENCE in full** ("A9 reports + A10 score; A12 UI; C5 model
+runtime consumption on the `hearthmind` side), and `A12.1`-`A12.8`
+(the bench daemon — start/poll/cancel/browse plus compare/drill-in/
+download, through a real page clearly marked "not the live sim") are
+all shipped. **This closes both step 6 AND step 7 of the checklist's
+own SEQUENCE in full** ("A9 reports + A10 score; A12 UI; C5 model
 passport" was step 6; "A4.2 judge + remaining subjective categories"
-was step 7 — `A12`'s own remaining sub-items, `A12.6`-`A12.9`, and
-`A4.3`'s own rating-page UI are real distinct future work WITHIN their
-items, not blockers on either step closing). Remaining in the
-checklist's own real order:
+was step 7 — `A12.9` (the human-rating page) and `A4.3`'s own rating-
+page UI (the same item) are real distinct future work, not blockers on
+either step closing). Remaining in the checklist's own real order:
 
-`A12.6`-`A12.9` (compare runs/drill into a case/download/the human-
-rating page — real future work, each needs only a new route over
-already-real `hearthbench.reporting.report` functions, not a new
-mechanism) + `A4.3`'s human-rating page's own UI (`A12.9`) → `A5.11`
-the world-level emergence run, gated on **B15.5**'s `reference_mode`
-(built, still unused — now genuinely closer, since A11.4/A8/A9/A10/
-A1.3/C5/A12.1-A12.5/A5.1-A5.6 all exist; step 8, explicitly last,
-the checklist's own final item). `A6` structured-output validator
+`A12.9`/`A4.3`'s human-rating page's own UI → `A5.11` the world-level
+emergence run, gated on **B15.5**'s `reference_mode` (built, still
+unused — now genuinely closer, since A11.4/A8/A9/A10/A1.3/C5/
+A12.1-A12.8/A5.1-A5.6 all exist; step 8, explicitly last, the
+checklist's own final item). `A6` structured-output validator
 (un-sequenced, buildable whenever, blocks nothing downstream) remains
 open but doesn't block any of the above. `A7.2` (a system-sampling
 thread — needed for C5's own `peak_rss_mb_by_concurrency` field,
@@ -788,6 +784,57 @@ quick/full/custom/strict-repro run-mode abstraction), and A9.1's
 latency/memory GRAPHS (no charting dependency exists in this repo)
 stay real, distinct, unstarted future work within their own
 already-partial items.
+
+- **A12.6-A12.8 (compare runs, drill into a case, download) — SHIPPED,
+  v1.34.287.** New daemon routes, each a thin reuse of an already-real
+  `hearthbench.reporting.report` function, per the checklist's own
+  text that these "needed only a route, not a mechanism":
+  `GET /api/runs/compare?run_ids=a,b,c` (A12.6, real reuse of
+  `compare_runs` — the first id given is the baseline, the route only
+  resolves ids to real `HearthBenchScore`s and reshapes the dataclass
+  result to JSON); `GET /api/runs/{id}/cases` + `GET /api/runs/{id}/
+  cases/{case_id}` (A12.7, lists every real committed `CaseRecord` and
+  resolves one case's actual prompt/completion text through A8's own
+  `BlobStore`, plus its full real `scores`/timing/`structured_input`);
+  `GET /api/runs/{id}/export.json`/`export.csv` (A12.8, real reuse of
+  `export_json`/`export_csv`, written to a real temp file — never left
+  in `runs_root` — then streamed back with a `Content-Disposition`
+  header; HTML export was already reachable via the existing
+  `/api/runs/{id}/report` route, so no separate HTML export route was
+  needed). `page.py` gained the matching real UI, per the standing
+  "every new feature gets a browser-UI surfacing pass" rule: a
+  per-run checkbox + "Compare selected" button rendering a real
+  per-category delta/significance table; a clickable per-run "Cases"
+  link opening a real case list + click-through detail panel (prompt/
+  completion/parsed output/scores); "JSON"/"CSV" download links per
+  run.
+
+  `scripts/verify_a12_bench_daemon.py` extended (not duplicated —
+  same daemon subsystem A12.1-A12.5 already used) with new real-HTTP
+  checks against the real daemon: `GET .../cases` listing all 4 real
+  committed cases; `GET .../cases/{id}` resolving the real prompt/
+  completion text through `BlobStore` plus real per-scorer scores;
+  both export routes' real content-type/`Content-Disposition` headers
+  and real content; a genuine SECOND real run (against a fabricating
+  fake backend) so the compare route has an actual measurable score
+  gap to report — confirmed the clean baseline's grounding score
+  measurably outscores the fabricating run's, with a real negative
+  `delta_from_baseline`; real 404s for an unknown run/case on every
+  new route, and a real 400 for a compare call with no `run_ids`. All
+  pass, first run, no bug found.
+
+  Verified: the extended script (52 checks total); `node --check` on
+  the page's own embedded JS (extracted and syntax-checked directly);
+  `pyflakes` clean on all touched files; `scripts/verify_hearthbench_
+  isolation.py`/`verify_hearthbench_adapter_isolation.py`/`verify_a1_
+  3_process_isolation.py`/`verify_a7_a8_run_diagnostics.py`/`verify_
+  a9_a10_score_report.py`/`verify_a13_ci_guard.py`/`verify_c5_model_
+  passport.py`/`verify_a5_1_6_subjective_categories.py`/`verify_a5_
+  categories.py`/`verify_a4_scoring.py` all re-run clean. No
+  `simulation/engine.py` code path or native module touched (confirmed
+  via `git status` — only `hearthbench/daemon/`, `scripts/verify_a12_
+  bench_daemon.py`, and `docs/` changed) — no replay-hash/native-soak
+  re-run needed.
 
 - **A4.2 (generalized) + A5.1-A5.6 (all six subjective categories) —
   SHIPPED, v1.34.286.** Closes step 7 of the checklist's own SEQUENCE

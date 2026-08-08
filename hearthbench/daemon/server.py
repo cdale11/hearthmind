@@ -21,13 +21,18 @@ file or lock mechanism, not attempted), A12.5 (browse EVERY real run
 under `runs_root`, whether or not this daemon process launched it —
 each one's state is always re-derived from its own real `manifest.
 json`/`cases.jsonl` on disk, A8, never from an in-memory registry that
-a daemon restart would lose). **A12.6** (compare runs, -> A9.3),
-**A12.7** (drill into one case's full prompt/completion/scores),
-**A12.8** (download HTML/JSON/CSV — `hearthbench.reporting.report`'s
-own `export_json`/`export_csv` already exist and are real; only the
-route serving them doesn't yet), and **A12.9** (the human-rating page,
-A4.3) all remain open — real, distinct, unstarted future work within
-this same item, not attempted here.
+a daemon restart would lose). **A12.6** (compare runs — `GET /api/
+runs/compare?run_ids=a,b,c`, real reuse of `hearthbench.reporting.
+report.compare_runs`, the FIRST id given is the baseline). **A12.7**
+(drill into a case — `GET /api/runs/{id}/cases` lists every real
+committed `CaseRecord`; `GET /api/runs/{id}/cases/{case_id}` resolves
+the case's actual prompt/completion text through A8's own `BlobStore`
+plus its full real `scores`/timing/structured-input detail). **A12.8**
+(download — `GET /api/runs/{id}/export.json`/`export.csv`, real reuse
+of `export_json`/`export_csv`, written to a real temp file then
+streamed back with a `Content-Disposition` header). **A12.9** (the
+human-rating page, A4.3) remains open — real, distinct, unstarted
+future work within this same item, not attempted here.
 
 Only `OpenAICompatAdapter` (A2.2) is exposed through this daemon's
 `StartRunRequest` — matching `hearthbench.runner.cli`'s own current
@@ -43,17 +48,18 @@ pulled in by the live sim's own `api` extra or default install).
 from __future__ import annotations
 
 import os
+import tempfile
 import uuid
 from dataclasses import dataclass
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 
 from hearthbench.daemon.page import INDEX_HTML
 from hearthbench.diagnostics import RunRecordReader
 from hearthbench.metrics.aggregate import recompute_run_metrics
-from hearthbench.reporting.report import render_html_report
+from hearthbench.reporting.report import compare_runs, export_csv, export_json, render_html_report
 from hearthbench.reporting.score import compute_score
 from hearthbench.runner.process import BenchRunProcess, build_bench_run_command
 
@@ -204,5 +210,108 @@ def create_app(runs_root: str) -> FastAPI:
         manifest = RunRecordReader(run_dir).manifest()
         model_label = (manifest.get("adapter_describe") or {}).get("model") or run_id
         return render_html_report(score, run_dir=run_dir, model_label=model_label)
+
+    def _score_for(run_id: str):
+        run_dir = _run_dir(run_id)
+        if not os.path.isdir(run_dir):
+            raise HTTPException(status_code=404, detail=f"unknown run_id: {run_id}")
+        return compute_score(recompute_run_metrics(run_dir))
+
+    @app.get("/api/runs/compare")
+    def compare(run_ids: str) -> dict:
+        # A12.6: real reuse of A9.3's `compare_runs` -- this route only
+        # resolves ids -> real HearthBenchScores and reshapes the
+        # dataclass result into JSON, no new comparison logic.
+        ids = [rid.strip() for rid in run_ids.split(",") if rid.strip()]
+        if not ids:
+            raise HTTPException(status_code=400, detail="run_ids query param required, comma-separated")
+        labeled_scores = [(rid, _score_for(rid)) for rid in ids]
+        report = compare_runs(labeled_scores)
+        return {
+            "labels": report.labels,
+            "totals": report.totals,
+            "categories": {
+                cid: {
+                    "scores": comp.scores,
+                    "delta_from_baseline": comp.delta_from_baseline,
+                    "significant_change": comp.significant_change,
+                }
+                for cid, comp in report.categories.items()
+            },
+        }
+
+    @app.get("/api/runs/{run_id}/cases")
+    def list_cases(run_id: str) -> dict:
+        # A12.7 (list half): every real committed CaseRecord for this
+        # run, summary fields only -- the full prompt/completion/scores
+        # detail is the single-case route below.
+        run_dir = _run_dir(run_id)
+        if not os.path.isdir(run_dir):
+            raise HTTPException(status_code=404, detail="unknown run_id")
+        reader = RunRecordReader(run_dir)
+        cases = [
+            {
+                "case_id": r.case_id, "category": r.category,
+                "fallback_used": r.fallback_used, "error": r.error,
+                "latency_ms": r.latency_ms,
+            }
+            for r in reader.iter_case_records()
+        ]
+        return {"run_id": run_id, "cases": cases}
+
+    @app.get("/api/runs/{run_id}/cases/{case_id:path}")
+    def get_case(run_id: str, case_id: str) -> dict:
+        # A12.7 (drill-in half): the case's real prompt/completion text
+        # resolved through A8's BlobStore, plus its full committed
+        # CaseRecord -- exactly "prompt/completion/parsed output/scores
+        # with justifications/timing," the item's own literal text.
+        run_dir = _run_dir(run_id)
+        if not os.path.isdir(run_dir):
+            raise HTTPException(status_code=404, detail="unknown run_id")
+        reader = RunRecordReader(run_dir)
+        for r in reader.iter_case_records():
+            if r.case_id != case_id:
+                continue
+            return {
+                "case_id": r.case_id, "category": r.category,
+                "prompt": reader.blobs.get(r.prompt_hash) or "",
+                "completion": reader.blobs.get(r.completion_hash) or "",
+                "parsed_json": r.parsed_json, "structured_input": r.structured_input,
+                "fallback_used": r.fallback_used, "parse_repaired": r.parse_repaired,
+                "retries": r.retries, "latency_ms": r.latency_ms, "ttft_ms": r.ttft_ms,
+                "prompt_tokens": r.prompt_tokens, "completion_tokens": r.completion_tokens,
+                "error": r.error, "scores": r.scores, "recorded_at": r.recorded_at,
+            }
+        raise HTTPException(status_code=404, detail="unknown case_id in this run")
+
+    @app.get("/api/runs/{run_id}/export.json")
+    def export_run_json(run_id: str) -> Response:
+        # A12.8: real reuse of export_json -- written to a real temp
+        # file (its own real (score, path) contract), then streamed
+        # back rather than left on disk, since a daemon route has no
+        # business leaving download artifacts scattered in runs_root.
+        score = _score_for(run_id)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, f"{run_id}.json")
+            export_json(score, path)
+            with open(path, "r", encoding="utf-8") as fh:
+                content = fh.read()
+        return Response(
+            content=content, media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{run_id}.json"'},
+        )
+
+    @app.get("/api/runs/{run_id}/export.csv")
+    def export_run_csv(run_id: str) -> Response:
+        score = _score_for(run_id)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, f"{run_id}.csv")
+            export_csv(score, path)
+            with open(path, "r", encoding="utf-8") as fh:
+                content = fh.read()
+        return Response(
+            content=content, media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{run_id}.csv"'},
+        )
 
     return app

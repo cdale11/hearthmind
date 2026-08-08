@@ -4,6 +4,77 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.287] — Roadmap Phase 6 continues: HearthBench A12.6-A12.8, compare/drill-in/download
+
+Explicit user instruction: "Continue" — the next natural slice per
+`docs/HEARTHBENCH-RUNTIME-2026-07-23.md`'s own A12 checklist, now that
+step 7 (A4.2/A5.1-A5.6) closed last pass. Ships A12.6 (compare runs),
+A12.7 (drill into a case), and A12.8 (download JSON/CSV) — each a thin
+new daemon route reusing an already-real `hearthbench.reporting.
+report` function, per the checklist's own text that these "needed only
+a route, not a mechanism." A12.9 (the human-rating page) and A5.11
+(the world-level emergence run, last item in SEQUENCE) remain the only
+open items in Phase 6.
+
+New `hearthbench/daemon/server.py` routes: `GET /api/runs/compare?
+run_ids=a,b,c` (A12.6) — real reuse of `compare_runs`, the first id
+given is the baseline; the route only resolves ids to real
+`HearthBenchScore`s (via `recompute_run_metrics`/`compute_score`,
+already the report route's own pattern) and reshapes the dataclass
+result into JSON, zero new comparison logic. `GET /api/runs/{id}/
+cases` + `GET /api/runs/{id}/cases/{case_id}` (A12.7) — the first
+lists every real committed `CaseRecord`'s summary fields; the second
+resolves that case's actual prompt/completion text through A8's own
+`BlobStore` plus its full real `scores`/timing/`structured_input` —
+exactly "prompt/completion/parsed output/scores with justifications/
+timing," the item's own literal text. `GET /api/runs/{id}/export.json`/
+`export.csv` (A12.8) — real reuse of `export_json`/`export_csv`,
+written to a real temp file (never left scattered in `runs_root`) then
+streamed back with a `Content-Disposition: attachment` header; HTML
+export needed no new route at all, since `/api/runs/{id}/report`
+already serves it.
+
+`hearthbench/daemon/page.py` gained the matching real UI, per the
+standing "every new feature gets a browser-UI surfacing pass in the
+same batch" workflow rule: a per-run checkbox column + "Compare
+selected" button rendering a real per-category score/delta/
+significance table (baseline highlighted, a genuine `Δ` and
+significant/not-significant/can't-tell label per non-baseline run); a
+clickable "Cases" link per run opening a real cases table, itself
+click-through into a detail panel showing the actual prompt/completion
+text and every real per-scorer value/pass verdict; direct "JSON"/"CSV"
+download links per run.
+
+`scripts/verify_a12_bench_daemon.py` extended in place (not
+duplicated — same daemon subsystem A12.1-A12.5 already exercises) with
+new checks, all real HTTP round-trips against the real running daemon:
+`GET .../cases` correctly listing all 4 real committed grounding
+cases; `GET .../cases/{id}` correctly resolving the real prompt/
+completion text through `BlobStore` plus real per-scorer scores, with
+real 404s for an unknown case/run; both export routes' real content-
+type/`Content-Disposition` headers and real parseable content, with
+real 404s for an unknown run; a genuine SECOND real run (against a
+new fabricating fake backend, same technique `verify_a9_a10_score_
+report.py` already established) so the compare route has an actual
+measurable score gap to report — confirmed the clean baseline's
+grounding score measurably outscores the fabricating run's, with a
+real negative `delta_from_baseline`; a real 400 for a compare call
+with no `run_ids` given. 52 checks total, all pass, first run, no bug
+found.
+
+Verified: the extended script; `node --check` on the page's own
+embedded JS (extracted from the Python string and syntax-checked
+directly); `pyflakes` clean on all touched files; `scripts/verify_
+hearthbench_isolation.py`/`verify_hearthbench_adapter_isolation.py`/
+`verify_a1_3_process_isolation.py`/`verify_a7_a8_run_diagnostics.py`/
+`verify_a9_a10_score_report.py`/`verify_a13_ci_guard.py`/`verify_c5_
+model_passport.py`/`verify_a5_1_6_subjective_categories.py`/`verify_
+a5_categories.py`/`verify_a4_scoring.py` all re-run clean. No
+`simulation/engine.py` code path or native module touched (confirmed
+via `git status` — only `hearthbench/daemon/`, `scripts/verify_a12_
+bench_daemon.py`, and `docs/` changed) — no replay-hash/native-soak
+re-run needed.
+
 ## [1.34.286] — Roadmap Phase 6 continues: HearthBench A4.2 generalized + all six A5.1-A5.6 subjective categories
 
 Explicit user instruction: "continue phase 6." Ships the checklist's

@@ -197,6 +197,80 @@ def main() -> int:
             check("GET report: real HTML content", "<html" in body.lower())
             check("GET report: real 404 for a nonexistent run", daemon.get("/api/runs/does-not-exist/report")[0] == 404)
 
+            # --- A12.7: drill into a case's real prompt/completion/scores ---
+            status, body, _ = daemon.get(f"/api/runs/{run_id}/cases")
+            cases_list = json.loads(body)
+            check("GET cases: real 200 listing every real committed case", status == 200 and len(cases_list["cases"]) == 4, str(cases_list))
+            check("GET cases: every case names the real grounding category", all(c["category"] == "grounding" for c in cases_list["cases"]))
+            check("GET cases: real 404 for a nonexistent run", daemon.get("/api/runs/does-not-exist/cases")[0] == 404)
+
+            first_case_id = cases_list["cases"][0]["case_id"]
+            status, body, _ = daemon.get(f"/api/runs/{run_id}/cases/{first_case_id}")
+            case_detail = json.loads(body)
+            check("GET case detail: real 200", status == 200)
+            check("GET case detail: the real prompt text was resolved through BlobStore", "marshcroft" in case_detail["prompt"].lower())
+            check("GET case detail: the real completion text was resolved through BlobStore", "not been counted" in case_detail["completion"].lower())
+            check("GET case detail: real per-scorer scores present", len(case_detail["scores"]) > 0)
+            check("GET case detail: real 404 for an unknown case_id", daemon.get(f"/api/runs/{run_id}/cases/does-not-exist")[0] == 404)
+            check("GET case detail: real 404 for an unknown run_id", daemon.get(f"/api/runs/does-not-exist/cases/{first_case_id}")[0] == 404)
+
+            # --- A12.8: download JSON/CSV, real reuse of export_json/export_csv ---
+            status, body, headers = daemon.get(f"/api/runs/{run_id}/export.json")
+            check("GET export.json: real 200", status == 200)
+            check("GET export.json: real JSON content-type", "application/json" in headers.get("content-type", ""))
+            check("GET export.json: real Content-Disposition attachment header", "attachment" in headers.get("content-disposition", ""))
+            exported = json.loads(body)
+            check("GET export.json: a real total score present", exported["total"] is not None, str(exported))
+            check("GET export.json: real 404 for a nonexistent run", daemon.get("/api/runs/does-not-exist/export.json")[0] == 404)
+
+            status, body, headers = daemon.get(f"/api/runs/{run_id}/export.csv")
+            check("GET export.csv: real 200", status == 200)
+            check("GET export.csv: real CSV content-type", "text/csv" in headers.get("content-type", ""))
+            csv_lines = body.strip().split("\n")
+            check("GET export.csv: one header + at least one real category row", len(csv_lines) >= 2, body)
+            check("GET export.csv: real 404 for a nonexistent run", daemon.get("/api/runs/does-not-exist/export.csv")[0] == 404)
+
+            # --- A12.6: compare runs -- a SECOND real run against a fabricating
+            #     backend, so the comparison has a genuine, measurable score gap.
+            fabricating_backend = _start_fake_backend(canned_content=json.dumps(
+                {"reason": "Exactly 92 people, led by Bartholomew, in a town called Ravenhollow, since 1743."}
+            ))
+            try:
+                status, body = daemon.post("/api/runs", {
+                    "category": "grounding",
+                    "adapter_endpoint": f"http://{fabricating_backend.server_address[0]}:{fabricating_backend.server_address[1]}/v1",
+                    "adapter_model": "fake-fabricating-model",
+                })
+                fab_run_id = json.loads(body)["run_id"]
+                deadline = time.monotonic() + 20.0
+                while time.monotonic() < deadline:
+                    status, body, _ = daemon.get(f"/api/runs/{fab_run_id}/progress")
+                    if status == 200 and json.loads(body).get("n_completed") == 4:
+                        break
+                    time.sleep(0.2)
+                check("A12.6 setup: a real second run (fabricating backend) completed", json.loads(body).get("n_completed") == 4)
+
+                status, body, _ = daemon.get(f"/api/runs/compare?run_ids={run_id},{fab_run_id}")
+                check("GET compare: real 200", status == 200)
+                compare_data = json.loads(body)
+                check("GET compare: real labels, baseline first", compare_data["labels"] == [run_id, fab_run_id])
+                check("GET compare: real totals for both runs", compare_data["totals"][run_id] is not None and compare_data["totals"][fab_run_id] is not None)
+                grounding_comp = compare_data["categories"]["grounding"]
+                check("GET compare: the real clean baseline's own grounding score is present",
+                      grounding_comp["scores"][run_id] is not None, str(grounding_comp))
+                check("GET compare: the clean baseline measurably outscores the fabricating run on grounding",
+                      grounding_comp["scores"][run_id] > grounding_comp["scores"][fab_run_id], str(grounding_comp))
+                check("GET compare: a real, negative delta for the fabricating run vs. the clean baseline",
+                      grounding_comp["delta_from_baseline"][fab_run_id] is not None
+                      and grounding_comp["delta_from_baseline"][fab_run_id] < 0, str(grounding_comp))
+
+                status, body, _ = daemon.get("/api/runs/compare?run_ids=does-not-exist")
+                check("GET compare: real 404 for an unknown run_id", status == 404)
+                status, body, _ = daemon.get("/api/runs/compare?run_ids=")
+                check("GET compare: real 400 for no run_ids given", status == 400)
+            finally:
+                fabricating_backend.shutdown()
+
             # --- cancel on an already-finished (but still tracked) run -----
             status, body = daemon.post(f"/api/runs/{run_id}/cancel")
             check("POST cancel on an already-finished tracked run: safe, real 200", status == 200 and json.loads(body)["stopped"] is True)

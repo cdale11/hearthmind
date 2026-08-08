@@ -566,7 +566,7 @@ New `hearthbench/reporting/score.py`.
   settings, a `--strict-repro` mode that fails the run if the adapter
   reports non-deterministic capability.
 
-## A12 — Web UI [PARTIAL, A12.1-A12.5 shipped v1.34.285]
+## A12 — Web UI [PARTIAL, A12.1-A12.8 shipped v1.34.285/v1.34.287]
 
 - [x] **A12.1 — SHIPPED, v1.34.285.** A real page served by the bench
   daemon itself (new `hearthbench/daemon/` — `server.py`'s `create_app`,
@@ -602,12 +602,27 @@ New `hearthbench/reporting/score.py`.
   every past run with nothing to rebuild; proven directly with a
   SECOND, independent daemon instance against the same `runs_root`
   correctly listing a run it never launched.
-- [ ] **A12.6** — Compare runs (→ A9.3). Real future work — `hearthbench.
-  reporting.report.compare_runs` already exists; only the route doesn't.
-- [ ] **A12.7** — Drill into any case: prompt/completion/parsed output/
-  scores with justifications/timing. Real future work.
-- [ ] **A12.8** — Download HTML/JSON/CSV. Real future work —
-  `export_json`/`export_csv` already exist; only the routes don't.
+- [x] **A12.6 — SHIPPED, v1.34.287.** Compare runs (→ A9.3): `GET
+  /api/runs/compare?run_ids=a,b,c` — real reuse of `hearthbench.
+  reporting.report.compare_runs`, the first id given is the baseline;
+  the daemon route only resolves ids to real `HearthBenchScore`s and
+  reshapes the result to JSON, zero new comparison logic. `page.py`
+  gained a per-run checkbox + "Compare selected" rendering a real
+  per-category delta/significance table.
+- [x] **A12.7 — SHIPPED, v1.34.287.** Drill into any case:
+  `GET /api/runs/{id}/cases` lists every real committed `CaseRecord`;
+  `GET /api/runs/{id}/cases/{case_id}` resolves the actual prompt/
+  completion text through A8's own `BlobStore` plus the case's full
+  real `scores`/timing/`structured_input`. `page.py` gained a clickable
+  cases table + detail panel.
+- [x] **A12.8 — SHIPPED, v1.34.287.** Download HTML/JSON/CSV:
+  `GET /api/runs/{id}/export.json`/`export.csv` — real reuse of
+  `export_json`/`export_csv`, written to a real temp file (never left
+  in `runs_root`) then streamed back with a `Content-Disposition`
+  header. HTML download was already reachable via the existing
+  `/api/runs/{id}/report` route (A12.1-A12.5), so no separate HTML
+  export route was needed. `page.py` gained direct download links per
+  run.
 - [ ] **A12.9** — The human-rating page (A4.3). Real future work.
 
 ## A13 — Prompt-regression guard in CI [PARTIAL, A13.1-A13.4 shipped v1.34.280]

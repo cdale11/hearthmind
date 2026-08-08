@@ -25,6 +25,13 @@ INDEX_HTML = """<!doctype html>
   .status-complete { color: #1a7a1a; }
   .status-unknown { color: #777; }
   #msg { font-size: 0.85rem; min-height: 1.2em; }
+  .case-row { cursor: pointer; }
+  .case-row:hover { background: #f6f6f6; }
+  #case-detail { background: #f6f6f6; border-radius: 6px; padding: 0.8rem; margin-top: 0.6rem; }
+  #case-detail pre { white-space: pre-wrap; word-break: break-word; background: #fff; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; }
+  #compare-result table { margin-top: 0.6rem; }
+  .sig-true { color: #b00020; font-weight: 600; }
+  .sig-false { color: #777; }
 </style>
 </head>
 <body>
@@ -53,12 +60,27 @@ INDEX_HTML = """<!doctype html>
 <fieldset>
   <legend>Runs</legend>
   <table>
-    <thead><tr><th>Run</th><th>Category</th><th>Model</th><th>Progress</th><th>Status</th><th>Actions</th></tr></thead>
-    <tbody id="runs-body"><tr><td colspan="6">loading…</td></tr></tbody>
+    <thead><tr><th></th><th>Run</th><th>Category</th><th>Model</th><th>Progress</th><th>Status</th><th>Actions</th></tr></thead>
+    <tbody id="runs-body"><tr><td colspan="7">loading…</td></tr></tbody>
   </table>
+  <button onclick="compareSelected()">Compare selected</button>
+  <div id="compare-result"></div>
+</fieldset>
+
+<fieldset id="cases-panel" style="display:none">
+  <legend>Cases — <span id="cases-run-id"></span></legend>
+  <table>
+    <thead><tr><th>Case</th><th>Category</th><th>Fallback?</th><th>Error</th><th>Latency (ms)</th></tr></thead>
+    <tbody id="cases-body"></tbody>
+  </table>
+  <div id="case-detail"></div>
 </fieldset>
 
 <script>
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
 function statusOf(run) {
   if (run.crashed) return ["crashed", "crashed"];
   if (run.is_running) return ["running", "running"];
@@ -71,7 +93,7 @@ async function refreshRuns() {
   const data = await res.json();
   const body = document.getElementById("runs-body");
   if (!data.runs.length) {
-    body.innerHTML = "<tr><td colspan=\\"6\\">no runs yet</td></tr>";
+    body.innerHTML = "<tr><td colspan=\\"7\\">no runs yet</td></tr>";
     return;
   }
   body.innerHTML = data.runs.map((run) => {
@@ -79,9 +101,14 @@ async function refreshRuns() {
     const progress = run.n_expected != null ? `${run.n_completed}/${run.n_expected}` : `${run.n_completed}/?`;
     const cancelBtn = run.is_running ? `<button onclick="cancelRun('${run.run_id}')">Cancel</button>` : "";
     return `<tr>
-      <td>${run.run_id}</td><td>${run.category || ""}</td><td>${run.model || ""}</td>
+      <td><input type="checkbox" class="compare-check" value="${esc(run.run_id)}"></td>
+      <td>${esc(run.run_id)}</td><td>${esc(run.category || "")}</td><td>${esc(run.model || "")}</td>
       <td>${progress}</td><td class="status-${cls}">${label}</td>
-      <td><a href="/api/runs/${run.run_id}/report" target="_blank">Report</a> ${cancelBtn}</td>
+      <td><a href="/api/runs/${run.run_id}/report" target="_blank">Report</a>
+        · <a href="#" onclick="showCases('${run.run_id}'); return false;">Cases</a>
+        · <a href="/api/runs/${run.run_id}/export.json">JSON</a>
+        · <a href="/api/runs/${run.run_id}/export.csv">CSV</a>
+        ${cancelBtn}</td>
     </tr>`;
   }).join("");
 }
@@ -89,6 +116,84 @@ async function refreshRuns() {
 async function cancelRun(runId) {
   await fetch(`/api/runs/${runId}/cancel`, { method: "POST" });
   refreshRuns();
+}
+
+async function compareSelected() {
+  // A12.6: real reuse of GET /api/runs/compare -- this is presentation
+  // only, all comparison math (deltas, significance) happens server-side.
+  const ids = Array.from(document.querySelectorAll(".compare-check:checked")).map((el) => el.value);
+  const result = document.getElementById("compare-result");
+  if (ids.length < 2) {
+    result.innerHTML = "<p>Select at least 2 runs to compare (the first checked becomes the baseline).</p>";
+    return;
+  }
+  const res = await fetch(`/api/runs/compare?run_ids=${encodeURIComponent(ids.join(","))}`);
+  if (!res.ok) {
+    result.innerHTML = "<p>Compare failed: " + esc(await res.text()) + "</p>";
+    return;
+  }
+  const data = await res.json();
+  const baseline = data.labels[0];
+  let html = `<table><thead><tr><th>Category</th>${data.labels.map((l) => `<th>${esc(l)}</th>`).join("")}</tr></thead><tbody>`;
+  for (const [catId, comp] of Object.entries(data.categories)) {
+    html += `<tr><td>${esc(catId)}</td>`;
+    for (const label of data.labels) {
+      const score = comp.scores[label];
+      if (label === baseline) {
+        html += `<td>${score == null ? "—" : score.toFixed(1)} (baseline)</td>`;
+        continue;
+      }
+      const delta = comp.delta_from_baseline[label];
+      const sig = comp.significant_change[label];
+      const sigClass = sig === true ? "sig-true" : sig === false ? "sig-false" : "";
+      const sigLabel = sig === true ? " (significant)" : sig === false ? " (not significant)" : " (can't tell)";
+      html += `<td class="${sigClass}">${score == null ? "—" : score.toFixed(1)}`
+            + `${delta == null ? "" : ` (Δ${delta >= 0 ? "+" : ""}${delta.toFixed(1)}${sigLabel})`}</td>`;
+    }
+    html += "</tr>";
+  }
+  html += `</tbody></table><p>Totals: ${data.labels.map((l) => `${esc(l)}=${data.totals[l] == null ? "—" : data.totals[l].toFixed(1)}`).join(", ")}</p>`;
+  result.innerHTML = html;
+}
+
+async function showCases(runId) {
+  // A12.7: list every real committed case for this run.
+  document.getElementById("cases-panel").style.display = "";
+  document.getElementById("cases-run-id").textContent = runId;
+  document.getElementById("case-detail").innerHTML = "";
+  const res = await fetch(`/api/runs/${runId}/cases`);
+  const data = await res.json();
+  const body = document.getElementById("cases-body");
+  if (!data.cases.length) {
+    body.innerHTML = "<tr><td colspan=\\"5\\">no cases committed yet</td></tr>";
+    return;
+  }
+  body.innerHTML = data.cases.map((c) => `
+    <tr class="case-row" onclick="showCaseDetail('${runId}', '${esc(c.case_id).replace(/'/g, "\\\\'")}')">
+      <td>${esc(c.case_id)}</td><td>${esc(c.category)}</td>
+      <td>${c.fallback_used ? "yes" : "no"}</td><td>${esc(c.error || "")}</td>
+      <td>${c.latency_ms == null ? "—" : c.latency_ms.toFixed(0)}</td>
+    </tr>`).join("");
+}
+
+async function showCaseDetail(runId, caseId) {
+  // A12.7: drill in -- prompt/completion/parsed output/scores/timing.
+  const res = await fetch(`/api/runs/${runId}/cases/${encodeURIComponent(caseId)}`);
+  const detail = document.getElementById("case-detail");
+  if (!res.ok) {
+    detail.innerHTML = "<p>Failed to load case: " + esc(await res.text()) + "</p>";
+    return;
+  }
+  const c = await res.json();
+  const scoreRows = Object.entries(c.scores || {}).map(([sid, sd]) =>
+    `<tr><td>${esc(sid)}</td><td>${sd.value == null ? "—" : sd.value.toFixed(2)}</td>`
+    + `<td>${sd.passed == null ? "—" : sd.passed}</td></tr>`).join("");
+  detail.innerHTML = `
+    <p><b>${esc(c.case_id)}</b> (${esc(c.category)}) — latency ${c.latency_ms == null ? "—" : c.latency_ms.toFixed(0) + "ms"},
+    fallback_used=${c.fallback_used}, retries=${c.retries}</p>
+    <pre><b>Prompt:</b>\n${esc(c.prompt)}</pre>
+    <pre><b>Completion:</b>\n${esc(c.completion)}</pre>
+    <table><thead><tr><th>Scorer</th><th>Value</th><th>Passed</th></tr></thead><tbody>${scoreRows}</tbody></table>`;
 }
 
 document.getElementById("start-form").addEventListener("submit", async (ev) => {

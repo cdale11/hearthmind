@@ -742,6 +742,70 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.287)
+
+Explicit user instruction: "Continue" — ships A12.6-A12.8 (`docs/
+HEARTHBENCH-RUNTIME-2026-07-23.md`'s web UI item), following directly
+off A12.1-A12.5 (v1.34.285) and closing A12 down to only A12.9 (the
+human-rating page, tied to A4.3). Each of the three sub-items needed
+only a real route — `hearthbench.reporting.report`'s own `compare_
+runs`/`export_json`/`export_csv` and `hearthbench.diagnostics.run_
+record`'s `RunRecordReader`/`BlobStore` were already real, shipped,
+tested machinery with no daemon consumer yet.
+
+New `hearthbench/daemon/server.py` routes: `GET /api/runs/compare`
+(A12.6, `run_ids` query param, first id is the real baseline) reshapes
+a real `ComparisonReport` (built via a new `_score_for(run_id)` helper
+— `compute_score(recompute_run_metrics(run_dir))`, the same pattern
+the pre-existing report route already used) into JSON — per-category
+scores/deltas/significance plus totals for every run_id, 404 for an
+unknown id, 400 for an empty list. `GET /api/runs/{id}/cases` (A12.7
+list half) iterates a real `RunRecordReader.iter_case_records()`,
+returning case_id/category/fallback_used/error/latency_ms per case.
+`GET /api/runs/{id}/cases/{case_id}` (A12.7 detail half) resolves the
+real prompt/completion text via `BlobStore.get(...)` on the record's
+own `prompt_hash`/`completion_hash`, plus parsed_json/structured_
+input/fallback_used/parse_repaired/retries/timing/scores — 404 for an
+unknown run or case. `GET /api/runs/{id}/export.json`/`.json`/`.csv`
+(A12.8) call `export_json`/`export_csv` against a real `_score_for`
+result into a `tempfile.TemporaryDirectory()`-scoped file, then stream
+it back as a real `Content-Disposition: attachment` download.
+
+New UI in `hearthbench/daemon/page.py`, same batch per the standing
+"every new feature gets a UI pass" rule: a checkbox column on the Runs
+table + "Compare selected" button rendering a real per-category
+score/delta/significance table (`compareSelected()`); "Cases"/"JSON"/
+"CSV" links per run; a new Cases panel (`showCases()`) listing every
+real committed case, click-through to a detail view (`showCaseDetail
+()`) showing the real prompt/completion text and per-scorer values.
+Verified via `node --check` on the extracted `<script>` block.
+
+`scripts/verify_a12_bench_daemon.py` extended (28 -> 52 checks): real
+`GET /cases`/`GET /cases/{id}` against the existing 4-case grounding
+run (real prompt text containing "marshcroft", real completion text,
+real scores, 404s for unknown run/case); real `.json`/`.csv` downloads
+(content-type, `Content-Disposition`, real `total`/CSV row count,
+404s); and the headline A12.6 proof — a SECOND real run launched
+against a deliberately fabricating fake backend, `GET /compare` on
+both real run_ids confirming the clean baseline is listed first, both
+totals are real, and the clean run's real grounding score measurably
+beats the fabricating run's with a real negative `delta_from_
+baseline` — plus 404/400 for an unknown/empty `run_ids`.
+
+Verified: the extended script (52 checks, all pass — one self-caught
+test-assertion cleanup during writing, not a bug in the module under
+test: a soft/confused compare-endpoint assertion was rewritten into
+two real, specific checks before the script was ever run); `pyflakes`
+clean on both touched daemon files; `verify_hearthbench_isolation.py`/
+`verify_hearthbench_adapter_isolation.py` both still clean; `verify_
+a1_3_process_isolation.py`/`verify_a7_a8_run_diagnostics.py`/`verify_
+a9_a10_score_report.py` all re-run clean. No native module or
+`simulation/engine.py` code path touched (confirmed via `git status`)
+— only `hearthbench/daemon/`, `docs/`, and the verify script changed —
+no replay-hash/native-soak re-run needed. Per SEQUENCE, only `A12.9`
+(A4.3's human-rating page) remains open in step 6/7's combined scope
+— resume only on future explicit direction.
+
 ## Current state (v1.34.286)
 
 Explicit user instruction: "continue phase 6." Ships the checklist's
