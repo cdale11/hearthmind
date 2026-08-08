@@ -126,6 +126,20 @@ the per-memory decay step behind `Population.decay_memory_salience`
 extension wasn't built -- falls back to the equivalent inline Python
 branching in that case."""
 
+try:
+    from hearthmind._native import immune_modulation_factor as _native_immune_modulation_factor
+except ImportError:
+    _native_immune_modulation_factor = None
+"""R8, second slice, same batch as the memory-salience port above:
+`Population._immune_modulation_factor`'s clamp formula (module: `cpp/
+src/immune_modulation.cpp`). Explicit user directive for this batch:
+"do big bang reverse never big bang discipline" -- port every safe,
+self-contained scalar candidate found in one pass rather than doling
+them out one per turn, per the standing "never migrate one at a time"
+workflow rule once a pattern is proven (v1.34.196's own precedent).
+`None` when the extension wasn't built -- falls back to the equivalent
+inline Python formula in that case."""
+
 from hearthmind.agents import agent_store
 from hearthmind.agents.agent import (
     CRITICAL_HUNGER_THRESHOLD,
@@ -3071,7 +3085,16 @@ class Population:
         """The real "not a coin flip" bridge: how much `agent`'s current
         `immune_strength` should scale a base sickness rate, centered so
         `IMMUNE_BASELINE` is a true no-op against every existing tuned
-        constant — see `IMMUNE_MODULATION_SENSITIVITY`'s docstring."""
+        constant — see `IMMUNE_MODULATION_SENSITIVITY`'s docstring.
+
+        Native fast path (R8, cpp/src/immune_modulation.cpp): the
+        `agent.immune_strength` attribute read stays in Python — only
+        the clamp/multiply arithmetic crosses into C++."""
+        if _native_immune_modulation_factor is not None:
+            return _native_immune_modulation_factor(
+                agent.immune_strength, IMMUNE_BASELINE, IMMUNE_MODULATION_SENSITIVITY,
+                IMMUNE_MODULATION_MIN_FACTOR, IMMUNE_MODULATION_MAX_FACTOR,
+            )
         return clamp(
             1.0 + (IMMUNE_BASELINE - agent.immune_strength) * IMMUNE_MODULATION_SENSITIVITY,
             IMMUNE_MODULATION_MIN_FACTOR, IMMUNE_MODULATION_MAX_FACTOR,
@@ -4830,8 +4853,20 @@ class Population:
                     agent.traits[trait] = clamp(current * reversion + step, -1.0, 1.0)
             # §1 "deviance loop": ostracism fades on its own over months
             # rather than standing forever — see Agent.standing_penalty.
+            # R8, third slice, same batch: `standing_penalty` is capped
+            # at [0.0, 1.0] on every increase (see `min(1.0, ... +
+            # OSTRACISM_PENALTY)`), so a decay-toward-0 step is exactly
+            # the already-shipped `bounded_random_walk_step` shape
+            # (module 12) with mean_reversion=1.0/jitter=-DECAY/extra=0
+            # — real wiring reuse, not new C++, same precedent this
+            # very function's trait-reversion branch above already set.
             if agent.standing_penalty > 0.0:
-                agent.standing_penalty = max(0.0, agent.standing_penalty - STANDING_PENALTY_DECAY_PER_MONTH)
+                if _native_bounded_random_walk_step is not None:
+                    agent.standing_penalty = _native_bounded_random_walk_step(
+                        agent.standing_penalty, 1.0, -STANDING_PENALTY_DECAY_PER_MONTH, 0.0, 0.0, 1.0,
+                    )
+                else:
+                    agent.standing_penalty = max(0.0, agent.standing_penalty - STANDING_PENALTY_DECAY_PER_MONTH)
 
     def carrying_capacity(
         self, settlement: Settlement, housing_capacity: int, weather_harsh: bool, predator_pressure: bool,
@@ -7352,7 +7387,17 @@ class Population:
             if agent.mourning_ticks_remaining <= 0:
                 agent.mourning_target = None
                 current = agent.emotions.get(EMOTION_GRIEF, 0.0)
-                agent.emotions[EMOTION_GRIEF] = max(0.0, current - MOURNING_GRIEF_EASE)
+                # R8, fourth slice, same batch: grief is bounded [0.0,
+                # 1.0] by construction (`bump_emotion` clamps every
+                # increase, decay never pushes it negative), so this is
+                # the identical bounded_random_walk_step reuse shape as
+                # standing_penalty's decay just above in _tick_traits.
+                if _native_bounded_random_walk_step is not None:
+                    agent.emotions[EMOTION_GRIEF] = _native_bounded_random_walk_step(
+                        current, 1.0, -MOURNING_GRIEF_EASE, 0.0, 0.0, 1.0,
+                    )
+                else:
+                    agent.emotions[EMOTION_GRIEF] = max(0.0, current - MOURNING_GRIEF_EASE)
 
     def _tick_weddings(self) -> None:
         """v0.87.10, "ceremonies agents attend: weddings" — the joyful

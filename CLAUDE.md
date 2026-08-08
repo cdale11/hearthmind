@@ -742,6 +742,46 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.292)
+
+Explicit user instruction: "continue R8 with the next method and do
+big bang reverse never big ban discipline" — reverses the usual one-
+function-per-turn pacing for this batch, per the standing "never
+migrate one at a time... sweep every remaining same-shaped site in the
+same batch" workflow rule (v1.34.196's own precedent for B0.3), now
+applied to R8 since v1.34.291 proved the pattern safe.
+
+Surveyed `population.py`; object/string-heavy loops (deaths, disease
+narration, reputation aggregation) and genuinely sparse per-agent
+state (debts, active plans) were deliberately left alone — "big bang"
+means batching every SAFE candidate, not abandoning the project's own
+measured-need bar. Three real sites wired in this one pass:
+
+New `cpp/src/immune_modulation.cpp`'s `immune_modulation_factor`
+ports `Population._immune_modulation_factor`'s clamp formula (real
+per-tick work in `_tick_disease`'s sick/colocated-agent loop) — a
+genuinely new scalar function. `standing_penalty` decay (`_tick_
+traits`) and `_tick_mourning`'s grief-ease step are wired to the
+ALREADY-shipped `bounded_random_walk_step` (module 12) instead of new
+C++ — both fields are capped `[0.0, 1.0]` by construction, so `max(0.0,
+value - decrement)` is algebraically identical to `bounded_random_
+walk_step(value, 1.0, -decrement, 0.0, 0.0, 1.0)`, verified directly
+before wiring.
+
+Verified: a 200,000-trial randomized-equivalence test for `immune_
+modulation_factor` (0 mismatches); two 100,000-trial tests proving the
+`bounded_random_walk_step` reuse is exact for both shapes (0
+mismatches each); a real production-path proof forcing sick/
+ostracized/mourning agents through 4,000 real ticks (`standing_
+penalty` decayed by exactly one real `0.15` step, no crash); `scripts/
+verify_native_soak.py` (3 seeds x 3000 ticks, new `_native_immune_
+modulation_factor` toggle) — MATCH, byte-identical `World.to_dict()`
+state every tick; `pyflakes` clean.
+
+Resume with the next function only on future explicit direction — the
+"big bang" instruction covered this one batch, not a standing change
+to the discipline going forward.
+
 ## Current state (v1.34.291)
 
 Explicit user instruction: "continue R8" — v1.34.290's own

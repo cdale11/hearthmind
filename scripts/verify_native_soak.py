@@ -132,6 +132,12 @@ _NATIVE_TOGGLES = [
     # decay step (cpp/src/memory_salience_decay.cpp) -- exercised via
     # the day_end-cadence decay_memory_salience call path.
     (_population, "_native_memory_salience_decay_step"),
+    # R8, "big bang" batch (explicit user directive, reversing the
+    # usual one-function-per-turn pacing once the pattern was proven):
+    # _immune_modulation_factor's clamp formula (cpp/src/immune_
+    # modulation.cpp), exercised via the per-tick _tick_disease call
+    # path whenever a sick or colocated-healthy agent exists.
+    (_population, "_native_immune_modulation_factor"),
 ]
 
 

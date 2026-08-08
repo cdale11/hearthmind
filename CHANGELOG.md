@@ -4,6 +4,57 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.292] — R8 second slice, "big bang" batch: three more scalar sites ported/wired
+
+Explicit user instruction: "continue R8 with the next method and do
+big bang reverse never big ban discipline" — reverses the usual one-
+function-per-turn pacing for this batch, per the standing "never
+migrate one at a time... sweep every remaining same-shaped site in the
+same batch rather than doling them out one pass at a time" workflow
+rule (v1.34.196's own precedent for B0.3, applied here to R8 now that
+v1.34.291 proved the pattern safe).
+
+Surveyed `population.py` for every remaining safe, self-contained
+scalar candidate. Object/string-heavy loops (deaths, disease-event
+narration, reputation aggregation) and genuinely sparse per-agent
+state (debts, active plans) were deliberately left alone — the
+project's own prior reasoning against porting those (measured-need
+bar, `decay_debts`' own docstring) still holds; "big bang" means
+batching every SAFE candidate found, not abandoning that bar.
+
+New `cpp/src/immune_modulation.cpp`'s `immune_modulation_factor`:
+ports `Population._immune_modulation_factor`'s clamp formula — real
+per-tick work inside `_tick_disease`'s sick/colocated-agent loop, a
+genuinely new scalar function (distinct algebraic shape from every
+existing primitive).
+
+`Population._tick_traits`'s `standing_penalty` decay and `_tick_
+mourning`'s grief-ease step are wired to the ALREADY-shipped `bounded_
+random_walk_step` (module 12) instead of new C++: both fields are
+capped `[0.0, 1.0]` on every increase by construction, so `max(0.0,
+value - decrement)` is algebraically identical to `bounded_random_
+walk_step(value, mean_reversion=1.0, jitter=-decrement, extra=0.0,
+low=0.0, high=1.0)` — verified directly before wiring, real reuse of
+an existing primitive rather than new surface area.
+
+Verified: a 200,000-trial randomized-equivalence test for `immune_
+modulation_factor` against a Python reference (0 mismatches); two
+further 100,000-trial tests proving the `bounded_random_walk_step`
+reuse is exact for both shapes (0 mismatches each, 400,000 combined
+trials); a real production-path proof forcing a sick, an ostracized,
+and a mourning agent through 4,000 real ticks — `standing_penalty`
+decayed by exactly one real `0.15` step (0.6 -> 0.45), no crash;
+`scripts/verify_native_soak.py` (3 seeds x 3000 ticks, new `_native_
+immune_modulation_factor` toggle — the reused-primitive sites already
+ride the pre-existing `_native_bounded_random_walk_step` toggle) —
+MATCH, byte-identical full `World.to_dict()` state every tick, native
+vs. Python fallback; `pyflakes` clean.
+
+`docs/ROADMAP-2026-07-REMAINING.md`'s R8 bullet updated with the full
+batch detail. Resume with the next function only on future explicit
+direction — the "big bang" instruction covered this one batch, not a
+standing change to the discipline going forward.
+
 ## [1.34.291] — R8 first slice: `Population.decay_memory_salience` ported to C++
 
 Explicit user instruction: "continue R8." v1.34.290's own investigation

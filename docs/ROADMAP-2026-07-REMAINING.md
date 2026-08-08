@@ -1806,9 +1806,43 @@ measured need, never a default next step.
   to_dict()` state every tick, native vs. Python fallback; `pyflakes`
   clean on both touched files (only the six known pre-existing
   forward-ref findings elsewhere). One real function of the dozens R8
-  ultimately needs — resume with the next one only on future explicit
-  direction naming it, same "never big-bang" discipline as every prior
-  slice.
+  ultimately needs.
+  **Second slice, "big bang" batch, v1.34.292** (explicit user
+  directive: "continue R8 with the next method and do big bang reverse
+  never big ban discipline" — this batch reverses the usual one-
+  function-per-turn pacing, per the standing "never migrate one at a
+  time... sweep every remaining same-shaped site in the same batch"
+  workflow rule once a pattern is proven, same precedent v1.34.196
+  already set for B0.3): three real sites wired in one pass, not one.
+  New `cpp/src/immune_modulation.cpp`'s `immune_modulation_factor`
+  ports `Population._immune_modulation_factor`'s clamp formula — real
+  work inside `_tick_disease`'s per-tick sick/colocated-agent loop, a
+  genuinely new pure-scalar function (distinct shape from every
+  existing primitive). `Population._tick_traits`'s `standing_penalty`
+  decay and `_tick_mourning`'s grief-ease step are BOTH wired to the
+  ALREADY-shipped `bounded_random_walk_step` (module 12) instead —
+  real re-derivation, not new C++: both fields are capped `[0.0, 1.0]`
+  by construction on every increase, so `max(0.0, value - decrement)`
+  is exactly `bounded_random_walk_step(value, mean_reversion=1.0,
+  jitter=-decrement, extra=0.0, low=0.0, high=1.0)`; verified this
+  algebraic equivalence directly before wiring, same discipline every
+  native-primitive reuse in this codebase already holds to. Verified:
+  a 200,000-trial randomized-equivalence test for `immune_modulation_
+  factor` (0 mismatches) plus two further 100,000-trial tests proving
+  the `bounded_random_walk_step` reuse is exact for both the standing-
+  penalty and grief-ease shapes (0 mismatches each — 400,000 combined
+  trials); a real production-path proof forcing a sick, an ostracized,
+  and a mourning agent through 4,000 real ticks, confirming `standing_
+  penalty` decayed by exactly one real `0.15` step (0.6 -> 0.45,
+  matching the formula precisely) and no crash occurred anywhere;
+  `scripts/verify_native_soak.py` (3 seeds x 3000 ticks, new `_native_
+  immune_modulation_factor` toggle — the two reused-primitive sites
+  are already covered by the pre-existing `_native_bounded_random_
+  walk_step` toggle) — MATCH, byte-identical full `World.to_dict()`
+  state every tick; `pyflakes` clean.
+  Resume with the next function only on future explicit direction —
+  the "big bang" instruction covered this one batch, not a standing
+  change to the discipline going forward.
 - ~~Re-audit `world/weather.py`'s 3x3 `WEATHER_REGION_GRID` spatial-
   region handling for a real unported per-tile hot loop~~ **CLOSED,
   v1.34.290 — re-confirmed already resolved, no code change needed.**
