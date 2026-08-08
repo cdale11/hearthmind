@@ -4,6 +4,89 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.285] — Roadmap Phase 6 closes: HearthBench A12.1-A12.5, the bench daemon's first slice
+
+Explicit user instruction: "continue phase 6." Ships A12.1-A12.5 — a
+real bench daemon, per A1.3's own framing: "The UI page talks to a
+bench daemon, not the sim engine." **This closes step 6 of the
+checklist's own SEQUENCE in full** — A12.6-A12.9 (compare/drill-in/
+download/human-rating) remain real, distinct, unstarted future work
+within the item itself, not blockers on step 6 closing.
+
+New `hearthbench/daemon/` package: `server.py`'s `create_app(runs_
+root)` — a real, standalone FastAPI app, deliberately separate from
+`hearthmind.interface.app` (the live sim's own web server), importing
+nothing from `hearthmind.simulation`/`.agents`/`.world` (A1.2's
+firewall). `page.py`'s `INDEX_HTML` is a real self-contained
+vanilla-JS page served BY the daemon itself, banner-marked "NOT the
+live town simulation" (A12.1). `__main__.py` is the real launcher
+(`python -m hearthbench.daemon --runs-root ... --host ... --port
+...`), the one module importing `uvicorn` directly so `create_app`
+itself stays importable/testable with no real ASGI server installed.
+
+Routes: `POST /api/runs` (A12.2 — launches a real, process-isolated
+`BenchRunProcess`, A1.3, only `OpenAICompatAdapter` exposed, matching
+`hearthbench.runner.cli`'s own current single-backend scope exactly —
+wiring `LlamaCppAdapter`/`OllamaAdapter` through needs the CLI itself
+extended first, real symmetric future work); `GET /api/runs/{id}/
+progress` + the page's own polling refresh (A12.3, real live case-count
+progress — a genuine push/log-stream and live mid-run category scores
+are honestly NOT shipped, flagged rather than faked); `POST /api/runs/
+{id}/cancel` (A12.4, a real `BenchRunProcess.stop()` — only for a run
+THIS daemon process itself launched; resume and cross-process cancel
+need a real PID-file/lock mechanism this pass didn't build); `GET
+/api/runs` (A12.5 — discovers EVERY real run under `runs_root` by
+scanning for a real `manifest.json`, A8.2, never an in-memory registry,
+so a restarted daemon can browse every past run with nothing to
+rebuild); `GET /api/runs/{id}/report` (a real A9 HTML report, reusing
+`recompute_run_metrics`/`compute_score`/`render_html_report` directly
+— zero new scoring/reporting logic).
+
+`hearthbench.runner.cli`'s real `run` subcommand now also records
+`category`/`expected_case_ids` in the manifest's own `extra` field —
+the real data the daemon's `_run_summary` needs to compute progress/
+crashed honestly for ANY run it discovers on disk, including one it
+didn't itself launch or one launched before the daemon process now
+browsing it even started.
+
+New `pyproject.toml` `bench` extra: `fastapi>=0.110`/`uvicorn
+[standard]>=0.29` — the same versions the live sim's own `api` extra
+already pins, kept genuinely SEPARATE so neither install path pulls in
+the other's dependency by accident.
+
+New `scripts/verify_a12_bench_daemon.py` (24 checks, all pass — one
+real test-script bug caught and fixed before shipping, not a bug in
+the daemon: the first progress-polling loop didn't guard against the
+real, brief startup race where a just-launched subprocess hasn't
+created its own `run_dir`/`manifest.json` yet, so the daemon's own
+honest 404 was misread as a progress payload — fixed to keep polling
+on a non-200 response): the A1.2 firewall confirmed directly over the
+whole daemon package; a REAL `uvicorn.Server` run in a background
+thread, talked to via real `urllib.request` calls (never `TestClient`/
+mocked) against a real local fake-backend HTTP server standing in for
+a live model — the page's own banner text; the full real start→poll→
+complete→report→cancel lifecycle for a genuine 4-case grounding run;
+404s for an unknown run's progress/cancel/report; a genuine cancel-
+while-running proof (a real slow-backend run, a real mid-run "still
+running" observation, a real cancel that genuinely terminates the
+subprocess); and the headline A12.5 proof — a SECOND, independent
+daemon instance against the SAME `runs_root` correctly discovers a run
+it never launched (`tracked_by_this_daemon: false`) purely from disk,
+and correctly 404s a cancel attempt against it rather than fabricating
+success.
+
+Verified: the new script (24 checks); `verify_hearthbench_
+isolation.py` (44 hearthbench files)/`verify_hearthbench_adapter_
+isolation.py` (36 non-adapter files) both clean; `pyflakes` clean;
+`verify_a1_3_process_isolation.py`/`verify_a7_a8_run_diagnostics.py`
+(both re-run since `cli.py` changed) clean. No native module or
+`simulation/engine.py` code path touched — `git status` confirmed only
+`hearthbench/runner/cli.py`, `pyproject.toml`, the new `hearthbench/
+daemon/` package, and the new verify script changed — no replay-hash/
+native-soak re-run needed. Per SEQUENCE, step 7 (`A4.2`'s remaining
+subjective-category content authoring + `A4.3`/`A12.9`'s human-rating
+page) is next — resume only on future explicit direction.
+
 ## [1.34.284] — Roadmap Phase 6 continues: HearthBench C5, the model passport
 
 Explicit user instruction: "continue phase 6." Ships C5 in full — both

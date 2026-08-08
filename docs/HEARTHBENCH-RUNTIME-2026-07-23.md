@@ -508,23 +508,49 @@ New `hearthbench/reporting/score.py`.
   settings, a `--strict-repro` mode that fails the run if the adapter
   reports non-deterministic capability.
 
-## A12 — Web UI [MISSING, its own A1.3 prerequisite now real]
+## A12 — Web UI [PARTIAL, A12.1-A12.5 shipped v1.34.285]
 
-- [ ] **A12.1** — New page in the existing UI, served by the bench
-  daemon (A1.3 — `BenchRunProcess`/`hearthbench.runner.cli` are now
-  real; a real HTTP-servable daemon wrapping them for the UI to talk
-  to is still A12's own job, not attempted here), clearly marked as
-  not part of the sim.
-- [ ] **A12.2** — Select model/backend, configure run, start.
-- [ ] **A12.3** — Live progress (case i/N, ETA), live log stream,
-  running per-category scores.
-- [ ] **A12.4** — Cancel + resume controls.
-- [ ] **A12.5** — Browse previous runs (sortable table).
-- [ ] **A12.6** — Compare runs (→ A9.3).
+- [x] **A12.1 — SHIPPED, v1.34.285.** A real page served by the bench
+  daemon itself (new `hearthbench/daemon/` — `server.py`'s `create_app`,
+  a real standalone FastAPI app; `page.py`'s self-contained vanilla-JS
+  page), deliberately separate from `hearthmind.interface.app` (the
+  live sim's own web server), clearly banner-marked "NOT the live town
+  simulation."
+- [x] **A12.2 — SHIPPED, v1.34.285.** `POST /api/runs` — select
+  category/adapter endpoint/model/quantization/context, start a real,
+  process-isolated `BenchRunProcess` (A1.3). Only `OpenAICompatAdapter`
+  is exposed (matching `hearthbench.runner.cli`'s own current scope —
+  no `--backend` flag there either); wiring `LlamaCppAdapter`/
+  `OllamaAdapter` through needs the CLI extended first, real future
+  work on both sides.
+- [x] **A12.3 — PARTIAL, v1.34.285.** `GET /api/runs/{id}/progress` +
+  the page's own polling refresh give real live case-count progress.
+  **Not shipped**: a genuine push/WebSocket log stream and running
+  per-category scores mid-run (today only case-count progress is
+  live; category scores are computed once a run is queried via the
+  report route) — real, distinct, unstarted future work, flagged
+  rather than faked.
+- [x] **A12.4 — PARTIAL, v1.34.285.** `POST /api/runs/{id}/cancel` — a
+  real `BenchRunProcess.stop()` against a run THIS daemon process
+  itself launched (proven against a genuinely running subprocess, not
+  just an already-finished one). **Not shipped**: resume, and cancel
+  for a run launched by a DIFFERENT daemon process/instance — needs a
+  real PID-file/lock mechanism this pass didn't build (a fresh daemon
+  can browse but not control a run it didn't launch, proven directly
+  by the new verify script's own real 404).
+- [x] **A12.5 — SHIPPED, v1.34.285.** `GET /api/runs` discovers EVERY
+  real run under `runs_root` by scanning for a real `manifest.json`
+  (A8.2) — never an in-memory registry, so a restarted daemon browses
+  every past run with nothing to rebuild; proven directly with a
+  SECOND, independent daemon instance against the same `runs_root`
+  correctly listing a run it never launched.
+- [ ] **A12.6** — Compare runs (→ A9.3). Real future work — `hearthbench.
+  reporting.report.compare_runs` already exists; only the route doesn't.
 - [ ] **A12.7** — Drill into any case: prompt/completion/parsed output/
-  scores with justifications/timing.
-- [ ] **A12.8** — Download HTML/JSON/CSV.
-- [ ] **A12.9** — The human-rating page (A4.3).
+  scores with justifications/timing. Real future work.
+- [ ] **A12.8** — Download HTML/JSON/CSV. Real future work —
+  `export_json`/`export_csv` already exist; only the routes don't.
+- [ ] **A12.9** — The human-rating page (A4.3). Real future work.
 
 ## A13 — Prompt-regression guard in CI [PARTIAL, A13.1-A13.4 shipped v1.34.280]
 

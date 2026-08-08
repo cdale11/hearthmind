@@ -77,7 +77,16 @@ def main(argv: "list | None" = None) -> int:
         cases = _cases_for_category(args.category)
         adapter = _build_adapter(args)
         run_id = os.path.basename(os.path.normpath(args.run_dir))
-        environment = build_environment_snapshot(adapter, run_id=run_id)
+        # A12's daemon (hearthbench.daemon.server) reads these back out
+        # of a real run's own manifest.json to compute progress/crashed
+        # honestly for ANY run it discovers on disk — including one it
+        # didn't itself launch, or one launched before the daemon process
+        # that's now browsing it even started. Real, already-decided-here
+        # data, not re-derived or guessed at read time.
+        environment = build_environment_snapshot(
+            adapter, run_id=run_id,
+            extra={"category": args.category, "expected_case_ids": [c.id for c in cases]},
+        )
         run_cases_with_resume(cases, adapter, DEFAULT_REGISTRY, args.run_dir, environment=environment)
         return 0
 

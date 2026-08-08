@@ -742,6 +742,75 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.285)
+
+Explicit user instruction: "continue phase 6" — A12.1-A12.5, the bench
+daemon's first slice, per A1.3's own framing: "The UI page talks to a
+bench daemon, not the sim engine." **This closes step 6 of the
+checklist's own SEQUENCE in full** — A12.6-A12.9 (compare/drill-in/
+download/human-rating) stay real, distinct, unstarted future work
+within the item itself, not blockers on step 6.
+
+New `hearthbench/daemon/` package: `server.py`'s `create_app(runs_
+root)` — a real, standalone FastAPI app, deliberately separate from
+`hearthmind.interface.app` (the live sim's own web server), importing
+nothing from `hearthmind.simulation`/`.agents`/`.world` (A1.2's
+firewall). `page.py`'s `INDEX_HTML` is a real self-contained
+vanilla-JS page served BY the daemon, banner-marked "NOT the live town
+simulation" (A12.1). `__main__.py` is the real launcher (`python -m
+hearthbench.daemon`), the one module importing `uvicorn` directly so
+`create_app` stays importable/testable with no ASGI server installed.
+
+Routes: `POST /api/runs` (A12.2 — a real, process-isolated
+`BenchRunProcess`, A1.3, only `OpenAICompatAdapter` exposed, matching
+`hearthbench.runner.cli`'s own single-backend scope exactly); `GET
+/api/runs/{id}/progress` + the page's own polling refresh (A12.3, real
+live case-count progress — a genuine push/log-stream and live mid-run
+category scores honestly NOT shipped, flagged not faked); `POST
+/api/runs/{id}/cancel` (A12.4, real `stop()` — only for a run THIS
+daemon process itself launched; resume/cross-process cancel need a
+real PID-file/lock mechanism, not built); `GET /api/runs` (A12.5 —
+discovers EVERY real run under `runs_root` by scanning for a real
+`manifest.json`, never an in-memory registry, so a restarted daemon
+browses every past run with nothing to rebuild); `GET /api/runs/{id}/
+report` (a real A9 HTML report, zero new scoring logic).
+
+`hearthbench.runner.cli`'s `run` subcommand now also records
+`category`/`expected_case_ids` in the manifest's `extra` field — the
+real data the daemon needs to compute progress/crashed honestly for
+ANY run it discovers, including one launched before the daemon browsing
+it even started. New `pyproject.toml` `bench` extra: `fastapi`/
+`uvicorn[standard]` (same versions the live sim's own `api` extra
+pins, kept genuinely separate).
+
+New `scripts/verify_a12_bench_daemon.py` (24 checks, all pass — one
+real test-script bug caught before shipping, not a daemon bug: the
+first progress-polling loop didn't guard against the real, brief
+startup race where a just-launched subprocess hasn't created its own
+`manifest.json` yet, so the daemon's own honest 404 was misread as a
+progress payload; fixed to keep polling on non-200): the A1.2 firewall
+confirmed directly; a REAL `uvicorn.Server` in a background thread,
+talked to via real `urllib.request` (never `TestClient`/mocked)
+against a real fake-backend server; the full start→poll→complete→
+report→cancel lifecycle for a genuine 4-case run; 404s for unknown
+runs; a genuine cancel-while-running proof (real slow backend, real
+mid-run "still running" observation, real subprocess termination); and
+the headline A12.5 proof — a SECOND, independent daemon instance
+against the SAME `runs_root` correctly discovers a run it never
+launched, purely from disk, and correctly 404s a cancel against it
+rather than fabricating success.
+
+Verified: the new script (24 checks); `verify_hearthbench_
+isolation.py` (44 files)/`verify_hearthbench_adapter_isolation.py`
+(36 files) both clean; `pyflakes` clean; `verify_a1_3_process_
+isolation.py`/`verify_a7_a8_run_diagnostics.py` (both re-run since
+`cli.py` changed) clean. No native module or `simulation/engine.py`
+code path touched — `git status` confirmed only `hearthbench/runner/
+cli.py`, `pyproject.toml`, the new `hearthbench/daemon/` package, and
+the new verify script changed. Per SEQUENCE, step 7 (`A4.2`'s
+remaining subjective-category content authoring + `A4.3`/`A12.9`'s
+human-rating page) is next — resume only on future explicit direction.
+
 ## Current state (v1.34.284)
 
 Explicit user instruction: "continue phase 6" — C5 (the model

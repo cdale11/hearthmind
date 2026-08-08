@@ -1,6 +1,6 @@
 [project]
 name = "hearthmind"
-version = "1.34.284"
+version = "1.34.285"
 description = "A persistent, always-running artificial world — a town in a box."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,9 +12,13 @@ dev = []
 api = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
 # Tier 5 A1.1: HearthBench's own dependency set, kept separate so a
 # bench-only dependency can never enter the live sim's runtime path
-# (`pip install -e .[bench]`). Empty for now — the A1 package skeleton
-# has no third-party deps yet; populated as A2/A4/A9/A12 land.
-bench = []
+# (`pip install -e .[bench]`). A12's daemon needs a real HTTP server —
+# the same fastapi/uvicorn versions the `api` extra already pins, kept
+# as a SEPARATE extra (not a shared dependency) so `pip install -e .`
+# alone still installs neither, and a live sim deployment never needs
+# `bench` just because its own `api` extra happens to want the same
+# packages.
+bench = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
 # Tier 6 (docs/ML-ARCHITECTURE-2026-08-01.md, L0 substrate): offline
 # training only, never a runtime/inference dependency — inference
 # always runs the stdlib-only pure-Python fallback or the C++ path.
