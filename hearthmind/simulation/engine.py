@@ -12773,6 +12773,68 @@ class SimulationEngine:
                 )
                 self._append_reflection_conclusion(entry, tick, confirmed=False)
 
+    def _reevaluate_advisory_outcomes(self, current_pattern: dict | None) -> None:
+        """Phase 8 residual polish (docs/ROADMAP-2026-07-REMAINING.md):
+        B6 "Reflection as meta-scientist" (roadmap Stage III step 13)
+        closed the hypothesize -> observe -> revise loop for the
+        governor-nudge path (`_reevaluate_reflection_hypotheses` above)
+        and `world.ontology._record_hypothesis_outcome` closed the
+        identical loop for Innovation Layer concepts — but `_review_
+        advisory` (the ONLY place an `advisory_proposals` entry's
+        `status` ever changes) has always been a one-shot accept/reject
+        stamp with no follow-up: nothing ever checked whether ACCEPTED
+        advice actually helped. This closes that gap, same shape as
+        both precedents above, deterministic and zero LLM cost.
+
+        Runs on every real Reflection interpret-turn firing (the exact
+        same cadence/gating `_reevaluate_reflection_hypotheses` already
+        uses, called right alongside it in `_maybe_schedule_reflection`)
+        against a candidate advisory whose `status == "accepted"` and
+        whose `outcome` hasn't yet been set. The signal is the same one
+        pattern-recurrence check hypothesis re-evaluation already makes
+        for free this cycle: if THIS advisory's own `subject` is what
+        `current_pattern` names again, the problem it addressed
+        evidently persisted despite the advice; if a different (or no)
+        pattern fired, the named problem didn't recur. Worded honestly
+        as a correlational signal, never a causal proof the advice
+        itself is WHY — the same epistemic caution every other
+        pattern-based inference in this codebase already carries.
+        Revises the SAME `reflection_pillar.world_model` entry `_
+        schedule_advisory`'s apply() created (`world_model_entry_id`),
+        in place, rather than leaving it frozen at its initial 0.5
+        "just proposed" confidence forever; a missing/pruned entry id
+        degrades to `upsert_world_model` appending fresh rather than
+        crashing (its own existing `revises_id`-not-found fallback)."""
+        tick = self.world.clock.tick_count
+        for advisory in self.world.advisory_proposals:
+            if advisory.get("status") != "accepted" or advisory.get("outcome") is not None:
+                continue
+            subject = advisory.get("subject", "")
+            recurred = current_pattern is not None and current_pattern.get("subject") == subject
+            if recurred:
+                advisory["outcome"] = "recurred_despite_advice"
+                belief = (
+                    f"Advice about {subject} was accepted, but the same pattern recurred "
+                    f"afterward -- it may not have helped, or wasn't acted on."
+                )
+                confidence, status, emergence_kind = 0.2, "hypothesis", "unexplained_shift"
+            else:
+                advisory["outcome"] = "pattern_did_not_recur"
+                belief = (
+                    f"Advice about {subject} was accepted, and the pattern hasn't recurred "
+                    f"since -- plausible (not proven) the advice helped."
+                )
+                confidence, status, emergence_kind = 0.7, "observation", "opportunity"
+            advisory["outcome_tick"] = tick
+            entry_id = advisory.get("world_model_entry_id")
+            if entry_id is not None:
+                self.world.reflection_pillar.upsert_world_model(
+                    tick, subject, belief, confidence, status=status,
+                    source="advisory_outcome", revises_id=entry_id,
+                )
+            self._log("advisory_outcome", belief)
+            self._append_emergence(emergence_kind, "reflection", belief, ("reflection",), magnitude=confidence)
+
     def _append_reflection_conclusion(self, hypothesis: dict, tick: int, confirmed: bool) -> None:
         """Audit follow-up ("reflection kind='question'/'conclusion'
         entries", flagged in the v1.3.38 cognition-architecture audit):
@@ -12899,6 +12961,7 @@ class SimulationEngine:
         self.world.reflection_pillar.turns_processed += 1
         pattern = self._detect_reflection_pattern()
         self._reevaluate_reflection_hypotheses(pattern)
+        self._reevaluate_advisory_outcomes(pattern)
         if pattern is None:
             self._pillar_close_cycle("reflection")
             return
@@ -12999,18 +13062,27 @@ class SimulationEngine:
             parsed = self_tuning.parse_advisory(result, fallback)
             advisory_id = self.world.next_advisory_id
             self.world.next_advisory_id += 1
+            # Phase 8 residual polish ("B6 never tracks whether accepted
+            # advice actually worked"): capture the mirrored world_model
+            # entry's own id so `_reevaluate_advisory_outcomes` can later
+            # revise this SAME entry in place, same shape as `world.
+            # ontology._record_hypothesis_outcome`'s `world_model_
+            # entry_id`. `outcome`/`outcome_tick` start `None` -- "not yet
+            # evaluated", never fabricated as a reading.
+            world_model_entry = self.world.reflection_pillar.upsert_world_model(
+                self.world.clock.tick_count, hypothesis_subject, parsed["advice"],
+                0.5, status="hypothesis", source="self_tuning_advisory",
+            )
             self.world.advisory_proposals.append({
                 "id": advisory_id, "tick": self.world.clock.tick_count,
                 "hypothesis_id": hypothesis_id, "subject": hypothesis_subject,
                 "advice": parsed["advice"], "status": "pending",
+                "world_model_entry_id": world_model_entry["id"],
+                "outcome": None, "outcome_tick": None,
             })
             self._log(
                 "advisory",
                 f"Hearthmind's own advice about {hypothesis_subject}: {parsed['advice']}",
-            )
-            self.world.reflection_pillar.upsert_world_model(
-                self.world.clock.tick_count, hypothesis_subject, parsed["advice"],
-                0.5, status="hypothesis", source="self_tuning_advisory",
             )
             self.world.reflection_pillar.remember(f"Gave advice about {hypothesis_subject}: {parsed['advice']}")
             # Observe/interpret cycling, first slice: also feeds the

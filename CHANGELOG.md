@@ -4,6 +4,94 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.295] — Phase 8 staleness audit + B6: advisory-outcome tracking
+
+Explicit user instruction: "Start the next Phase 8 item." Picking A9
+first (per the roadmap's own listed order) found it already shipped —
+an unlabeled side effect of an earlier session's A19 work, never
+reflected back into the Phase 8 bullet list. That prompted a
+systematic re-check of every remaining Phase 8 item via direct code
+read rather than picking a second one blind: **17 of the roadmap's
+~20 named Phase 8 bullets turned out stale**, describing already-
+shipped work — the identical staleness class R3 itself was found to
+have (its own named example files were already migrated before that
+pass started). All 17 corrected in place in `docs/ROADMAP-2026-07-
+REMAINING.md` with what was actually found and, where traceable, the
+real shipping version: A1 (v1.34.74/75), A4's `RoadNetwork.wear` half
+(v1.34.36), A5/A6 (v1.34.79), A9 (an unlabeled A19 side effect,
+v1.34.53), A10 (v1.34.94, except the one explicitly-flagged remainder
+— folding the food web onto A1's substrate), A11 (v1.34.23), A13
+(v1.34.58 base reactor + v1.34.79 ore path), A14 (v1.34.42), A15
+(v1.34.44), A16 (v1.34.101), A17 (v1.34.77), A18 (v1.34.45), A19
+(v1.34.55, plus battles at v1.34.150 via `world/combat.py`), A20
+(v1.34.57), A21 (v1.34.57), B5 (v1.34.61), B8 (v1.34.66). Left
+genuinely untouched: A2/A3/A7/A8/A12/A22/the flagged ML `carrying_
+capacity` question/Part B pillars/R1 — each still open, or (A12) not
+re-verified this pass.
+
+**B6 — the one item confirmed genuinely still open, shipped this same
+pass.** `_review_advisory` (`POST /advisory/{id}/review`) has always
+been the ONLY place an `advisory_proposals` entry's `status` ever
+changes — a one-shot human accept/reject stamp with no follow-up.
+Nothing ever checked whether ACCEPTED advice actually helped, unlike
+the governor-nudge path (`_reevaluate_reflection_hypotheses`, real
+evidence re-weighed every Reflection cycle) or Innovation Layer
+concepts (`world.ontology._record_hypothesis_outcome`, the concept's
+real adoption fate revises its own mirrored belief in place). New
+`SimulationEngine._reevaluate_advisory_outcomes`, called alongside
+`_reevaluate_reflection_hypotheses` in `_maybe_schedule_reflection` —
+same cadence, same gating, zero new LLM cost. An accepted advisory not
+yet evaluated is checked against this cycle's already-computed `current_
+pattern` (the identical detection pass hypothesis re-evaluation already
+runs, never a second one): if the advisory's own `subject` is what
+fired again, `outcome = "recurred_despite_advice"` (a real signal the
+advice may not have helped, or wasn't acted on); otherwise `outcome =
+"pattern_did_not_recur"` — worded as a correlational signal, never
+proof, the same epistemic caution every other pattern-based inference
+in this codebase already carries. Revises the SAME `reflection_pillar.
+world_model` entry `_schedule_advisory`'s apply() created (captured at
+creation time as a new `world_model_entry_id` field on the advisory
+dict, mirroring `InventedConcept.world_model_entry_id`'s exact
+precedent) in place via `upsert_world_model(..., revises_id=...)`,
+rather than leaving it frozen at its initial 0.5 "just proposed"
+confidence forever; a pruned/missing entry id degrades to that call's
+own existing append-fresh fallback rather than crashing. Two new
+fields on every advisory dict, both additive: `outcome: str | None`
+(`None` = not yet evaluated) and `outcome_tick: int | None`. `World.
+advisory_proposals` is `list[dict]`, so both round-trip through `World.
+to_dict()`/`from_dict()` with zero serialization changes, and a
+legacy-shaped advisory dict (missing the new keys entirely) degrades
+via `.get()` reads to "not yet evaluated" rather than crashing — never
+a special migration path.
+
+New `scripts/verify_b6_advisory_outcomes.py` (18 checks, all pass —
+one real `World.from_dict()` call-signature fix needed in the script
+itself before it would run, not a bug in the module under test): a
+real advisory produced end to end through the real `_schedule_
+advisory`/`_schedule_llm_job` pipeline with a fake `LLMAdapter` (same
+technique `verify_phase35_w1_naming_workspace.py` established),
+accepted via the real `_review_advisory`, then evaluated through the
+real new method — confirming the world_model entry is revised in
+place (not duplicated), a real Emergence API observation is appended,
+and a second evaluation is a genuine no-op (idempotent); direct checks
+for the "recurred" branch (hand-seeded advisory, real revise-in-place
+confidence/status/wording), a different pattern firing this cycle
+reading the same as no pattern, pending/rejected advisories never
+touched, a missing `world_model_entry_id` degrading safely, a fully
+legacy-shaped advisory dict (no new keys at all) still evaluating
+correctly, and a real `World.to_dict()`/`from_dict()` round-trip.
+
+Verified: the new script; `scripts/verify_l2_1_l4_1_wiring.py` (23
+checks, unaffected — confirms this pass's `engine.py` edits didn't
+disturb the neighboring self-tuning/reflection wiring) re-run clean;
+`pyflakes` clean on both touched files (only the six known
+pre-existing forward-ref findings in `engine.py`); a direct 4000-tick
+LLM-disabled production-path soak through the real `_tick_once()`
+with a clean `World.to_dict()`/`from_dict()` round-trip; `scripts/
+verify_native_soak.py` (2 seeds x 800 ticks) — MATCH, byte-identical
+(this change touches no native-backed field or RNG draw, confirmed
+rather than assumed). No native module touched.
+
 ## [1.34.294] — R3: finish the clamp() migration
 
 Explicit user instruction: "Start next phase" — moves from Phase 7

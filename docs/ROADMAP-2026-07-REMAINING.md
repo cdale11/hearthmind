@@ -1909,6 +1909,24 @@ measured need, never a default next step.
 Small, independent, no-dependency-order-required items, each real but
 minor relative to Phases 1-7.
 
+**Staleness audit, v1.34.295.** Explicit user instruction ("start the
+next Phase 8 item") led to picking A9 first — found already shipped
+as an unlabeled side effect of an earlier session's own A19 work,
+never reflected back into this bullet list. That prompted a
+systematic re-check of every remaining named item via direct code
+read rather than picking blind: 17 of the ~20 bullets below were
+stale in the identical way (real work shipped in an intervening
+session, this list simply never updated to match) — the same class of
+staleness R3's own bullet (just above, in Phase 8's own version
+history) had already caught once for a different item. All 17
+corrected in place below with what was actually found. Only B6
+(Reflection-as-meta-scientist's advisory-outcome gap) was confirmed
+genuinely still open — it ships in this same pass, closing the loop
+the same way `world.ontology._record_hypothesis_outcome` already
+closes it for Innovation Layer concepts. A2/A3/A7/A8/A12/A22/the
+flagged ML question/Part B pillars/R1 were left untouched — each
+genuinely still open, or (A12) not re-verified this pass.
+
 - **Flagged, not decided: `Population.carrying_capacity` as a possible
   learned regression target.** Found by the same background audit that
   scoped L2.2's siblings above. `settlement/buildings.py`'s carrying-
@@ -1925,64 +1943,146 @@ minor relative to Phases 1-7.
   or is Mind-adjacent enough to be a legitimate L2.1-style target —
   flagged rather than decided; needs an explicit product call before
   either building or dismissing it.
-- **A1** — 11 of `FieldGrid`'s 12 named fields still unbuilt (only
-  `population_density` is real): moisture, fertility, nutrients,
-  disease-pressure, pollution, scent, traffic, heat, cultural-influence,
-  ownership, beauty, noise. `mining_scars`/`disaster_scars`/the 3x3
-  climate grid were never migrated onto the `FieldGrid` abstraction.
+- ~~**A1** — 11 of `FieldGrid`'s 12 named fields still unbuilt~~
+  **SHIPPED, v1.34.74 + v1.34.75 + later.** This bullet went stale
+  across a whole run of intervening sessions — re-verified via a
+  direct grep this pass (`world/fields.py` carries 17 real `step_*`
+  methods: population_density, disease_pressure, pollution, traffic,
+  scarcity, ownership, noise, heat, nutrients, scent, wildlife,
+  cultural_influence, fertility, beauty, hazard, storminess, surprise).
+  Every field named in this bullet is real, each with its own real
+  consumer and map overlay — CLAUDE.md's v1.34.74 entry states outright
+  "A1 is now fully closed... all thirteen named fields real." The
+  `mining_scars`/`disaster_scars`/3x3-climate-grid migration this
+  bullet also named landed the very next version (v1.34.75) as two
+  companion fields, `hazard`/`storminess` — "coarse region-scale
+  `FieldGrid` companion reading, not a replacement" for either scar
+  dict's own tile-precise consumers, which correctly remain the
+  source of truth for those.
 - **A2** — `cellular_step`'s fuller fire-spread mechanics (today only
-  ignition-SITE is weighted; whether/how-often/how fire actually spreads
-  stays the native-backed mechanism, deliberately not forced onto).
+  ignition-SITE is weighted, per v1.34.68's real `compute_forest_
+  contiguity` consumer, re-confirmed via direct code read this pass;
+  whether/how-often/how fire actually spreads stays the native-backed
+  mechanism, deliberately not forced onto). Genuinely still open, not
+  stale — this bullet already accurately describes its own remaining
+  scope.
 - **A3** — whether settlement/culture generation should ever move off
   LLM-authored and onto deterministic procgen stays a real open design
   question, not a closed one.
-- **A4** — migrate `RoadNetwork.wear`/gossip contagion onto `FieldGrid`
-  proper (currently correct, independent per-tick local rules) — a real
-  but purely structural follow-up.
-- **A5/A6** — per-instance `Entity.affordances`/`Entity.properties`
-  (currently class-level only); the validate-step half (deterministic
-  re-verification of a proposed concept's claimed mechanism) was never
-  attempted.
+- ~~**A4** — migrate `RoadNetwork.wear`/gossip contagion onto
+  `FieldGrid` proper~~ **The `RoadNetwork.wear` half SHIPPED, v1.34.36**
+  (re-confirmed via direct code read this pass: `world/state.py` calls
+  `FieldGrid.step_traffic(list(self.roads.wear.items())...)`,
+  `_maybe_schedule_caravan`'s monthly visit chance carries a real
+  `traffic`-scaled multiplier). The gossip-contagion half remains
+  genuinely open — gossip already spreads over the relationship graph
+  (`world/memetics.py`), and it's unclear migrating it onto a coarse
+  spatial `FieldGrid` region would even be an improvement over that;
+  flagged, not attempted either way.
+- ~~**A5/A6** — per-instance `Entity.affordances`/`Entity.properties`
+  (currently class-level only); the validate-step half... never
+  attempted~~ **SHIPPED, v1.34.79.** Re-confirmed via direct code read
+  this pass: `world/affordances.py`'s `building_instance_affordances
+  (building)` and `world/materials.py`'s `effective_material_name
+  (building)` are real per-instance resolvers (not class-level lookups);
+  `llm/ontology.py`'s `validate_hook` carries a real `present_tags`
+  param implementing the validate-step's deterministic re-verification,
+  per its own docstring. CLAUDE.md's v1.34.79 entry states "A5/A6 is now
+  fully closed."
 - **A7** — the full graph/shape grammar (layout AND architecture, beyond
   the "zero lineage awareness" gap already closed), plus rules becoming
-  LLM-proposable. Both explicitly unattempted.
+  LLM-proposable. Both explicitly unattempted — re-confirmed via direct
+  code read this pass (`world/layout_grammar.py`/`world/architecture_
+  grammar.py` carry only the first, smaller slice this bullet already
+  correctly describes as shipped).
 - **A8** — grammar-based mutation as an alternate generate path (needs
   A7's shape-grammar work landing first).
-- **A9** — give `World.location_character()`'s bare wrapper a real
-  consumer (a future dialogue/cognition/NPC-inspector location-flavor
-  read) — zero callers today.
-- **A10** — ecology-on-fields is only nutrient cycling; migration,
+- ~~**A9** — give `World.location_character()`'s bare wrapper a real
+  consumer... zero callers today~~ **SHIPPED, closed as an unlabeled
+  side effect of A19's own v1.34.53 slice.** Re-confirmed via direct
+  code read this pass: `simulation/engine.py`'s `_maybe_schedule_
+  composite_entity` calls `location_character`/`location_character_
+  text` directly, with an inline comment attributing this to A19's
+  work — never called out anywhere in CLAUDE.md's own history as
+  "closes A9," which is exactly why this bullet went stale unnoticed.
+- ~~**A10** — ecology-on-fields is only nutrient cycling; migration,
   competition, decomposition, pollination, and habitat formation all
-  stay unbuilt, as does folding the whole food web onto A1's substrate
-  as one coupled system.
-- **A11** — hydrology's two biggest remaining pieces: groundwater and
-  real erosion into mutable elevation.
+  stay unbuilt~~ **SHIPPED, v1.34.94**, except the explicitly-flagged
+  remainder. Re-confirmed via direct code read this pass (`world/
+  wildlife.py` carries `apply_nutrient_cycling`/`apply_carcass_
+  decomposition_bonus`/`step_wildlife`). CLAUDE.md's v1.34.94 entry:
+  "A10 is now fully closed on every named det_sys.md piece (migration,
+  competition, decomposition, pollination, habitat formation)... only
+  folding the whole food web onto A1's field substrate as one coupled
+  system remains, a larger unscoped follow-up" — that one piece stays
+  genuinely open.
+- ~~**A11** — hydrology's two biggest remaining pieces: groundwater and
+  real erosion into mutable elevation~~ **SHIPPED, v1.34.23.**
+  Re-confirmed via direct code read this pass: `world/hydrology_
+  field.py`'s own module docstring states both a real groundwater
+  reservoir and `tick_erosion` genuinely writing new `Tile.elevation`
+  values already exist.
 - **A12** — per-instance material generalization beyond `Building`/
-  `Vehicle` — audited, no real consumer motivates it yet.
-- **A13** — the automatic-firing reactor half (a rule genuinely
-  mutating world state on its own tick) — only the query half shipped.
-- **A14** — stress/reproduction/development/injury-recovery/sleep as
-  coupled continuous subsystems (only `immune_strength` shipped); a
-  genetic contribution to baseline immune_strength is a flagged future
-  connection to A15.
-- **A15** — wildlife/animal genetics (species adapting across
-  generations, domestication) — entirely unscoped; humans-only shipped.
-- **A16** — trade-as-network-flow and tech-as-DAG graph algorithms;
-  only centrality shipped.
-- **A17** — folding rumor/tradition/belief/song/technique onto
-  `memetics.py`'s weighting, a shared mutate/decay/compete step, and a
-  real fitness-vs-truth axis for rumors — only ontology-concept spread
-  uses the mechanism today.
-- **A18** — a real authoring system letting a village propose its own
-  composable-reaction combinations (today hand-authored only), and
-  consequences beyond relationship-rupture.
-- **A19** — 6 of 9 named spatial-memory history axes still separate/
-  unbuilt: traffic, pollution, fertility, ownership, construction,
-  ecology.
-- **A20** — a genuinely new second `FieldGrid` field, and "culture
-  aggregates settlements' information-ecosystems," both still open.
-- **A21** — folklore/legend pipeline unification remains the one
-  genuinely open piece ("aspirational, not attempted").
+  `Vehicle` — audited, no real consumer motivates it yet. Not
+  re-verified this pass; left exactly as the roadmap's own prior audit
+  found it.
+- ~~**A13** — the automatic-firing reactor half... only the query half
+  shipped~~ **SHIPPED, v1.34.58 (base reactor) + v1.34.79 (ore path).**
+  Re-confirmed via direct code read this pass: `world/chemistry.py`
+  carries both `discover_reactions` (the query half) and a real
+  `tick_building_reactions` (the automatic-firing half, clay/fiber
+  reactants). v1.34.79 closed the one flagged gap left after v1.34.58
+  ("no `BuildingKind` defaults to ore") with a new `BuildingKind.
+  SMELTER`.
+- ~~**A14** — stress/reproduction/development/injury-recovery/sleep as
+  coupled continuous subsystems (only `immune_strength` shipped)~~
+  **SHIPPED, v1.34.42.** Re-confirmed via direct code read this pass:
+  `agents/population.py` carries real `_tick_sleep_debt`/`_tick_
+  stress`/`_tick_injury_recovery`/`_tick_development`/`compute_
+  fertility` methods. CLAUDE.md's v1.34.42 entry: "closing A14
+  entirely."
+- ~~**A15** — wildlife/animal genetics... entirely unscoped;
+  humans-only shipped~~ **SHIPPED, v1.34.44.** Re-confirmed via direct
+  code read this pass: `world/wildlife.py`'s `AnimalHerd.hardiness` is
+  a real heritable population-level gene, consumed by `hardiness_
+  reproduce_factor`. CLAUDE.md's v1.34.44 entry: "Closes A15 for both
+  human and wildlife domains."
+- ~~**A16** — trade-as-network-flow and tech-as-DAG graph algorithms;
+  only centrality shipped~~ **SHIPPED, v1.34.101.** Re-confirmed via
+  direct code read this pass: `world/graph_algorithms.py` carries
+  `ancestor_ids`/`shares_lineage` (tech-as-DAG) and `build_settlement_
+  trade_graph`/`max_flow` (trade-as-network-flow) alongside centrality.
+  CLAUDE.md's v1.34.101 entry: "A16 is now fully closed."
+- ~~**A17** — folding rumor/tradition/belief/song/technique onto
+  `memetics.py`'s weighting... only ontology-concept spread uses the
+  mechanism today~~ **SHIPPED, v1.34.77** (a real tradition-keeping
+  consumer landed first, v1.34.60). Re-confirmed via direct code read
+  this pass: `world/memetics.py` carries `rumor_fitness`/`rumor_truth_
+  score` (the fitness-vs-truth axis) and `find_near_duplicate`/`prune_
+  aged_entries` (the shared decay/compete step), both wired to real
+  consumers per v1.34.77's own entry.
+- ~~**A18** — a real authoring system letting a village propose its own
+  composable-reaction combinations... hand-authored only~~ **SHIPPED,
+  v1.34.45.** Re-confirmed via direct code read this pass: `world/
+  reactions.py`'s `register_composite_reaction` plus a full engine-side
+  `composite_reaction_propose` LLM-authoring/sandbox-validation job.
+- ~~**A19** — 6 of 9 named spatial-memory history axes still separate/
+  unbuilt~~ **SHIPPED, v1.34.55**, except battles — **also SHIPPED,
+  v1.34.150** (`world/combat.py`, a real deterministic settlement-vs-
+  settlement combat subsystem, the "battles" axis this bullet named as
+  having no data source). CLAUDE.md's v1.34.55 entry: "Closes every
+  axis A19's spec names except battles."
+- ~~**A20** — a genuinely new second `FieldGrid` field, and "culture
+  aggregates settlements' information-ecosystems," both still open~~
+  **SHIPPED, v1.34.57.** Re-confirmed via direct code read this pass:
+  `world/culture_aggregate.py`'s `compute_civilization_culture`/
+  `civilization_culture_text`. CLAUDE.md's v1.34.57 entry: "A20
+  'Multi-scale simulation' — CLOSED."
+- ~~**A21** — folklore/legend pipeline unification remains the one
+  genuinely open piece~~ **SHIPPED, v1.34.57** (`Settlement.folklore_
+  persistence_count`/`folklore_persistence_promoted`, a folk tale that
+  endures unsuperseded deterministically graduating into `Settlement.
+  legends`).
 - **A22** — keep adding Emergence API producers as new deterministic
   subsystems ship; open-ended by design, not a single closable task.
 - **Part B pillars (B1/B2/B3/B7)** — each has a real first wired job, but
@@ -1991,13 +2091,45 @@ minor relative to Phases 1-7.
   and real (non-round-robin) arbitration all stay open — the same
   underlying refactor Tier 0 named, now ongoing/opportunistic rather than
   blocking (see Phase 9).
-- **B5** — Innovation-as-scientist's evolve/merge paths stay untouched
-  by the hypothesize→observe→revise loop propose already has; a real
-  affordance/reaction query (waiting on Stage IV substrate) is open.
-- **B6** — Reflection-as-meta-scientist never tracks whether *advisory*-
-  path advice (as opposed to governor-nudge advice) actually worked.
-- **B8** — living memory's `reinforce`/`reinterpret` (per-note salience/
-  access tracking) was never attempted; only `consolidate` shipped.
+- ~~**B5** — Innovation-as-scientist's evolve/merge paths stay untouched
+  by the hypothesize→observe→revise loop propose already has~~
+  **SHIPPED, v1.34.61.** Re-confirmed via direct code read this pass:
+  `world/ontology.py`'s `InventedConcept.hypothesis`/`world_model_
+  entry_id` fields and `_record_hypothesis_outcome` are threaded
+  through both `evolve` and `merge`, not just `propose`. The real
+  affordance/reaction query this bullet also named turned out to have
+  already shipped earlier (v1.16.0/v1.18.0) — a stale note corrected
+  in the same v1.34.61 pass.
+- ~~**B6** — Reflection-as-meta-scientist never tracks whether
+  *advisory*-path advice (as opposed to governor-nudge advice)
+  actually worked~~ **SHIPPED, v1.34.295.** New `SimulationEngine.
+  _reevaluate_advisory_outcomes`, called alongside `_reevaluate_
+  reflection_hypotheses` on every real Reflection interpret-turn
+  firing — the exact same shape `world.ontology._record_hypothesis_
+  outcome` already uses for Innovation Layer concepts. An accepted
+  advisory whose own subject is what this cycle's freshly-detected
+  pattern names again reads as `"recurred_despite_advice"`; a
+  different (or no) pattern firing reads as `"pattern_did_not_recur"`
+  — an honestly-hedged correlational signal, never a causal proof, per
+  its own docstring. Revises the SAME `reflection_pillar.world_model`
+  entry `_schedule_advisory`'s apply() created (`world_model_entry_
+  id`, mirroring `InventedConcept.world_model_entry_id`'s own
+  precedent), in place, rather than leaving it frozen at its initial
+  0.5 confidence forever. Verified: new `scripts/verify_b6_advisory_
+  outcomes.py` (18 checks — a real advisory produced through the real
+  `_schedule_advisory`/`_schedule_llm_job` pipeline with a fake LLM
+  adapter, accepted via the real `_review_advisory`, then evaluated
+  through the real new method; the recurred/did-not-recur/pending/
+  rejected/missing-entry-id/legacy-shaped-dict branches; a `World.
+  to_dict()`/`from_dict()` round-trip) — all pass, first run except
+  one real `World.from_dict()` call-signature fix in the script
+  itself, not a bug in the module under test.
+- ~~**B8** — living memory's `reinforce`/`reinterpret` (per-note
+  salience/access tracking) was never attempted; only `consolidate`
+  shipped~~ **SHIPPED, v1.34.66.** Re-confirmed via direct code read
+  this pass: `cognition/pillar.py`'s `remember()` carries a real
+  `memory_access`-aware reinforce/reinterpret/append-fresh branch.
+  CLAUDE.md's v1.34.66 entry: "B8 'reinforce'/'reinterpret' — CLOSED."
 - **R1** (docs/REFACTOR-2026-07.md) — split `population.py`
   (~3,930 lines) into a mixin-based package (`_pathfinding.py`/
   `_needs.py`/`_social.py`/`_settlement_ops.py`/`core.py`); a fully
