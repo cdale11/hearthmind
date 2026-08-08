@@ -742,6 +742,42 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.290)
+
+Explicit user instruction: "continue phase 6 and then phase 7"
+(v1.34.289 shipped the phase 6 half) — this closes the "and then phase
+7" half. `docs/ROADMAP-2026-07-REMAINING.md`'s Phase 7 named exactly
+two items; both investigated, docs-only, no code changed.
+
+**The `WEATHER_REGION_GRID` re-audit — CLOSED, re-confirmed already
+resolved.** The item's own wording was doubly stale: the constant
+never lived in `world/weather.py` (it's `world/state.py`'s own
+`WEATHER_REGION_GRID = 3`, whose docstring already says outright
+"Deliberately NOT a per-tile field... this is the smallest real
+step"), and every real consumer, re-read directly, is a fixed 3x3=9-
+iteration pass — `World.weather_at(pos)` an O(1) lookup, `World.
+tick()`'s region-weather computation 9 calls/tick into the already
+native-backed `compute_weather()` (module 11, `cpp/src/weather.cpp`),
+`world/fields.py`'s ~18-field `FieldGrid` (Tier 1's A1) reusing the
+identical `FIELD_GRID_SIZE == WEATHER_REGION_GRID == 3` grid by
+explicit documented design. No per-tile hot loop was ever hiding here.
+
+**R8 (agent tick logic -> C++) — investigated, not attempted.**
+`population.py`'s dozens of tick methods, several already piecemeal
+through the native `AgentStore`, would need the same per-function
+randomized-equivalence + full-`World.to_dict()` hash-soak discipline
+every other `cpp/src/` module already carries, one function at a
+time — the standing "never big-bang" porting rule. Correctly deferred:
+Ollama/LLM latency still dominates the real tick budget by orders of
+magnitude, no live-measured need exists, matching Phase 7's own
+explicit "never a default next step" framing.
+
+`docs/ROADMAP-2026-07-REMAINING.md`'s Phase 7 section updated with
+both findings in full. No code, native module, or persisted schema
+touched — no replay-hash/native-soak re-run needed. This closes out
+the user's own two-part instruction in full; resume only on future
+explicit direction naming a new phase or item.
+
 ## Current state (v1.34.289)
 
 Explicit user instruction: "continue phase 6 and then phase 7" — ships

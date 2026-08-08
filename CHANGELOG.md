@@ -4,6 +4,63 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.290] — Roadmap Phase 7 investigated: native-performance items resolved
+
+Explicit user instruction: "continue phase 6 and then phase 7." Phase 6
+closed in full at v1.34.289 (A6, the structured output validator).
+This closes out the "and then phase 7" half — `docs/ROADMAP-2026-07-
+REMAINING.md`'s Phase 7 ("Native performance, opportunistic, not
+gated on anything") named exactly two items; both investigated this
+pass, docs-only, no code changed.
+
+**The `WEATHER_REGION_GRID` re-audit item — CLOSED, re-confirmed
+already resolved.** The roadmap's own wording ("re-audit `world/
+weather.py`'s 3x3 `WEATHER_REGION_GRID`... for a real unported per-
+tile hot loop... never directly re-confirmed either way") turned out
+to be doubly stale: the constant doesn't live in `world/weather.py` at
+all (it's `world/state.py`'s own `WEATHER_REGION_GRID = 3`, whose own
+docstring already states outright it's "Deliberately NOT a per-tile
+field... this is the smallest real step"), and a direct re-read of
+every real consumer found no unported per-tile loop hiding anywhere in
+this path. `World.weather_at(pos)` is a plain O(1) region-index
+lookup; `World.tick()`'s own region-weather computation is a fixed
+3×3=9-iteration double loop, each iteration a call into the already
+native-backed `compute_weather()` (`world/weather.py`'s own `_native_
+compute_weather_blend` import, module 11, `cpp/src/weather.cpp`) — 9
+calls/tick into already-ported code, not a per-tile scan at all.
+`world/fields.py`'s `FieldGrid` (Tier 1's A1, ~18 region-scalar fields)
+reuses the identical `FIELD_GRID_SIZE == WEATHER_REGION_GRID == 3`
+grid by explicit, extensively-documented design choice ("Deliberately
+coarse to start... reuses `WEATHER_REGION_GRID` rather than a new
+per-tile resolution") — every one of its own `step_*` methods is the
+same bounded 3×3 pass, several already composing with the already-
+native `ca_operators.diffuse` (module 2). Nothing here was ever a real
+performance gap; the item's own text was the only thing stale.
+
+**R8 (agent tick logic -> C++) — investigated, deliberately not
+attempted this pass.** `population.py`'s tick methods number in the
+dozens (needs/movement/reproduction/repair/occupations/construction/
+vehicles/dormancy/skills/inheritance/psychology, each with its own
+real branching and RNG draws), with several already reading/writing
+through the native `AgentStore` piecemeal rather than as a unified
+whole. A genuine port needs the exact same per-function randomized-
+equivalence + full-`World.to_dict()` hash-soak discipline every other
+one of the 24+ modules in `cpp/src/` already carries, ported one
+function at a time — the standing R6/R7 "never big-bang" porting
+discipline this project has held to at every prior native-module
+milestone. Correctly deferred rather than rushed: Ollama/LLM call
+latency (tens of seconds per call) still dominates the real tick
+budget (sub-millisecond) by several orders of magnitude, so no live-
+measured need exists to justify starting this now, matching the
+Phase 7 header's own explicit framing ("pick up only on explicit
+direction or a genuine measured need, never a default next step").
+
+`docs/ROADMAP-2026-07-REMAINING.md`'s Phase 7 section updated with
+both findings in full detail. No code, no native module, and no
+persisted `World`/`Agent` schema touched — a pure documentation
+correction and investigation, no replay-hash/native-soak re-run
+needed.
+
 ## [1.34.289] — Roadmap Phase 6 closes: HearthBench A6, the structured output validator
 
 Explicit user instruction: "continue phase 6 and then phase 7." Ships

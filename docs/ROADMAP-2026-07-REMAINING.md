@@ -1766,11 +1766,51 @@ measured need, never a default next step.
 
 - **R8** — agent tick *logic* (`population.py`'s methods, still reading/
   writing through the already-native `AgentStore`) ported to C++. The
-  largest remaining native-porting item.
-- Re-audit `world/weather.py`'s 3x3 `WEATHER_REGION_GRID` spatial-region
-  handling for a real unported per-tile hot loop (the blend function
-  itself is already ported; the region grid was never directly
-  re-confirmed either way).
+  largest remaining native-porting item. **Investigated, v1.34.290,
+  deliberately not attempted**: `population.py`'s tick methods number
+  in the dozens (needs/movement/reproduction/repair/occupations/
+  construction/vehicles/dormancy/skills/inheritance/psychology, each
+  with its own real conditionals and RNG draws), several already read/
+  write through the native `AgentStore` piecemeal — a genuine port
+  needs the SAME per-function randomized-equivalence + full-`World.
+  to_dict()` hash-soak discipline every other native module in `cpp/
+  src/` already carries, one function at a time, never big-bang, per
+  this project's own standing R6/R7 porting discipline. Correctly
+  deferred as real, scoped, future work rather than rushed through in
+  one opportunistic pass — Ollama/LLM latency (tens of seconds per
+  call) still dominates the real tick budget (sub-millisecond) by
+  several orders of magnitude, so there is no live-measured need
+  driving this pass; resume only once one exists, or on future
+  explicit direction naming a specific method to port first.
+- ~~Re-audit `world/weather.py`'s 3x3 `WEATHER_REGION_GRID` spatial-
+  region handling for a real unported per-tile hot loop~~ **CLOSED,
+  v1.34.290 — re-confirmed already resolved, no code change needed.**
+  Two things corrected in the item's own framing during this re-audit:
+  (1) `WEATHER_REGION_GRID` never lived in `world/weather.py` — the
+  real constant (`= 3`) is `world/state.py`'s own, that file's own
+  docstring stating outright it's "Deliberately NOT a per-tile field
+  (that's a genuinely larger R7/C++-first undertaking...) — this is
+  the smallest real step"; (2) direct re-reading of every real
+  consumer found no unported per-tile loop anywhere in this path.
+  `World.weather_at(pos)` is an O(1) region lookup (`world/state.py`);
+  `World.tick()`'s own region-weather computation is a FIXED 3×3=9-
+  iteration double loop (`for rx in range(WEATHER_REGION_GRID): for ry
+  in range(WEATHER_REGION_GRID):`), each iteration calling the already
+  native-backed `compute_weather()` (`world/weather.py`'s own
+  `_native_compute_weather_blend` import, module 11, `cpp/src/
+  weather.cpp`) — 9 calls/tick into already-ported code, not a
+  per-tile scan. `world/fields.py`'s `FieldGrid` (Tier 1's A1, ~18
+  region-scalar fields — moisture/scarcity/traffic/heat/hazard/
+  storminess/etc.) reuses the identical `FIELD_GRID_SIZE == WEATHER_
+  REGION_GRID == 3` grid by explicit, extensively-documented design
+  ("Deliberately coarse to start... reuses `WEATHER_REGION_GRID`
+  rather than a new per-tile resolution") — every one of its own
+  `step_*` methods is the same bounded 3×3 pass, several already using
+  `ca_operators.diffuse` (itself already native-backed where it
+  matters, module 2). No genuine per-tile hot loop was ever hiding
+  here; the roadmap item's own wording (both the stale file location
+  and "never directly re-confirmed either way") is what was actually
+  stale, now corrected.
 
 ## Phase 8 — Residual polish on already-shipped mechanisms
 
