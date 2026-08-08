@@ -751,39 +751,95 @@ through in one pass per this project's own "never big-bang" discipline.
 
 `A0` (confirmed reusable pieces), `A1.1`/`A1.2`/`A1.3` (package
 skeleton, import-isolation firewall, process isolation), `A2` (model
-adapter layer), `A3` (prompt library/test definitions), `A4` (scoring
-— "the judge problem," the doc's own central design fork, now
-including a genuinely generalized `A4.2` judge), `A5` in full — the
-three OBJECTIVE categories (`A5.7`/`A5.8`/`A5.9`, needing no judge
-model, plus `A5.10`'s guide) AND all six SUBJECTIVE categories
-(`A5.1`-`A5.6`, real judge rubrics + real hand-authored cases each) —
-`A13`'s CI regression guard (`A13.1`-`A13.4`), `A7.1`/`A8` (the real
-run record + recomputable metrics)/`A11.4` (resume), `A9`/`A10`
-(reports + the real weighted composite Score), **C5** (the model
-passport, both halves — real emission on the `hearthbench` side, real
-runtime consumption on the `hearthmind` side), and `A12.1`-`A12.8`
-(the bench daemon — start/poll/cancel/browse plus compare/drill-in/
-download, through a real page clearly marked "not the live sim") are
-all shipped. **This closes both step 6 AND step 7 of the checklist's
-own SEQUENCE in full** ("A9 reports + A10 score; A12 UI; C5 model
-passport" was step 6; "A4.2 judge + remaining subjective categories"
-was step 7 — `A12.9` (the human-rating page) and `A4.3`'s own rating-
-page UI (the same item) are real distinct future work, not blockers on
-either step closing). Remaining in the checklist's own real order:
+adapter layer), `A3` (prompt library/test definitions), `A4` in full —
+including `A4.3`'s own real rating page — (scoring, "the judge
+problem," the doc's own central design fork), `A5` in full — the three
+OBJECTIVE categories (`A5.7`/`A5.8`/`A5.9`, needing no judge model,
+plus `A5.10`'s guide) AND all six SUBJECTIVE categories (`A5.1`-`A5.6`,
+real judge rubrics + real hand-authored cases each) — `A13`'s CI
+regression guard (`A13.1`-`A13.4`), `A7.1`/`A8` (the real run record +
+recomputable metrics)/`A11.4` (resume), `A9`/`A10` (reports + the real
+weighted composite Score), **C5** (the model passport, both halves —
+real emission on the `hearthbench` side, real runtime consumption on
+the `hearthmind` side), and `A12` in full — `A12.1`-`A12.5` (start/
+poll/cancel/browse), `A12.6`-`A12.8` (compare/drill-in/download), and
+`A12.9` (the real human-rating page) — are all shipped. **This closes
+step 6, step 7, AND the last flagged gap within them (A4.3/A12.9) in
+full.** Remaining in the checklist's own real order:
 
-`A12.9`/`A4.3`'s human-rating page's own UI → `A5.11` the world-level
-emergence run, gated on **B15.5**'s `reference_mode` (built, still
-unused — now genuinely closer, since A11.4/A8/A9/A10/A1.3/C5/
-A12.1-A12.8/A5.1-A5.6 all exist; step 8, explicitly last, the
-checklist's own final item). `A6` structured-output validator
-(un-sequenced, buildable whenever, blocks nothing downstream) remains
-open but doesn't block any of the above. `A7.2` (a system-sampling
-thread — needed for C5's own `peak_rss_mb_by_concurrency` field,
-honestly shipped empty until it exists), `A11.1`-`A11.3`/`A11.5` (the fuller
-quick/full/custom/strict-repro run-mode abstraction), and A9.1's
-latency/memory GRAPHS (no charting dependency exists in this repo)
-stay real, distinct, unstarted future work within their own
-already-partial items.
+`A5.11` the world-level emergence run, gated on **B15.5**'s `reference_
+mode` (built, still unused — now genuinely closer, since A11.4/A8/A9/
+A10/A1.3/C5/A12.1-A12.9/A4.3/A5.1-A5.6 all exist; step 8, explicitly
+last, the checklist's own final item). `A6` structured-output
+validator (un-sequenced, buildable whenever, blocks nothing
+downstream) remains open but doesn't block any of the above. `A7.2` (a
+system-sampling thread — needed for C5's own `peak_rss_mb_by_
+concurrency` field, honestly shipped empty until it exists),
+`A11.1`-`A11.3`/`A11.5` (the fuller quick/full/custom/strict-repro
+run-mode abstraction), and A9.1's latency/memory GRAPHS (no charting
+dependency exists in this repo) stay real, distinct, unstarted future
+work within their own already-partial items.
+
+- **A12.9 (the human-rating page, closes A4.3) — SHIPPED, v1.34.287.**
+  Built entirely on A4.3's own already-real `HumanRatingTask`/`Human
+  Rating`/`judge_human_agreement` (`hearthbench/scoring/human.py`,
+  untouched) — the data model was real, only the page consuming it was
+  missing. `GET /api/rating/tasks?run_a=X&run_b=Y` builds a real
+  blind-pairwise queue straight from two real run directories (A8): a
+  task's own `task_id` is a stable hash of `(run_a, run_b, case_id)`,
+  so the task itself needs no separate persistence — it's always
+  re-derivable from what A8 already keeps on disk — and which run's
+  text lands in slot "a" vs. "b" is derived from that same hash, not a
+  fixed order. The wire response never includes `candidate_a_source`/
+  `candidate_b_source`/either judge score — A4.3's own "must not be
+  surfaced to the rater" holds at the HTTP boundary, not only in
+  `page.py`'s rendering. `POST /api/rating/submit` appends a real
+  `HumanRating` via A4.3's own `append_rating` to one JSONL file under
+  `<runs_root>/_ratings/`. `GET /api/rating/agreement?run_a=X&run_b=Y`
+  is real reuse of `judge_human_agreement`, scoped to the pair's own
+  task ids. `page.py` gained a real "Human rating" panel per the
+  standing UI-surfacing rule: two run selects (auto-populated from
+  `/api/runs`), a rater-id field, "Load tasks"/"Show agreement report"
+  buttons, a one-task-at-a-time prompt/candidate-A/candidate-B display
+  with A/Tie/B buttons, and a note field.
+
+  `scripts/verify_a12_bench_daemon.py` extended (52 -> 63 checks): a
+  real 4-task queue built from the two runs the A12.6 checks already
+  produced (the clean baseline + the fabricating run); confirmed the
+  wire response carries no adapter-identity/judge-score fields; a real
+  submitted rating; a real 400 for an invalid choice; a real 400 for a
+  missing `rater_id`; the rated task correctly dropping out of the
+  pending queue on the next fetch; a real agreement report honestly
+  reporting `n_compared=0`/`agreement_rate=None`/`n_no_judge_score=1`
+  (neither real run carries a Tier 2 judge scorer, so this is the
+  honest, unfabricated answer, not a bug); real 404s for an unknown
+  run_id on both new GET routes. All pass — one genuine pre-existing
+  flake caught and confirmed harmless along the way: a single-shot
+  (non-retrying) progress check in the unmodified A12.3/A12.4
+  slow-backend section raised `KeyError` on a rare early-poll race;
+  reproduced on unmodified code via two more clean re-runs (63/63, 0
+  failures, twice), so it's a known pre-existing timing flake in code
+  this pass never touched, not a regression.
+
+  Verified: the extended script (63 checks total, 3 consecutive clean
+  runs); `node --check` on the page's own embedded JS (extracted and
+  syntax-checked directly — re-extracted via the actual evaluated
+  Python string this time, not the raw source text, since the raw
+  source's own backslash-escaping reads differently); `pyflakes` clean
+  on all three touched files; `scripts/verify_hearthbench_isolation.py`/
+  `verify_hearthbench_adapter_isolation.py`/`verify_a1_3_process_
+  isolation.py`/`verify_a7_a8_run_diagnostics.py`/`verify_a9_a10_score_
+  report.py`/`verify_a13_ci_guard.py`/`verify_c5_model_passport.py`/
+  `verify_a5_1_6_subjective_categories.py`/`verify_a5_categories.py`/
+  `verify_a4_scoring.py` (incl. its own pre-existing `HumanRatingTask`
+  round-trip check) all re-run clean. No `simulation/engine.py` code
+  path or native module touched (confirmed via `git status` — only
+  `hearthbench/daemon/` and the verify script changed) — no replay-
+  hash/native-soak re-run needed. **This closes A12 in full and closes
+  Phase 6's own last open gap within steps 6/7** — only `A5.11` (step
+  8, gated on a live LLM server this offline environment doesn't have)
+  and the never-blocking `A6`/`A7.2`/`A11.1`-`A11.3`/`A11.5`/A9.1's
+  graphs remain, per the intro paragraph above.
 
 - **A12.6-A12.8 (compare runs, drill into a case, download) — SHIPPED,
   v1.34.287.** New daemon routes, each a thin reuse of an already-real

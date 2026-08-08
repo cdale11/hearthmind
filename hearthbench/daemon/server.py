@@ -31,8 +31,19 @@ plus its full real `scores`/timing/structured-input detail). **A12.8**
 (download — `GET /api/runs/{id}/export.json`/`export.csv`, real reuse
 of `export_json`/`export_csv`, written to a real temp file then
 streamed back with a `Content-Disposition` header). **A12.9** (the
-human-rating page, A4.3) remains open — real, distinct, unstarted
-future work within this same item, not attempted here.
+human-rating page, A4.3): `GET /api/rating/tasks?run_a=X&run_b=Y`
+builds a real blind-pairwise queue straight off two real run
+directories (A8) via A4.3's own `HumanRatingTask` — no separate task
+persistence needed, since a `task_id` is a stable hash of
+`(run_a, run_b, case_id)` and is therefore always re-derivable, not
+one more thing to keep in sync; `POST /api/rating/submit` appends a
+real `HumanRating` (A4.3's own `append_rating`) to one JSONL file
+under `<runs_root>/_ratings/`; `GET /api/rating/agreement?run_a=X&run_b=Y`
+is real reuse of A4.3's own `judge_human_agreement`. The wire response
+for `/tasks` deliberately omits `candidate_a_source`/`candidate_b_
+source`/both judge scores — A4.3's own "must not be surfaced to the
+rater before a choice is made" holds at the HTTP boundary, not just in
+`page.py`'s own rendering.
 
 Only `OpenAICompatAdapter` (A2.2) is exposed through this daemon's
 `StartRunRequest` — matching `hearthbench.runner.cli`'s own current
@@ -47,6 +58,7 @@ pulled in by the live sim's own `api` extra or default install).
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import tempfile
 import uuid
@@ -57,17 +69,41 @@ from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 
 from hearthbench.daemon.page import INDEX_HTML
-from hearthbench.diagnostics import RunRecordReader
+from hearthbench.diagnostics import CaseRecord, RunRecordReader
 from hearthbench.metrics.aggregate import recompute_run_metrics
 from hearthbench.reporting.report import compare_runs, export_csv, export_json, render_html_report
 from hearthbench.reporting.score import compute_score
 from hearthbench.runner.process import BenchRunProcess, build_bench_run_command
+from hearthbench.scoring.human import HumanRating, HumanRatingTask, append_rating, judge_human_agreement, load_ratings
 
 RUN_ID_PREFIX = "run_"
 
 
 def _new_run_id() -> str:
     return RUN_ID_PREFIX + uuid.uuid4().hex[:12]
+
+
+def _judge_value(record: CaseRecord) -> "float | None":
+    """A4.3's own `judge_score_a`/`judge_score_b` — the real Tier 2
+    judge composite for this case, if one was computed. `JudgeScorer.
+    as_scorer()`'s own default id is `judge_dialogue_quality`; every
+    real judge-backed scorer id in this codebase starts with `"judge"`
+    (A5.2-A5.6's own `build_*_judge_scorer` factories), so the first
+    matching entry with a real `value` is the real signal. `None` when
+    no Tier 2 judge scored this case at all — an honest "no data
+    point," not a fabricated 0."""
+    for scorer_id, detail in (record.scores or {}).items():
+        if scorer_id.startswith("judge") and detail.get("value") is not None:
+            return detail["value"]
+    return None
+
+
+class SubmitRatingRequest(BaseModel):
+    task_id: str
+    rater_id: str
+    choice: str
+    confidence: "float | None" = None
+    note: "str | None" = None
 
 
 class StartRunRequest(BaseModel):
@@ -217,6 +253,53 @@ def create_app(runs_root: str) -> FastAPI:
             raise HTTPException(status_code=404, detail=f"unknown run_id: {run_id}")
         return compute_score(recompute_run_metrics(run_dir))
 
+    def _ratings_path() -> str:
+        return os.path.join(runs_root, "_ratings", "ratings.jsonl")
+
+    def _build_rating_tasks(run_a: str, run_b: str) -> list:
+        # A4.3/A12.9: a blind-pairwise HumanRatingTask needs no separate
+        # persistence of its own -- it's fully re-derivable from the two
+        # real run directories A8 already persists, keyed by a stable
+        # hash of (run_a, run_b, case_id) rather than one more store to
+        # keep in sync with the runs it's about.
+        dir_a, dir_b = _run_dir(run_a), _run_dir(run_b)
+        if not os.path.isdir(dir_a):
+            raise HTTPException(status_code=404, detail=f"unknown run_id: {run_a}")
+        if not os.path.isdir(dir_b):
+            raise HTTPException(status_code=404, detail=f"unknown run_id: {run_b}")
+        reader_a, reader_b = RunRecordReader(dir_a), RunRecordReader(dir_b)
+        cases_b = {r.case_id: r for r in reader_b.iter_case_records()}
+        tasks = []
+        for record_a in reader_a.iter_case_records():
+            record_b = cases_b.get(record_a.case_id)
+            if record_b is None:
+                continue
+            task_id = hashlib.sha256(f"{run_a}:{run_b}:{record_a.case_id}".encode("utf-8")).hexdigest()[:16]
+            # Deliberately blind: which run's text lands in slot "a" vs
+            # "b" is itself derived from the hash, not always run_a --
+            # neither the rater nor anyone reading the wire response can
+            # infer adapter identity from slot order alone.
+            swap = int(task_id, 16) % 2 == 1
+            raw_text_a = reader_a.blobs.get(record_a.completion_hash) or ""
+            raw_text_b = reader_b.blobs.get(record_b.completion_hash) or ""
+            prompt_text = reader_a.blobs.get(record_a.prompt_hash) or reader_b.blobs.get(record_b.prompt_hash) or ""
+            raw_judge_a, raw_judge_b = _judge_value(record_a), _judge_value(record_b)
+            if swap:
+                cand_a_text, cand_b_text = raw_text_b, raw_text_a
+                cand_a_source, cand_b_source = run_b, run_a
+                judge_a, judge_b = raw_judge_b, raw_judge_a
+            else:
+                cand_a_text, cand_b_text = raw_text_a, raw_text_b
+                cand_a_source, cand_b_source = run_a, run_b
+                judge_a, judge_b = raw_judge_a, raw_judge_b
+            tasks.append(HumanRatingTask(
+                task_id=task_id, case_id=record_a.case_id, prompt_text=prompt_text,
+                candidate_a_text=cand_a_text, candidate_b_text=cand_b_text,
+                candidate_a_source=cand_a_source, candidate_b_source=cand_b_source,
+                judge_score_a=judge_a, judge_score_b=judge_b,
+            ))
+        return tasks
+
     @app.get("/api/runs/compare")
     def compare(run_ids: str) -> dict:
         # A12.6: real reuse of A9.3's `compare_runs` -- this route only
@@ -313,5 +396,50 @@ def create_app(runs_root: str) -> FastAPI:
             content=content, media_type="text/csv",
             headers={"Content-Disposition": f'attachment; filename="{run_id}.csv"'},
         )
+
+    @app.get("/api/rating/tasks")
+    def get_rating_tasks(run_a: str, run_b: str) -> dict:
+        # A12.9: the real blind-pairwise queue for this pair, minus
+        # every task a rater has already decided (persisted, A4.3's own
+        # append-only ratings file). candidate_a_source/candidate_b_
+        # source/judge scores are deliberately never sent here.
+        tasks = _build_rating_tasks(run_a, run_b)
+        already_rated = {r.task_id for r in load_ratings(_ratings_path())}
+        pending = [t for t in tasks if t.task_id not in already_rated]
+        return {
+            "tasks": [
+                {
+                    "task_id": t.task_id, "case_id": t.case_id, "prompt_text": t.prompt_text,
+                    "candidate_a_text": t.candidate_a_text, "candidate_b_text": t.candidate_b_text,
+                }
+                for t in pending
+            ],
+            "n_total": len(tasks), "n_pending": len(pending),
+        }
+
+    @app.post("/api/rating/submit")
+    def submit_rating(req: SubmitRatingRequest) -> dict:
+        if not req.rater_id.strip():
+            raise HTTPException(status_code=400, detail="rater_id is required")
+        try:
+            rating = HumanRating(
+                task_id=req.task_id, rater_id=req.rater_id, choice=req.choice,
+                confidence=req.confidence, note=req.note,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        append_rating(_ratings_path(), rating)
+        return {"ok": True}
+
+    @app.get("/api/rating/agreement")
+    def get_rating_agreement(run_a: str, run_b: str) -> dict:
+        # A4.3's own literal "reports judge<->human agreement" -- real
+        # reuse of judge_human_agreement, scoped to this pair only
+        # (task_id embeds run_a/run_b, so a rating recorded under a
+        # different pair can never leak into this report).
+        tasks = _build_rating_tasks(run_a, run_b)
+        task_ids = {t.task_id for t in tasks}
+        ratings = [r for r in load_ratings(_ratings_path()) if r.task_id in task_ids]
+        return judge_human_agreement(tasks, ratings)
 
     return app

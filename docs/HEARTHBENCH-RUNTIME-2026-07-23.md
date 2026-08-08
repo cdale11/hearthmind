@@ -277,10 +277,11 @@ registry.
   mechanism A5.2-A5.6 each needed their own distinct rubric to exist
   at all, with zero behavior change for any pre-existing call site.
 - [x] **A4.3 — Tier 3: human rating (calibration ground truth) —
-  PARTIAL.** The blind-pairwise DATA MODEL (`HumanRatingTask`/
-  `HumanRating`, append-only JSONL storage) and `judge_human_agreement`
-  are real and shipped; the rating PAGE itself is A12.9, not attempted
-  this pass.
+  SHIPPED IN FULL, v1.34.287.** The blind-pairwise DATA MODEL
+  (`HumanRatingTask`/`HumanRating`, append-only JSONL storage) and
+  `judge_human_agreement` shipped first; the rating PAGE (A12.9 — real
+  daemon routes over this same untouched data model, plus a real
+  `page.py` panel) closed the gap.
 - [x] **A4.4 — Scorers are pure, versioned, registered — SHIPPED.**
   `Scorer(id, version, fn(case, result, context) -> ScoreDetail)` +
   `ScorerRegistry` (rejects re-registering an id at a different
@@ -566,7 +567,7 @@ New `hearthbench/reporting/score.py`.
   settings, a `--strict-repro` mode that fails the run if the adapter
   reports non-deterministic capability.
 
-## A12 — Web UI [PARTIAL, A12.1-A12.8 shipped v1.34.285/v1.34.287]
+## A12 — Web UI [SHIPPED IN FULL, A12.1-A12.9 v1.34.285/v1.34.287]
 
 - [x] **A12.1 — SHIPPED, v1.34.285.** A real page served by the bench
   daemon itself (new `hearthbench/daemon/` — `server.py`'s `create_app`,
@@ -623,7 +624,37 @@ New `hearthbench/reporting/score.py`.
   `/api/runs/{id}/report` route (A12.1-A12.5), so no separate HTML
   export route was needed. `page.py` gained direct download links per
   run.
-- [ ] **A12.9** — The human-rating page (A4.3). Real future work.
+- [x] **A12.9 — SHIPPED, v1.34.287.** The human-rating page (A4.3),
+  built entirely on A4.3's own already-real `HumanRatingTask`/
+  `HumanRating`/`judge_human_agreement` (`hearthbench/scoring/
+  human.py`, untouched). `GET /api/rating/tasks?run_a=X&run_b=Y`
+  builds a real blind-pairwise queue straight from two real run
+  directories (A8) — a task's `task_id` is a stable hash of `(run_a,
+  run_b, case_id)`, so tasks need no separate persistence of their own
+  (always re-derivable from what A8 already keeps on disk); which
+  run's text lands in slot "a" vs. "b" is itself derived from the same
+  hash, not a fixed order, and the wire response never includes
+  `candidate_a_source`/`candidate_b_source`/either judge score — A4.3's
+  "must not be surfaced to the rater" holds at the HTTP boundary, not
+  only in `page.py`'s own rendering. `POST /api/rating/submit` appends
+  a real `HumanRating` (A4.3's own `append_rating`) to one JSONL file
+  under `<runs_root>/_ratings/`. `GET /api/rating/agreement?run_a=X&
+  run_b=Y` is real reuse of `judge_human_agreement`, scoped to the
+  pair's own task ids only. `page.py` gained a real "Human rating"
+  panel: two run selects (auto-populated from `/api/runs`), a rater-id
+  field, "Load tasks"/"Show agreement report" buttons, a one-task-at-a-
+  time prompt/candidate-A/candidate-B display with A/Tie/B buttons, and
+  a note field. `scripts/verify_a12_bench_daemon.py` extended (52 -> 63
+  checks): a real 4-task queue built from the two already-real runs
+  (the clean baseline + the fabricating run from the A12.6 checks);
+  confirmed the wire response carries no adapter-identity/judge-score
+  fields; a real submitted rating, a real 400 for an invalid choice, a
+  real 400 for a missing `rater_id`; the rated task correctly dropping
+  out of the pending queue on the next fetch; a real agreement report
+  honestly reporting `n_compared=0`/`agreement_rate=None`/`n_no_judge_
+  score=1` (neither real run carries a Tier 2 judge scorer, so this is
+  the honest, unfabricated answer, not a bug); 404s for an unknown
+  run_id on the tasks/agreement routes. This closes A12 in full.
 
 ## A13 — Prompt-regression guard in CI [PARTIAL, A13.1-A13.4 shipped v1.34.280]
 
@@ -938,8 +969,10 @@ greenfield at the time this doc was written):**
 5. A7/A8 metrics + diagnostics; A11.4 resume.
 6. A9 reports + A10 score; A12 UI; **C5 model passport**.
 7. **A4.2 judge + remaining subjective categories — SHIPPED, v1.34.286**
-   (A5.1-A5.6 all real now); A4.3 human calibration stays PARTIAL (the
-   rating page is still A12.9, not attempted).
+   (A5.1-A5.6 all real now); **A4.3 human calibration is now fully
+   SHIPPED too — A12.9's real rating page, v1.34.287** (the data model
+   was already real; A12.9 shipped the page/routes it needed to become
+   usable).
 8. **A5.11 world-level run** — last, only after B15.5 exists.
 
 # THE TESTS

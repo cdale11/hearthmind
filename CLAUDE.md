@@ -742,6 +742,76 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.288)
+
+Explicit user instruction: "Continue" — ships A12.9, the human-rating
+page, following directly off A12.6-A12.8 (v1.34.287). Closes A4.3
+(human rating / calibration ground truth) — the blind-pairwise data
+model (`HumanRatingTask`/`HumanRating`, append-only JSONL, `judge_
+human_agreement`, `hearthbench/scoring/human.py`) was already real and
+untouched; only a page/routes consuming it were missing. **Closes A12
+in full**, and closes Phase 6's own last gap within steps 6/7 — only
+`A5.11` (step 8, gated on a live LLM server this offline environment
+lacks) and the never-blocking `A6`/`A7.2`/`A11.1`-`A11.3`/`A11.5`/
+A9.1's graphs remain open in Phase 6.
+
+New `hearthbench/daemon/server.py` routes: `GET /api/rating/tasks?
+run_a=X&run_b=Y` builds a real blind-pairwise queue straight off two
+real run directories (A8) — a task's `task_id` is a stable hash of
+`(run_a, run_b, case_id)`, so no separate task persistence is needed
+(always re-derivable from what A8 already keeps on disk), and which
+run's completion text lands in slot "a" vs. "b" is derived from that
+same hash rather than a fixed order; the JSON response never includes
+`candidate_a_source`/`candidate_b_source`/either judge score — A4.3's
+own "must not be surfaced to the rater" holds at the HTTP boundary,
+not only in `page.py`'s rendering. `POST /api/rating/submit` appends a
+real `HumanRating` (A4.3's own `append_rating`) to one JSONL file
+under `<runs_root>/_ratings/`. `GET /api/rating/agreement?run_a=X&
+run_b=Y` is real reuse of `judge_human_agreement`, scoped to the
+pair's own task ids only. New `_judge_value(record)` reads a case's
+real Tier 2 judge composite off its `scores` dict (any scorer id
+starting with `"judge"`) when one exists, `None` otherwise.
+
+New UI in `hearthbench/daemon/page.py`, same batch per the standing
+"every new feature gets a UI pass" rule: a "Human rating" panel with
+two run selects (auto-populated from `/api/runs`), a rater-id field,
+"Load tasks"/"Show agreement report" buttons, a one-task-at-a-time
+prompt/candidate-A/candidate-B display with A/Tie/B buttons, and a
+note field.
+
+`scripts/verify_a12_bench_daemon.py` extended (52 -> 63 checks): a
+real 4-task queue built from the two runs the A12.6 checks already
+produced (the clean baseline + the fabricating run); confirmed the
+wire response carries no adapter-identity/judge-score fields; a real
+submitted rating; a real 400 for an invalid choice; a real 400 for a
+missing `rater_id`; the rated task correctly dropping out of the
+pending queue on the next fetch; a real agreement report honestly
+reporting `n_compared=0`/`agreement_rate=None`/`n_no_judge_score=1`
+(neither real run carries a Tier 2 judge scorer, so this is the
+honest, unfabricated answer, not a bug); real 404s for an unknown
+run_id on both new GET routes. All pass, first run — one genuine
+pre-existing flake was caught and confirmed harmless along the way: a
+single-shot (non-retrying) progress check in the unmodified A12.3/
+A12.4 slow-backend section raised `KeyError` on a rare early-poll
+race; two further clean re-runs (63/63, 0 failures, twice) confirmed
+it as a known pre-existing timing flake in code this pass never
+touched, not a regression.
+
+Verified: the extended script (63 checks, 3 consecutive clean runs);
+`node --check` on the page's own embedded JS (extracted from the
+actual evaluated Python string this time, not the raw source text —
+the raw source's own backslash-escaping produced a false-positive
+syntax error on the first attempt); `pyflakes` clean on all three
+touched files; `verify_hearthbench_isolation.py`/`verify_hearthbench_
+adapter_isolation.py`/`verify_a1_3_process_isolation.py`/`verify_a7_
+a8_run_diagnostics.py`/`verify_a9_a10_score_report.py`/`verify_a13_ci_
+guard.py`/`verify_c5_model_passport.py`/`verify_a5_1_6_subjective_
+categories.py`/`verify_a5_categories.py`/`verify_a4_scoring.py` (incl.
+its own pre-existing `HumanRatingTask` round-trip check) all re-run
+clean. No `simulation/engine.py` code path or native module touched
+(confirmed via `git status` — only `hearthbench/daemon/` and the
+verify script changed) — no replay-hash/native-soak re-run needed.
+
 ## Current state (v1.34.287)
 
 Explicit user instruction: "Continue" — ships A12.6-A12.8 (`docs/

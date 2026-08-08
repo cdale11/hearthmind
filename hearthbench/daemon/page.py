@@ -76,6 +76,20 @@ INDEX_HTML = """<!doctype html>
   <div id="case-detail"></div>
 </fieldset>
 
+<fieldset>
+  <legend>Human rating (A4.3 / A12.9) — blind pairwise</legend>
+  <label>Run A</label><select id="rate-run-a"></select>
+  <label>Run B</label><select id="rate-run-b"></select>
+  <label>Rater id</label><input id="rater-id" value="anonymous">
+  <button onclick="loadRatingTasks()">Load tasks</button>
+  <button onclick="showAgreement()">Show agreement report</button>
+  <div id="rating-status"></div>
+  <div id="rating-task"></div>
+  <label>Note (optional)</label>
+  <textarea id="rater-note" rows="2" style="width:100%"></textarea>
+  <div id="agreement-result"></div>
+</fieldset>
+
 <script>
 function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -111,6 +125,17 @@ async function refreshRuns() {
         ${cancelBtn}</td>
     </tr>`;
   }).join("");
+
+  const selA = document.getElementById("rate-run-a");
+  const selB = document.getElementById("rate-run-b");
+  if (selA && selB) {
+    const prevA = selA.value, prevB = selB.value;
+    const optionsHtml = data.runs.map((r) => `<option value="${esc(r.run_id)}">${esc(r.run_id)}</option>`).join("");
+    selA.innerHTML = optionsHtml;
+    selB.innerHTML = optionsHtml;
+    if (data.runs.some((r) => r.run_id === prevA)) selA.value = prevA;
+    if (data.runs.some((r) => r.run_id === prevB)) selB.value = prevB;
+  }
 }
 
 async function cancelRun(runId) {
@@ -194,6 +219,88 @@ async function showCaseDetail(runId, caseId) {
     <pre><b>Prompt:</b>\n${esc(c.prompt)}</pre>
     <pre><b>Completion:</b>\n${esc(c.completion)}</pre>
     <table><thead><tr><th>Scorer</th><th>Value</th><th>Passed</th></tr></thead><tbody>${scoreRows}</tbody></table>`;
+}
+
+let ratingQueue = [];
+let ratingIndex = 0;
+
+async function loadRatingTasks() {
+  // A12.9: fetch the real blind-pairwise queue for the chosen pair.
+  const runA = document.getElementById("rate-run-a").value;
+  const runB = document.getElementById("rate-run-b").value;
+  const status = document.getElementById("rating-status");
+  if (!runA || !runB || runA === runB) {
+    status.textContent = "Pick two different runs.";
+    return;
+  }
+  const res = await fetch(`/api/rating/tasks?run_a=${encodeURIComponent(runA)}&run_b=${encodeURIComponent(runB)}`);
+  if (!res.ok) {
+    status.textContent = "Failed to load tasks: " + esc(await res.text());
+    return;
+  }
+  const data = await res.json();
+  ratingQueue = data.tasks;
+  ratingIndex = 0;
+  status.textContent = `${data.n_pending} of ${data.n_total} pending.`;
+  renderRatingTask();
+}
+
+function renderRatingTask() {
+  const area = document.getElementById("rating-task");
+  if (ratingIndex >= ratingQueue.length) {
+    area.innerHTML = "<p>No more pending tasks for this pair.</p>";
+    return;
+  }
+  const t = ratingQueue[ratingIndex];
+  area.innerHTML = `
+    <pre><b>Prompt:</b>\n${esc(t.prompt_text)}</pre>
+    <div style="display:flex; gap:1rem;">
+      <pre style="flex:1"><b>Candidate A:</b>\n${esc(t.candidate_a_text)}</pre>
+      <pre style="flex:1"><b>Candidate B:</b>\n${esc(t.candidate_b_text)}</pre>
+    </div>
+    <button onclick="submitRating('a')">A is better</button>
+    <button onclick="submitRating('tie')">Tie</button>
+    <button onclick="submitRating('b')">B is better</button>`;
+}
+
+async function submitRating(choice) {
+  const t = ratingQueue[ratingIndex];
+  if (!t) return;
+  const raterId = document.getElementById("rater-id").value || "anonymous";
+  const noteEl = document.getElementById("rater-note");
+  const note = noteEl && noteEl.value ? noteEl.value : null;
+  const res = await fetch("/api/rating/submit", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ task_id: t.task_id, rater_id: raterId, choice: choice, note: note }),
+  });
+  if (!res.ok) {
+    document.getElementById("rating-status").textContent = "Failed to submit: " + esc(await res.text());
+    return;
+  }
+  if (noteEl) noteEl.value = "";
+  ratingIndex += 1;
+  document.getElementById("rating-status").textContent = `${ratingQueue.length - ratingIndex} of ${ratingQueue.length} pending.`;
+  renderRatingTask();
+}
+
+async function showAgreement() {
+  // A4.3: real reuse of judge_human_agreement over this pair's tasks.
+  const runA = document.getElementById("rate-run-a").value;
+  const runB = document.getElementById("rate-run-b").value;
+  const result = document.getElementById("agreement-result");
+  if (!runA || !runB) {
+    result.innerHTML = "<p>Pick two runs first.</p>";
+    return;
+  }
+  const res = await fetch(`/api/rating/agreement?run_a=${encodeURIComponent(runA)}&run_b=${encodeURIComponent(runB)}`);
+  if (!res.ok) {
+    result.innerHTML = "<p>Failed: " + esc(await res.text()) + "</p>";
+    return;
+  }
+  const data = await res.json();
+  const rate = data.agreement_rate == null ? "n/a" : (data.agreement_rate * 100).toFixed(1) + "%";
+  result.innerHTML = `<p>Compared: ${data.n_compared}, agreed: ${data.n_agree}, `
+    + `agreement rate: ${rate}, no judge score yet: ${data.n_no_judge_score}</p>`;
 }
 
 document.getElementById("start-form").addEventListener("submit", async (ev) => {

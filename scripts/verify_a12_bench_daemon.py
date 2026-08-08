@@ -271,6 +271,43 @@ def main() -> int:
             finally:
                 fabricating_backend.shutdown()
 
+            # --- A12.9: human rating over the same two real runs -----------
+            status, body, _ = daemon.get(f"/api/rating/tasks?run_a={run_id}&run_b={fab_run_id}")
+            check("GET rating tasks: real 200", status == 200)
+            tasks_data = json.loads(body)
+            check("GET rating tasks: real 4-task queue, one per shared case_id", tasks_data["n_total"] == 4 and tasks_data["n_pending"] == 4, str(tasks_data))
+            first_task = tasks_data["tasks"][0]
+            check(
+                "GET rating tasks: blind -- no adapter identity or judge score leaked over the wire",
+                "candidate_a_source" not in first_task and "candidate_b_source" not in first_task
+                and "judge_score_a" not in first_task and "judge_score_b" not in first_task,
+                str(first_task),
+            )
+            check("GET rating tasks: real prompt/candidate text present", bool(first_task["prompt_text"]) and bool(first_task["candidate_a_text"]) and bool(first_task["candidate_b_text"]))
+            check("GET rating tasks: real 404 for an unknown run_id", daemon.get(f"/api/rating/tasks?run_a={run_id}&run_b=does-not-exist")[0] == 404)
+
+            status, body = daemon.post("/api/rating/submit", {"task_id": first_task["task_id"], "rater_id": "verify-script", "choice": "a"})
+            check("POST rating submit: real 200", status == 200 and json.loads(body)["ok"] is True)
+
+            status, body = daemon.post("/api/rating/submit", {"task_id": first_task["task_id"], "rater_id": "verify-script", "choice": "not-a-real-choice"})
+            check("POST rating submit: real 400 for an invalid choice", status == 400)
+
+            status, body = daemon.post("/api/rating/submit", {"task_id": tasks_data["tasks"][1]["task_id"], "rater_id": "", "choice": "b"})
+            check("POST rating submit: real 400 for a missing rater_id", status == 400)
+
+            status, body, _ = daemon.get(f"/api/rating/tasks?run_a={run_id}&run_b={fab_run_id}")
+            tasks_after = json.loads(body)
+            check("GET rating tasks: the rated task no longer appears in the pending queue", tasks_after["n_pending"] == 3 and all(t["task_id"] != first_task["task_id"] for t in tasks_after["tasks"]), str(tasks_after))
+
+            status, body, _ = daemon.get(f"/api/rating/agreement?run_a={run_id}&run_b={fab_run_id}")
+            check("GET rating agreement: real 200", status == 200)
+            agreement = json.loads(body)
+            check(
+                "GET rating agreement: the one real recorded rating counted, honestly against no judge score (neither run carries a Tier 2 judge scorer)",
+                agreement["n_compared"] == 0 and agreement["agreement_rate"] is None and agreement["n_no_judge_score"] == 1,
+                str(agreement),
+            )
+
             # --- cancel on an already-finished (but still tracked) run -----
             status, body = daemon.post(f"/api/runs/{run_id}/cancel")
             check("POST cancel on an already-finished tracked run: safe, real 200", status == 200 and json.loads(body)["stopped"] is True)
