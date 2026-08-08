@@ -46,6 +46,7 @@ from __future__ import annotations
 import random
 
 from hearthmind.agents.agent import TRAIT_OPENNESS
+from hearthmind.util import clamp
 from hearthmind.world.terrain import Biome, Tile
 
 BEAUTY_APPRAISAL_CHANCE_PER_TICK = 0.02
@@ -142,7 +143,7 @@ def compute_aesthetic_appraisal(
     score -= mining_scars.get((x, y), 0.0) * BEAUTY_MINING_SCAR_PENALTY
     score -= disaster_scars.get((x, y), 0.0) * BEAUTY_DISASTER_SCAR_PENALTY
     score += traits.get(TRAIT_OPENNESS, 0.0) * BEAUTY_OPENNESS_INFLUENCE
-    return max(0.0, min(1.0, score))
+    return clamp(score, 0.0, 1.0)
 
 
 def _region_of(x: int, y: int, width: int, height: int, size: int) -> tuple[int, int]:

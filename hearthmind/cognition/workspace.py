@@ -173,6 +173,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable
 
+from hearthmind.util import clamp
+
 
 class Domain(Enum):
     """Tier 7 HCA Stage H, H1 (§3.2, explicit user instruction: "Start
@@ -506,7 +508,7 @@ def merged_coalition_score(bids: tuple[Bid, ...]) -> float:
         return 0.0
     product_of_complements = 1.0
     for bid in independent:
-        product_of_complements *= (1.0 - max(0.0, min(1.0, bid.score)))
+        product_of_complements *= (1.0 - clamp(bid.score, 0.0, 1.0))
     return 1.0 - product_of_complements
 
 
@@ -593,7 +595,7 @@ class BidFactors:
 
 
 def _clamp01(value: float) -> float:
-    return max(0.0, min(1.0, value))
+    return clamp(value, 0.0, 1.0)
 
 
 def compute_evidence_score(factors: BidFactors, beta: float = EVIDENCE_UNCERTAINTY_BETA) -> float:

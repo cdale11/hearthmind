@@ -43,6 +43,7 @@ for the full family mapping) -- this file already imports nothing from
 alone makes `scripts/verify_runtime_invariant.py`'s write-scope check
 real against this real production module."""
 from hearthmind.ml.training import TrainingExample, mean_loss, train_mlp_sgd
+from hearthmind.util import clamp
 
 # B8.1's feature schema: the item's own three named trigger examples
 # (storm -> dialogue/cognition spike, harvest season -> economy surge,
@@ -144,7 +145,7 @@ class ForecastAccuracyTracker:
         baseline = self.naive_baseline_mae()
         if not baseline:
             return 1.0
-        return max(0.0, min(1.0, 1.0 - (mae / baseline)))
+        return clamp(1.0 - (mae / baseline), 0.0, 1.0)
 
 
 def plan_reservation(predicted_load: float, current_capacity: int, reliability_weight: float) -> int:
@@ -157,7 +158,7 @@ def plan_reservation(predicted_load: float, current_capacity: int, reliability_w
     if predicted_load <= 0 or current_capacity <= 0:
         return 0
     raw = predicted_load * reliability_weight
-    return max(0, min(current_capacity, round(raw)))
+    return clamp(round(raw), 0, current_capacity)
 
 
 def is_quiet_window(recent_loads: list, capacity: float, threshold_fraction: float = 0.3) -> bool:

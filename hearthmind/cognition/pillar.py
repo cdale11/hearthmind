@@ -54,6 +54,8 @@ from __future__ import annotations
 
 import re
 
+from hearthmind.util import clamp
+
 _MESSAGE_WORD_RE = re.compile(r"[a-z']+")
 
 
@@ -99,7 +101,7 @@ def make_world_model_entry(
         raise ValueError(f"unknown world-model status {status!r}, expected one of {WORLD_MODEL_STATUSES}")
     return {
         "id": entry_id, "tick": tick, "subject": subject, "belief": belief,
-        "confidence": max(0.0, min(1.0, confidence)), "status": status, "source": source,
+        "confidence": clamp(confidence, 0.0, 1.0), "status": status, "source": source,
     }
 
 
@@ -335,7 +337,7 @@ class Pillar:
             existing = next((e for e in self.world_model if e["id"] == revises_id), None)
             if existing is not None:
                 existing["belief"] = belief
-                existing["confidence"] = max(0.0, min(1.0, confidence))
+                existing["confidence"] = clamp(confidence, 0.0, 1.0)
                 existing["subject"] = subject
                 existing["status"] = status
                 existing["tick"] = tick

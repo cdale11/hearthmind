@@ -54,6 +54,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+from hearthmind.util import clamp
+
 
 class SafetyClass(Enum):
     """B6.1's semantic-safety class: `SAFE` tunables cannot change
@@ -83,7 +85,7 @@ class Tunable:
     description: str = ""
 
     def clamp(self, v: float) -> float:
-        return max(self.min_value, min(self.max_value, v))
+        return clamp(v, self.min_value, self.max_value)
 
 
 class TunableRegistry:

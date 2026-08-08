@@ -22,6 +22,8 @@ import json
 import logging
 from typing import Callable
 
+from hearthmind.util import clamp
+
 logger = logging.getLogger("hearthmind.api")
 
 
@@ -367,7 +369,7 @@ class WorldBroadcaster:
         return self._paused
 
     def set_speed_multiplier(self, multiplier: float) -> float:
-        self._speed_multiplier = max(MIN_SPEED_MULTIPLIER, min(MAX_SPEED_MULTIPLIER, multiplier))
+        self._speed_multiplier = clamp(multiplier, MIN_SPEED_MULTIPLIER, MAX_SPEED_MULTIPLIER)
         return self._speed_multiplier
 
     def get_speed_multiplier(self) -> float:

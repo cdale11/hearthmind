@@ -15,6 +15,7 @@ import random
 from dataclasses import dataclass, field
 from enum import Enum
 
+from hearthmind.util import clamp
 from hearthmind.world.resources import ResourceGrid, ResourceKind
 from hearthmind.world.terrain import Biome, Tile
 from hearthmind.world.terrain_evolution import apply_carcass_decomposition, apply_migration_trail
@@ -412,7 +413,7 @@ bounded mechanical consequence, not just flavor text."""
 
 def hardiness_reproduce_factor(hardiness: float) -> float:
     """See `HARDINESS_REPRODUCE_MIN_FACTOR`/`_MAX_FACTOR`'s docstring."""
-    hardiness = max(0.0, min(1.0, hardiness))
+    hardiness = clamp(hardiness, 0.0, 1.0)
     return HARDINESS_REPRODUCE_MIN_FACTOR + hardiness * (
         HARDINESS_REPRODUCE_MAX_FACTOR - HARDINESS_REPRODUCE_MIN_FACTOR
     )
@@ -429,7 +430,7 @@ def _inherit_hardiness(rng: random.Random, gene_pool: list[float]) -> float:
     if not gene_pool:
         return HARDINESS_BASELINE
     avg = sum(gene_pool) / len(gene_pool)
-    return max(0.0, min(1.0, avg + rng.gauss(0.0, HARDINESS_MUTATION_STDDEV)))
+    return clamp(avg + rng.gauss(0.0, HARDINESS_MUTATION_STDDEV), 0.0, 1.0)
 
 
 @dataclass
@@ -547,7 +548,7 @@ class WildlifeGrid:
                         # A15: real starting genetic diversity, not every
                         # founding herd identical — see HARDINESS_
                         # GENESIS_STDDEV's docstring.
-                        hardiness=max(0.0, min(1.0, rng.gauss(HARDINESS_BASELINE, HARDINESS_GENESIS_STDDEV))),
+                        hardiness=clamp(rng.gauss(HARDINESS_BASELINE, HARDINESS_GENESIS_STDDEV), 0.0, 1.0),
                     )
                     next_id += 1
 
@@ -561,7 +562,7 @@ class WildlifeGrid:
             herds[next_id] = AnimalHerd(
                 id=next_id, species=Species.PREDATOR, x=x, y=y,
                 count=rng.randint(MIN_PREDATOR_PACK, MAX_PREDATOR_PACK),
-                hardiness=max(0.0, min(1.0, rng.gauss(HARDINESS_BASELINE, HARDINESS_GENESIS_STDDEV))),
+                hardiness=clamp(rng.gauss(HARDINESS_BASELINE, HARDINESS_GENESIS_STDDEV), 0.0, 1.0),
             )
             next_id += 1
 

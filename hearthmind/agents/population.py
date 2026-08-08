@@ -5008,7 +5008,7 @@ class Population:
             1.0 + hunger_term + economy_term + security_term + labor_term + environment_term
             + coordination_term + knowledge_term + infrastructure_term
         )
-        multiplier = max(CARRYING_CAPACITY_MIN_MULTIPLIER, min(CARRYING_CAPACITY_MAX_MULTIPLIER, multiplier))
+        multiplier = clamp(multiplier, CARRYING_CAPACITY_MIN_MULTIPLIER, CARRYING_CAPACITY_MAX_MULTIPLIER)
         return min(dynamic_population_cap(map_tiles), housing_capacity * multiplier)
 
     def _maybe_reproduce(
@@ -8223,7 +8223,7 @@ class Population:
             speaker_view = speaker.relationships.get(subject.id, 0.0)
             listener_view = listener.relationships.get(subject.id, 0.0)
             step = GOSSIP_OPINION_CONTAGION * (speaker_view - listener_view)
-            step = max(-GOSSIP_OPINION_MAX_STEP, min(GOSSIP_OPINION_MAX_STEP, step))
+            step = clamp(step, -GOSSIP_OPINION_MAX_STEP, GOSSIP_OPINION_MAX_STEP)
             if step:
                 listener.relationships[subject.id] = clamp(listener_view + step, -1.0, 1.0)
 

@@ -50,6 +50,7 @@ from typing import Optional
 
 from hearthmind.simulation.forecasting import is_quiet_window
 from hearthmind.simulation.timescales import ElapsedTimeTracker
+from hearthmind.util import clamp
 
 SNAPSHOT_TASK_KEY = "snapshot"
 
@@ -159,4 +160,4 @@ def batch_size_for_storage(
     if storage_write_mb_s is None or storage_write_mb_s <= 0:
         return min_batch_bytes
     ideal = int(storage_write_mb_s * 1_000_000 * target_write_latency_s)
-    return max(min_batch_bytes, min(max_batch_bytes, ideal))
+    return clamp(ideal, min_batch_bytes, max_batch_bytes)

@@ -22,6 +22,8 @@ threshold, don't disable it" shape `DIALOGUE_BACKPRESSURE_FRACTION`/
 `RUMOR_INTERPRET_BACKPRESSURE_FRACTION` already use elsewhere."""
 from __future__ import annotations
 
+from hearthmind.util import clamp
+
 STALENESS_SATURATION_TICKS = 40_000
 """Ticks since a pillar's last real turn (observe or interpret) at
 which staleness maxes out at 1.0 — roughly a season and a half at the
@@ -77,9 +79,9 @@ def compute_priority(
     swapped out later."""
     staleness_norm = min(1.0, max(0.0, staleness_ticks) / STALENESS_SATURATION_TICKS)
     message_norm = min(1.0, message_count / 3.0)
-    player_norm = max(0.0, min(1.0, player_focus))
+    player_norm = clamp(player_focus, 0.0, 1.0)
     priority = 0.5 * salience + 0.3 * staleness_norm + 0.15 * message_norm + 0.05 * player_norm
-    return max(0.0, min(1.0, priority))
+    return clamp(priority, 0.0, 1.0)
 
 
 def backpressure_fraction(priority: float) -> float:

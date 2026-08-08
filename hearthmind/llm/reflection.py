@@ -24,6 +24,8 @@ the observation -> hypothesis -> evidence loop (5.A/5.B), the smallest
 coherent slice of the design."""
 from __future__ import annotations
 
+from hearthmind.util import clamp
+
 SYSTEM_PROMPT = (
     "You are Hearthmind's own reflective intelligence — not a person, not "
     "any one pillar, but the part of the mind that studies the whole "
@@ -91,7 +93,7 @@ def parse_hypothesis(result: dict, fallback: dict) -> dict:
         hypothesis = fallback["hypothesis"]
     if not isinstance(confidence, (int, float)):
         confidence = fallback["confidence"]
-    confidence = max(0.0, min(1.0, float(confidence)))
+    confidence = clamp(float(confidence), 0.0, 1.0)
     if not isinstance(evidence_against_hint, str) or not evidence_against_hint.strip():
         evidence_against_hint = fallback["evidence_against_hint"]
     return {

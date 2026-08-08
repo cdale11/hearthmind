@@ -76,6 +76,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass, field
 
+from hearthmind.util import clamp
 from hearthmind.world.ca_operators import reaction_diffuse
 from hearthmind.world.terrain import Biome, Tile, classify_with_bias
 
@@ -324,7 +325,7 @@ def tick_hydrology(
                 grid[y][x] = MOISTURE_MAX
                 continue
             value = grid[y][x] + MOISTURE_PRECIPITATION_GAIN * precipitation - evaporation
-            grid[y][x] = max(MOISTURE_MIN, min(MOISTURE_MAX, value))
+            grid[y][x] = clamp(value, MOISTURE_MIN, MOISTURE_MAX)
 
     # Pass 2: single-step downhill transfer, computed against a
     # snapshot of pass 1's result (not in-place) so no tile's transfer
@@ -355,7 +356,7 @@ def tick_hydrology(
         for x in range(width):
             if terrain[y][x].biome in _WATER_BIOMES:
                 continue
-            grid[y][x] = max(MOISTURE_MIN, min(MOISTURE_MAX, grid[y][x] + deltas[y][x]))
+            grid[y][x] = clamp(grid[y][x] + deltas[y][x], MOISTURE_MIN, MOISTURE_MAX)
 
 
 def tick_groundwater(field: HydrologyField, terrain: list[list[Tile]]) -> None:
@@ -388,7 +389,7 @@ def tick_groundwater(field: HydrologyField, terrain: list[list[Tile]]) -> None:
                 seep = min(g, (GROUNDWATER_SEEP_THRESHOLD - m)) * GROUNDWATER_SEEP_FRACTION
                 g -= seep
                 moisture[y][x] = min(MOISTURE_MAX, m + seep)
-            ground[y][x] = max(GROUNDWATER_MIN, min(GROUNDWATER_MAX, g - GROUNDWATER_PERCOLATION_LOSS))
+            ground[y][x] = clamp(g - GROUNDWATER_PERCOLATION_LOSS, GROUNDWATER_MIN, GROUNDWATER_MAX)
 
 
 def tick_snowpack(field: HydrologyField, terrain: list[list[Tile]], temperature_c: float) -> None:
@@ -479,7 +480,7 @@ def tick_erosion(
             if delta == 0.0:
                 continue
             tile = terrain[y][x]
-            new_elevation = max(0.0, min(1.0, tile.elevation + delta))
+            new_elevation = clamp(tile.elevation + delta, 0.0, 1.0)
             new_biome = classify_with_bias(new_elevation)
             if new_biome in _WATER_BIOMES or tile.biome in _WATER_BIOMES or tile.biome is Biome.QUARRY:
                 # Erosion never drowns a land tile into a water biome or

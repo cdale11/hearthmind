@@ -7953,8 +7953,8 @@ class SimulationEngine:
             settlement = self._settlement_by_id(item.get("settlement_id", self.world.settlement.id))
             materials_delta = float(item.get("materials", 0.0))
             currency_delta = float(item.get("currency", 0.0))
-            settlement.materials = max(0.0, min(MATERIALS_CAPACITY, settlement.materials + materials_delta))
-            settlement.currency = max(0.0, min(CURRENCY_CAPACITY, settlement.currency + currency_delta))
+            settlement.materials = clamp(settlement.materials + materials_delta, 0.0, MATERIALS_CAPACITY)
+            settlement.currency = clamp(settlement.currency + currency_delta, 0.0, CURRENCY_CAPACITY)
             self._log(
                 "intervention",
                 f"An outside hand adjusted the settlement's stores "
@@ -9587,7 +9587,7 @@ class SimulationEngine:
         chance = min(1.0, INVENTION_CHANCE_PER_SEASON * education_invention_bonus(settlement.education_level))
         # Vision item 5.3: self-tuning's bounded nudge on ontology
         # coherence, if any has ever been applied.
-        chance = max(0.0, min(1.0, chance * self.world.governor_tuning.get("ontology_proposal_chance", 1.0)))
+        chance = clamp(chance * self.world.governor_tuning.get("ontology_proposal_chance", 1.0), 0.0, 1.0)
         if _namespaced_roll(self.world.config.seed, self.world.clock.tick_count, "ontology_proposal_roll") >= chance:
             self._pillar_close_cycle("innovation")
             return
@@ -12760,7 +12760,7 @@ class SimulationEngine:
                 continue
             recurred = current_pattern is not None and entry.get("subject") == current_pattern["subject"]
             step = REFLECTION_CONFIDENCE_STEP if recurred else -REFLECTION_CONFIDENCE_STEP
-            entry["confidence"] = round(max(0.0, min(1.0, entry["confidence"] + step)), 3)
+            entry["confidence"] = round(clamp(entry["confidence"] + step, 0.0, 1.0), 3)
             if recurred:
                 entry.setdefault("evidence_for", []).append(current_pattern["description"])
             if entry["confidence"] >= REFLECTION_SUPPORTED_THRESHOLD:
@@ -13516,8 +13516,8 @@ class SimulationEngine:
             ):
                 currency_delta *= 1.0 + SHOPKEEPER_CARAVAN_YIELD_BONUS
                 materials_delta *= 1.0 + SHOPKEEPER_CARAVAN_YIELD_BONUS
-        settlement.currency = max(0.0, min(CURRENCY_CAPACITY, settlement.currency + currency_delta))
-        settlement.materials = max(0.0, min(MATERIALS_CAPACITY, settlement.materials + materials_delta))
+        settlement.currency = clamp(settlement.currency + currency_delta, 0.0, CURRENCY_CAPACITY)
+        settlement.materials = clamp(settlement.materials + materials_delta, 0.0, MATERIALS_CAPACITY)
 
         # The trade itself (above) is objective reality and always
         # applies; only the LLM/fallback narration is subject to
@@ -15675,7 +15675,7 @@ class SimulationEngine:
             stl_a, stl_b = self._settlement_by_id(a_id), self._settlement_by_id(b_id)
             if stl_a is None or stl_b is None:
                 return
-            new_relation = max(-1.0, min(1.0, stl_a.relations.get(b_id, 0.0) + delta))
+            new_relation = clamp(stl_a.relations.get(b_id, 0.0) + delta, -1.0, 1.0)
             stl_a.relations[b_id] = new_relation
             stl_b.relations[a_id] = new_relation
             self._log("diplomacy_event", f"Between {stl_a.name} and {stl_b.name}: {narration}")

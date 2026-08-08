@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import hashlib
 
+from hearthmind.util import clamp
+
 VOWELS = "aeiou"
 
 _VOWEL_SHIFT: dict[str, str] = {"a": "e", "e": "i", "i": "o", "o": "u", "u": "a"}
@@ -113,7 +115,7 @@ def drift_term(term: str, steps: int = 1) -> str:
     term = term.strip().lower()
     if not term:
         return term
-    steps = max(1, min(MAX_DRIFT_STEPS, steps))
+    steps = clamp(steps, 1, MAX_DRIFT_STEPS)
     for _ in range(steps):
         drifted = _drift_once(term)
         if drifted == term:

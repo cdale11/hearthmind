@@ -21,6 +21,7 @@ from hearthmind.agents.agent import (
     normalize_voice_phrase,
 )
 from hearthmind.agents.occupations import OCCUPATION_DIALOGUE_REGISTER
+from hearthmind.util import clamp
 
 SYSTEM_PROMPT = (
     "You are writing a brief, natural exchange between two villagers who "
@@ -743,7 +744,7 @@ def parse_dialogue(result: dict, fallback: dict) -> dict:
     debt_delta = result.get("debt_delta")
     if not isinstance(debt_delta, (int, float)) or isinstance(debt_delta, bool):
         debt_delta = 0.0
-    debt_delta = max(-DIALOGUE_DEBT_DELTA_MAX, min(DIALOGUE_DEBT_DELTA_MAX, float(debt_delta)))
+    debt_delta = clamp(float(debt_delta), -DIALOGUE_DEBT_DELTA_MAX, DIALOGUE_DEBT_DELTA_MAX)
     return {
         "line_a": line_a.strip()[:120],
         "line_b": line_b.strip()[:120],

@@ -742,6 +742,46 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.294)
+
+Explicit user instruction: "Start next phase" — moves from Phase 7
+(R8's native-porting work, correctly opportunistic and never fully
+closable in one pass) to Phase 8 ("Residual polish on already-shipped
+mechanisms"). Selected **R3** (`docs/REFACTOR-2026-07.md`) as the
+first Phase 8 item, since the roadmap's own text frames it as safely
+batchable ("Low-value, low-risk, mechanical") — a natural fit for
+this session's own established "sweep every same-shaped site in one
+batch" discipline (R8's own precedent), applied here to a pure-Python
+textual refactor rather than a native port.
+
+A real grep sweep (`max\([^()]*,\s*min\(`) found 60 actual matches
+across 29 files — more than the item's own stale "25+" estimate, and
+two of its own named example files (`population.py`, `agents/agent.
+py`/`llm/beliefs.py`) turned out already fully migrated in earlier
+sessions, a stale doc claim corrected rather than redone. All 58 real
+remaining sites (excluding `clamp()`'s own definition/docstring in
+`util.py`) converted in one batch across those 29 files;
+`from hearthmind.util import clamp` added to the ~26 that lacked it.
+Two local same-shaped helpers with their own distinct call signatures
+(`ml/evolution.py`'s `_clamp(value, bounds: tuple)`, `simulation/
+tuning.py`'s bound method `Tunable.clamp(self, v)`) kept their public
+signature but now delegate their body to the shared function instead
+of duplicating the idiom a second time — confirmed the bare-name
+`clamp` call inside `Tunable.clamp`'s own body resolves to the
+module-level import via ordinary Python name resolution, not
+self-recursion. Every conversion is a pure textual substitution — the
+exact same formula on the exact same arguments — never a behavior
+change; a final sweep after the batch found zero remaining real
+matches.
+
+Verified: `ast.parse()`/`pyflakes` clean on all 29 touched files
+(only the six known pre-existing forward-ref findings in `engine.py`
+remain); a 500-tick production-path smoke test; `scripts/verify_
+native_soak.py` (3 seeds x 3000 ticks) — MATCH, byte-identical full
+`World.to_dict()` state every tick. No native module touched. Closes
+R3; Phase 8's other items (A1-A22, R1) remain open, resume only on
+future explicit direction.
+
 ## Current state (v1.34.293)
 
 Explicit user instruction: "continue R8 with the next batch" — the

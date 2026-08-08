@@ -77,6 +77,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
+from hearthmind.util import clamp
+
 logger = logging.getLogger("hearthmind.recorder")
 
 SCHEMA_VERSION = 1
@@ -297,7 +299,7 @@ class TrainingRecorder:
         with self._lock:
             self._policy = policy_enum
             self._selected_tasks = set(selected_tasks or [])
-            self._sample_rate = max(0.0, min(1.0, sample_rate))
+            self._sample_rate = clamp(sample_rate, 0.0, 1.0)
             self._session_id = uuid.uuid4().hex[:12]
             self._session_name = session_name or f"session-{self._session_id}"
             self._session_tags = self._with_epoch_tag(tags)

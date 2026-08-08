@@ -43,6 +43,7 @@ from dataclasses import dataclass, field
 from hearthmind.ml.encoder import FeatureEncoder, FeatureSchema
 from hearthmind.ml.primitives import MLP
 from hearthmind.ml.training import TrainingExample, mean_loss, train_mlp_sgd
+from hearthmind.util import clamp
 
 VALUE_MODEL_SCHEMA_VERSION = 1
 """Roadmap Phase 2, L2.1 (explicit user instruction: "wire L2.1 and
@@ -78,9 +79,9 @@ def compute_consequence_label(magnitude: float, life_event_followed: bool, life_
     purpose: a magnitude=0 observation that a real life event followed
     should still register as somewhat consequential, not stay pinned
     at zero the way a multiplicative bonus would leave it."""
-    base = max(0.0, min(1.0, magnitude))
+    base = clamp(magnitude, 0.0, 1.0)
     if life_event_followed:
-        base = max(0.0, min(1.0, base + life_event_bonus))
+        base = clamp(base + life_event_bonus, 0.0, 1.0)
     return base
 
 

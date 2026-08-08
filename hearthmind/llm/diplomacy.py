@@ -13,6 +13,8 @@ holds, exactly as if no contact happened), never a fabricated event.
 """
 from __future__ import annotations
 
+from hearthmind.util import clamp
+
 SYSTEM_PROMPT = (
     "You are reasoning about relations between two neighboring settlements in "
     "a small simulated world. Given their current mutual standing and what "
@@ -85,5 +87,5 @@ def parse_diplomacy(result: dict, fallback: dict) -> tuple[str, float] | None:
     delta = result.get("relation_delta")
     if not isinstance(delta, (int, float)):
         delta = 0.0
-    delta = max(-DIPLOMACY_DELTA_MAX, min(DIPLOMACY_DELTA_MAX, float(delta)))
+    delta = clamp(float(delta), -DIPLOMACY_DELTA_MAX, DIPLOMACY_DELTA_MAX)
     return narration.strip()[:200], delta

@@ -40,6 +40,7 @@ from hearthmind.ml.encoder import FeatureEncoder, FeatureSchema
 from hearthmind.ml.primitives import MLP
 from hearthmind.ml.specialist import LearnResult, LearningSpecialist
 from hearthmind.ml.training import TrainingExample
+from hearthmind.util import clamp
 
 DECISION_POLICY_SCHEMA_VERSION = 1
 
@@ -200,7 +201,7 @@ def reweight_by_outcome(examples: list, outcome_weights: list) -> list:
     that module's docstring."""
     reweighted = []
     for ex, w in zip(examples, outcome_weights):
-        w = max(0.0, min(1.0, w))
+        w = clamp(w, 0.0, 1.0)
         count = max(1, round(w * OUTCOME_OVERSAMPLE_SCALE))
         reweighted.extend([ex] * count)
     return reweighted

@@ -85,6 +85,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from hearthmind.util import clamp
 from hearthmind.world.ca_operators import diffuse
 
 FIELD_GRID_SIZE = 3
@@ -437,7 +438,7 @@ class FieldGrid:
         for (rx, ry), temp_c in weather_region_temps.items():
             if 0 <= rx < FIELD_GRID_SIZE and 0 <= ry < FIELD_GRID_SIZE:
                 span = HEAT_WARM_C - HEAT_COLD_C
-                raw[ry][rx] = max(0.0, min(1.0, (temp_c - HEAT_COLD_C) / span)) if span else 0.0
+                raw[ry][rx] = clamp((temp_c - HEAT_COLD_C) / span, 0.0, 1.0) if span else 0.0
         self.fields["heat"] = diffuse(raw, HEAT_DIFFUSE_RATE)
 
     def step_nutrients(self, food_node_items: list[tuple[tuple[int, int], float]], width: int, height: int) -> None:
@@ -609,10 +610,11 @@ class FieldGrid:
         raw = [[0.0 for _ in range(FIELD_GRID_SIZE)] for _ in range(FIELD_GRID_SIZE)]
         for (rx, ry), ws in weather_region_states.items():
             if 0 <= rx < FIELD_GRID_SIZE and 0 <= ry < FIELD_GRID_SIZE:
-                raw[ry][rx] = max(0.0, min(1.0, (
+                raw[ry][rx] = clamp(
                     ws.precipitation * STORMINESS_PRECIPITATION_WEIGHT
-                    + ws.wind * STORMINESS_WIND_WEIGHT
-                )))
+                    + ws.wind * STORMINESS_WIND_WEIGHT,
+                    0.0, 1.0,
+                )
         self.fields["storminess"] = diffuse(raw, STORMINESS_DIFFUSE_RATE)
 
     def step_surprise(

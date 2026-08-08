@@ -35,6 +35,7 @@ from dataclasses import dataclass, field
 from hearthmind.ml.encoder import FeatureEncoder, FeatureSchema
 from hearthmind.ml.primitives import MLP
 from hearthmind.ml.training import TrainingExample, mean_loss, train_mlp_sgd
+from hearthmind.util import clamp
 
 LLM_COST_SCHEMA_VERSION = 1
 
@@ -221,7 +222,7 @@ class CostPredictionAccuracyTracker:
         baseline = self.naive_baseline_mae()
         if not baseline:
             return 1.0
-        return max(0.0, min(1.0, 1.0 - (mae / baseline)))
+        return clamp(1.0 - (mae / baseline), 0.0, 1.0)
 
 
 def should_preflight_defer(

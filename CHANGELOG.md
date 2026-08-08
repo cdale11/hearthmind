@@ -4,6 +4,81 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.294] — R3: finish the clamp() migration
+
+Explicit user instruction: "Start next phase" — moves from Phase 7
+(R8's native-porting work, opportunistic/never fully closable in one
+pass) to Phase 8 ("Residual polish on already-shipped mechanisms").
+Picked **R3** as the first Phase 8 item: the roadmap's own text frames
+it as safely batchable ("Low-value, low-risk, mechanical"), matching
+this session's own established R8 "sweep every same-shaped site in
+one batch" discipline, just applied to a pure-Python refactor instead
+of a native port.
+
+A real grep sweep (`max\([^()]*,\s*min\(`) found **60 actual matches**
+across 29 files — more than the item's own stale "25+" estimate. Two
+of the item's own named example files, `population.py` and `agents/
+agent.py`/`llm/beliefs.py`, turned out already fully migrated in
+earlier sessions (confirmed via a direct grep for existing `clamp(`
+usage) — a stale doc claim, corrected rather than re-done. All 58 real
+remaining sites (excluding `clamp()`'s own definition + docstring in
+`util.py`) converted in this one batch: `agents/population.py` (2),
+`persistence/snapshot.py` (8, identical `limit = clamp(limit, 1,
+QUERY_LIMIT_MAX)` pattern), `interface/api.py` (1), `settlement/
+buildings.py` (1), `world/wildlife.py` (4), `world/fields.py` (2, one
+multi-line), `world/dialect_grammar.py` (1), `world/aesthetics.py`
+(1), `world/hydrology_field.py` (4), `world/emergence.py` (1), `llm/
+self_tuning.py` (1), `llm/dialogue.py` (1), `llm/ontology.py` (1,
+inside a ternary), `llm/diplomacy.py` (1), `llm/reflection.py` (1),
+`llm/recorder.py` (1), `economy/farms.py` (2), `ml/llm_cost.py` (1),
+`ml/value_model.py` (2), `ml/decision_policy.py` (1), `ml/goal_
+policy.py` (1), `cognition/pillar.py` (2), `cognition/attention.py`
+(2), `cognition/workspace.py` (2), `simulation/hardware_profile.py`
+(1), `simulation/engine.py` (7), `simulation/forecasting.py` (2),
+`simulation/persistence_scheduling.py` (1). `from hearthmind.util
+import clamp` added to the ~26 files that lacked it (three —
+`population.py`, `settlement/buildings.py`, `simulation/engine.py` —
+already had it).
+
+Two sites needed a judgment call rather than a mechanical swap, since
+each already had its own local same-shaped helper with a distinct
+call signature: `ml/evolution.py`'s `_clamp(value, bounds: tuple)`
+and `simulation/tuning.py`'s `Tunable.clamp(self, v)` (a bound
+method). Both kept their own public signature — real callers use the
+`bounds`-tuple / `self`-bound conventions — but their BODY now
+delegates to the shared free function (`return clamp(value, lo, hi)`
+/ `return clamp(v, self.min_value, self.max_value)`) instead of
+duplicating the `max(low, min(high, value))` idiom a second time.
+Confirmed the bare-name `clamp` call inside `Tunable.clamp`'s own
+body resolves to the module-level import (Python's LEGB name
+resolution — a method body has no local binding named `clamp`, so it
+skips straight to the global scope), not infinite self-recursion.
+
+Every conversion is a pure textual substitution — each site computes
+the exact same formula (`max(low, min(high, value))`, or the
+occasional differently-ordered equivalent, e.g. `persistence/
+snapshot.py`'s `max(1, min(limit, QUERY_LIMIT_MAX))` and `simulation/
+forecasting.py`'s `max(0, min(current_capacity, round(raw)))`) on the
+exact same arguments — never a behavior change. A final grep sweep
+after the batch confirmed zero remaining real matches (`hearthmind/
+util.py`'s own two lines — the function definition and its
+docstring's worked example — are the only survivors, as expected).
+
+Verified: `ast.parse()` clean on all 29 touched files; `pyflakes`
+clean (only the six known pre-existing forward-ref findings in
+`engine.py`, unrelated to this batch); a 500-tick production-path
+smoke test through the real `SimulationEngine._tick_once()` (LLM
+disabled); `scripts/verify_native_soak.py` (3 seeds x 3000 ticks) —
+MATCH, byte-identical full `World.to_dict()` state every tick,
+confirming this pure-Python textual refactor disturbed neither the
+native fast paths nor their Python fallbacks. No native module
+touched — `setup.py`'s source list is unchanged this pass.
+
+`docs/ROADMAP-2026-07-REMAINING.md`'s R3 bullet marked shipped with
+the real site count and file list. This closes R3 — Phase 8's other
+items (A1-A22, R1) remain open, resume only on future explicit
+direction.
+
 ## [1.34.293] — R8 third batch: disease death-chance chain ported
 
 Explicit user instruction: "continue R8 with the next batch" — the

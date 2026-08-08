@@ -57,6 +57,7 @@ from dataclasses import dataclass, field
 from hearthmind.ml.primitives import MLP
 from hearthmind.ml.specialist import LearningSpecialist
 from hearthmind.ml.training import mean_loss, train_mlp_sgd
+from hearthmind.util import clamp
 
 FITNESS_HISTORY_MAX = 20
 """Same bound and same rationale as `world/ontology.py`'s own
@@ -82,7 +83,7 @@ py`'s own small-perturbation trait mutation, not a full reroll)."""
 
 def _clamp(value: float, bounds: tuple) -> float:
     lo, hi = bounds
-    return max(lo, min(hi, value))
+    return clamp(value, lo, hi)
 
 
 @dataclass

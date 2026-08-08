@@ -24,6 +24,8 @@ shape gets exercised (and can be corrected) against real signals
 before anything downstream depends on it."""
 from __future__ import annotations
 
+from hearthmind.util import clamp
+
 OBSERVATION_KINDS: tuple[str, ...] = (
     "anomaly", "novel_combination", "bottleneck", "unexplained_shift", "opportunity",
 )
@@ -72,7 +74,7 @@ def make_observation(
     if bad_pillars:
         raise ValueError(f"unknown pillar(s) {bad_pillars!r}, expected a subset of {PILLARS}")
     if magnitude is not None:
-        magnitude = max(0.0, min(1.0, magnitude))
+        magnitude = clamp(magnitude, 0.0, 1.0)
     return {
         "id": observation_id,
         "tick": tick,

@@ -1429,7 +1429,7 @@ def tick_market_prices(settlement: "Settlement", population_hint: int = 0) -> No
         target *= relation_factor
         current = prices.get(good, 1.0)
         blended = current * MARKET_PRICE_SMOOTHING + target * (1.0 - MARKET_PRICE_SMOOTHING)
-        prices[good] = round(max(MARKET_PRICE_MIN, min(MARKET_PRICE_MAX, blended)), 3)
+        prices[good] = round(clamp(blended, MARKET_PRICE_MIN, MARKET_PRICE_MAX), 3)
 
 
 MARKET_CARAVAN_CHANCE_MULTIPLIER = 1.25

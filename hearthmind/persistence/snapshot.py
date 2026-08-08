@@ -7,6 +7,7 @@ import time
 
 from hearthmind.config import Config
 from hearthmind.persistence.diff import apply_patch, diff_dict
+from hearthmind.util import clamp
 from hearthmind.world.state import World
 
 
@@ -191,7 +192,7 @@ def recent_consciousness_log(conn: sqlite3.Connection, kind: str | None = None, 
     `kind`. Developer-observatory-only reader (Phase G/N dev-console-only
     discipline) — never consumed by any LLM prompt (see database.py's
     schema docstring for why the durable log is a separate table)."""
-    limit = max(1, min(limit, QUERY_LIMIT_MAX))
+    limit = clamp(limit, 1, QUERY_LIMIT_MAX)
     if kind is not None:
         rows = conn.execute(
             "SELECT tick, logged_at, kind, text FROM consciousness_log WHERE kind = ? ORDER BY id DESC LIMIT ?",
@@ -261,7 +262,7 @@ def recent_agent_memory_log(
     filtered to one `kind`. Backs `GET /agents/{id}/memory_log` — the
     NPC inspector's on-demand "full life history" fetch, main-UI
     visible per explicit user direction (unlike `consciousness_log`)."""
-    limit = max(1, min(limit, QUERY_LIMIT_MAX))
+    limit = clamp(limit, 1, QUERY_LIMIT_MAX)
     if kind is not None:
         rows = conn.execute(
             "SELECT tick, logged_at, kind, text FROM agent_memory_log "
@@ -389,7 +390,7 @@ def log_metrics(conn: sqlite3.Connection, tick: int, metrics: dict, commit: bool
 def recent_metrics(conn: sqlite3.Connection, limit: int = 365) -> list[dict]:
     """Most-recent metrics rows, oldest-first (chart-ready). Each row is
     the stored dict plus its tick."""
-    limit = max(1, min(limit, QUERY_LIMIT_MAX))
+    limit = clamp(limit, 1, QUERY_LIMIT_MAX)
     rows = conn.execute(
         "SELECT tick, metrics_json FROM metrics ORDER BY id DESC LIMIT ?", (limit,)
     ).fetchall()
@@ -402,7 +403,7 @@ def recent_metrics(conn: sqlite3.Connection, limit: int = 365) -> list[dict]:
 
 
 def recent_events(conn: sqlite3.Connection, limit: int = 20) -> list[dict]:
-    limit = max(1, min(limit, QUERY_LIMIT_MAX))
+    limit = clamp(limit, 1, QUERY_LIMIT_MAX)
     rows = conn.execute(
         "SELECT tick, logged_at, category, description FROM events ORDER BY id DESC LIMIT ?",
         (limit,),
@@ -494,7 +495,7 @@ def recent_events_diverse(conn: sqlite3.Connection, limit: int = 20, routine_cap
     public `/events`/`/history` API keeps calling plain `recent_events`
     so nothing is ever hidden from a reader, only from what a prompt
     happens to sample."""
-    limit = max(1, min(limit, QUERY_LIMIT_MAX))
+    limit = clamp(limit, 1, QUERY_LIMIT_MAX)
     if routine_cap is None:
         routine_cap = max(1, limit // 3)
     raw = recent_events(conn, limit=min(limit * 4, QUERY_LIMIT_MAX))
@@ -518,7 +519,7 @@ def events_by_category(conn: sqlite3.Connection, category: str, limit: int = 20)
     category events without pulling (and client-side filtering) the
     whole diverse event window. Same `limit` clamp as every other
     events query."""
-    limit = max(1, min(limit, QUERY_LIMIT_MAX))
+    limit = clamp(limit, 1, QUERY_LIMIT_MAX)
     rows = conn.execute(
         "SELECT tick, logged_at, category, description FROM events WHERE category = ? ORDER BY id DESC LIMIT ?",
         (category, limit),
@@ -541,7 +542,7 @@ def events_since_tick(
     unrelated older history and a long one doesn't silently truncate to
     only the last `limit` routine-heavy rows without at least trying to
     keep the non-routine ones from the whole gap."""
-    limit = max(1, min(limit, QUERY_LIMIT_MAX))
+    limit = clamp(limit, 1, QUERY_LIMIT_MAX)
     if routine_cap is None:
         routine_cap = max(1, limit // 3)
     rows = conn.execute(
@@ -583,7 +584,7 @@ docs/DECISIONS.md, "map/UI/ecology follow-up.\""""
 
 
 def history_events(conn: sqlite3.Connection, limit: int = 200) -> list[dict]:
-    limit = max(1, min(limit, QUERY_LIMIT_MAX))
+    limit = clamp(limit, 1, QUERY_LIMIT_MAX)
     placeholders = ",".join("?" for _ in HISTORY_CATEGORIES)
     rows = conn.execute(
         f"SELECT tick, logged_at, category, description FROM events "

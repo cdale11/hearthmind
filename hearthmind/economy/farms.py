@@ -17,6 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
+from hearthmind.util import clamp
 from hearthmind.world.resources import is_adjacent_to_water
 from hearthmind.world.terrain import Biome, Tile
 
@@ -374,10 +375,10 @@ class FarmGrid:
         test keeps its old behavior exactly."""
         base_max_yield = MAX_FARM_YIELD * FARM_TOOL_YIELD_MULTIPLIER if tooled else MAX_FARM_YIELD
         fertility = self.fertility_at(x, y)
-        moisture_factor = FARM_MOISTURE_YIELD_MIN_FACTOR + max(0.0, min(1.0, moisture)) * (
+        moisture_factor = FARM_MOISTURE_YIELD_MIN_FACTOR + clamp(moisture, 0.0, 1.0) * (
             1.0 - FARM_MOISTURE_YIELD_MIN_FACTOR
         )
-        pollution_factor = 1.0 - max(0.0, min(1.0, pollution)) * (1.0 - FARM_POLLUTION_YIELD_MIN_FACTOR)
+        pollution_factor = 1.0 - clamp(pollution, 0.0, 1.0) * (1.0 - FARM_POLLUTION_YIELD_MIN_FACTOR)
         plot = FarmPlot(x=x, y=y, max_yield=base_max_yield * fertility * moisture_factor * pollution_factor)
         self.plots[(x, y)] = plot
         self.soil_fertility.setdefault((x, y), fertility)

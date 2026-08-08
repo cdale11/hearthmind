@@ -2003,10 +2003,20 @@ minor relative to Phases 1-7.
   `_needs.py`/`_social.py`/`_settlement_ops.py`/`core.py`); a fully
   scoped, never-executed maintainability refactor, the single largest
   named piece of structural debt in the codebase.
-- **R3** (docs/REFACTOR-2026-07.md) — finish the `clamp()` migration:
-  25+ remaining `max(lo, min(hi, x))` sites across `population.py`,
-  `agents/agent.py`, `llm/beliefs.py`, etc. Low-value, low-risk,
-  mechanical.
+- ~~**R3** (docs/REFACTOR-2026-07.md) — finish the `clamp()` migration~~
+  **SHIPPED, v1.34.294.** A real grep sweep found 60 actual
+  `max(lo, min(hi, x))`-shaped matches (more than this item's own
+  stale "25+" estimate, and `population.py`/`agents/agent.py`/
+  `llm/beliefs.py` — this item's own named examples — were already
+  fully migrated in earlier sessions) across 29 files; all 58 real
+  sites (excluding `clamp()`'s own definition/docstring in `util.py`)
+  converted in one batch, `from hearthmind.util import clamp` added
+  to the ~26 files that lacked it. Two local same-shaped helpers
+  (`ml/evolution.py`'s `_clamp(value, bounds)`, `simulation/tuning.py`'s
+  `Tunable.clamp(v)`) kept their own call signatures but now delegate
+  their body to the shared function rather than duplicating the
+  idiom. Pure textual refactor — every site computes the exact same
+  formula on the exact same arguments, zero behavior change.
 
 ## Phase 9 — Standing discipline (perpetual, never "finished")
 

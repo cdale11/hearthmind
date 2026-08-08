@@ -74,6 +74,7 @@ from hearthmind.ml.encoder import FeatureEncoder, FeatureSchema
 from hearthmind.ml.primitives import MLP
 from hearthmind.ml.specialist import LearnResult, LearningSpecialist
 from hearthmind.ml.training import TrainingExample
+from hearthmind.util import clamp
 
 # The closed AgentGoal set (agents/agent.py) -- kept as a plain string
 # list, not an import, so hearthmind/ml/ stays decoupled from World/
@@ -284,7 +285,7 @@ def reweight_by_outcome(examples: list, outcome_weights: list) -> list:
     fabricated weight."""
     reweighted = []
     for ex, w in zip(examples, outcome_weights):
-        w = max(0.0, min(1.0, w))
+        w = clamp(w, 0.0, 1.0)
         count = max(1, round(w * OUTCOME_OVERSAMPLE_SCALE))
         reweighted.extend([ex] * count)
     return reweighted

@@ -44,6 +44,8 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 
+from hearthmind.util import clamp
+
 PROFILE_SCHEMA_VERSION = 1
 _STORAGE_BENCH_SIZE_BYTES = 4 * 1024 * 1024  # 4 MiB -- cheap, not disruptive
 
@@ -406,7 +408,7 @@ def select_strategy(probe: HostProbe, profile: MachineProfile | None = None) -> 
         cache = "normal"
     else:
         llm_concurrent = 1
-        workers = max(1, min(cores, 2))
+        workers = clamp(cores, 1, 2)
         cache = "small"
 
     mem_pressure = mem_available < (mem_total * 0.2) if mem_total else False

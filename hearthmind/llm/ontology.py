@@ -25,6 +25,7 @@ codebase."""
 from __future__ import annotations
 
 from hearthmind.agents.agent import SKILL_CONSTRUCTION, SKILL_FARMING, SKILL_MEDICINE
+from hearthmind.util import clamp
 from hearthmind.world.ontology import MAX_HOOK_MAGNITUDE, MECHANICAL_HOOK_TYPES, ONTOLOGY_CATEGORIES
 
 VILLAGE_PROPOSE_CATEGORIES = tuple(c for c in ONTOLOGY_CATEGORIES if c != "ecological")
@@ -292,7 +293,7 @@ def validate_hook(
     pass, same as before this param existed."""
     if hook_type not in MECHANICAL_HOOK_TYPES or hook_type == "custom_text_only":
         return None
-    magnitude = max(0.0, min(1.0, magnitude)) if isinstance(magnitude, (int, float)) else 0.5
+    magnitude = clamp(magnitude, 0.0, 1.0) if isinstance(magnitude, (int, float)) else 0.5
     if hook_type == "skill_yield_bonus":
         if hook_target not in _VALID_SKILL_TARGETS:
             return None

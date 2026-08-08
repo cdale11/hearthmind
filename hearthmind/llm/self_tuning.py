@@ -14,6 +14,8 @@ world's own balance, not narrative texture) — deferred, never faked, on
 a spent budget or failed call, same as `nature_mind`/`beliefs`."""
 from __future__ import annotations
 
+from hearthmind.util import clamp
+
 TUNABLE_GOVERNORS = {
     "wildfire frequency": "wildfire_chance",
     "ontology coherence": "ontology_proposal_chance",
@@ -100,7 +102,7 @@ def parse_self_tuning(result: dict, fallback: dict) -> dict:
         direction = fallback["direction"]
     if not isinstance(magnitude, (int, float)):
         magnitude = fallback["magnitude"]
-    magnitude = max(0.0, min(1.0, float(magnitude)))
+    magnitude = clamp(float(magnitude), 0.0, 1.0)
     if not isinstance(rationale, str) or not rationale.strip():
         rationale = fallback["rationale"]
     return {
@@ -114,7 +116,7 @@ def apply_bounded_nudge(magnitude: float, direction: str, band: float) -> float:
     [1-band, 1+band] — the homeostatic band is enforced HERE,
     structurally, regardless of what the LLM asked for."""
     signed = magnitude * band * (1.0 if direction == "raise" else -1.0)
-    return max(1.0 - band, min(1.0 + band, 1.0 + signed))
+    return clamp(1.0 + signed, 1.0 - band, 1.0 + band)
 
 
 # --- advisory (B6 "Reflection as meta-scientist," roadmap Stage III step 13) ---
