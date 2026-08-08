@@ -773,28 +773,42 @@ that log at consolidation time.
 - [ ] **C4** — Shared record schema (A0.3) means a live-sim quality
   regression can be diagnosed with the same tooling as a bench run.
 
-- [ ] **C5 — The model passport [APPROVED].** HearthBench emits a
-  small, portable `passport.json` per benchmarked model that the
-  **runtime reads at startup** to configure itself — closing the C2
-  loop automatically instead of by hand.
-  - **Contents:** model id + quantization + file hash; HearthBench and
-    World scores with confidence; per-category strengths/weaknesses;
-    measured throughput (prompt tok/s, completion tok/s, TTFT, latency
-    p50/p95) and peak RSS at each concurrency level tested;
-    recommended settings (concurrency, context size, batch, whether it
-    needs grammar constraints to be reliable); and hard warnings (e.g.
-    "fails grounding — not recommended").
-  - **Runtime consumption:** on startup the runtime matches the
-    configured model to a passport and seeds its machine profile
-    (B7.2) with those priors instead of learning throughput from
-    scratch over the first hour. Passport values are *priors*, not
-    overrides — B6's controllers still adapt from live measurement.
-  - **Safety interlock:** a passport hard warning is surfaced in the
-    UI at startup rather than silently running a model known to
-    hallucinate facts.
-  - **Provenance:** passports record which host produced them; a
-    passport from a very different machine contributes throughput
-    priors with lower weight.
+- [x] **C5 — The model passport [APPROVED]. SHIPPED, v1.34.284.** Both
+  halves real: `hearthbench/reporting/passport.py` (emission) +
+  `hearthmind/simulation/hardware_profile.py`'s `seed_machine_profile_
+  from_passport`/`load_passport_dict` (runtime consumption), wired at
+  `SimulationEngine.__init__`.
+  - **Contents:** model id + quantization + file hash; the real
+    HearthBench score with confidence (`world_score` honestly `None` —
+    A5.11 doesn't exist yet); per-category strengths/weaknesses; real
+    measured throughput (completion tok/s, TTFT, latency p50/p95, never
+    fabricated when unmeasured); `recommended_settings.needs_grammar_
+    constraints`; real hard warnings, one per A10.2 disqualification
+    that fired. **Scope trim, honestly flagged**: peak RSS per
+    concurrency level ships empty (no A7.2 system-sampling thread
+    exists yet to source it from); `recommended_settings` covers only
+    `needs_grammar_constraints` today, not concurrency/context/batch
+    (those need a real concurrency-sweep benchmark, same A7.2
+    prerequisite).
+  - **Runtime consumption:** real. `SimulationEngine.__init__` matches
+    `Config.llm_model` to a passport (`passports/<slug>.json`, sibling
+    to the world's own `MachineProfile`) and seeds `measured_llm_
+    throughput_tokens_per_s` ONLY while that profile has never had a
+    real live measurement of its own — priors, not overrides, exactly
+    as this item's own text asks.
+  - **Safety interlock:** real. `full_diagnostics()['machine_profile']`
+    carries `passport_warnings`, rendered in the dev console's
+    "Adaptive runtime" panel as a real "Model passport: ⚠ ..." line.
+  - **Provenance, partially shipped, honestly flagged.** `produced_by_
+    host()` records a real host fingerprint on every passport (proven
+    to exactly match `hearthmind`'s own independent `host_fingerprint()`
+    formula via a real cross-implementation parity check in `scripts/
+    verify_c5_model_passport.py`) — but "a passport from a very
+    different machine contributes throughput priors with lower weight"
+    is NOT implemented: `seed_machine_profile_from_passport` seeds
+    unconditionally regardless of host match. Real, distinct future
+    work — needs a genuine similarity metric between two hardware
+    profiles this pass didn't design.
 
 # SEQUENCE
 

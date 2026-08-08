@@ -756,29 +756,115 @@ adapter layer), `A3` (prompt library/test definitions), `A4` (scoring
 three OBJECTIVE categories (`A5.7`/`A5.8`/`A5.9`, needing no judge
 model, plus `A5.10`'s guide), `A13`'s CI regression guard
 (`A13.1`-`A13.4`), `A7.1`/`A8` (the real run record + recomputable
-metrics)/`A11.4` (resume), and `A9`/`A10` (reports + the real weighted
-composite Score) are all shipped. Per the checklist's own SEQUENCE
-(step 6, "A9 reports + A10 score; A12 UI; C5 model passport"), `A12`
-is the one item of step 6 still unbuilt (`A1.3`, its own named
-prerequisite, is now real — `A12`'s remaining gap is the actual
-HTTP-servable daemon page + UI, a genuinely separate lift). Remaining
-in the checklist's own real order:
+metrics)/`A11.4` (resume), `A9`/`A10` (reports + the real weighted
+composite Score), and **C5** (the model passport, both halves — real
+emission on the `hearthbench` side, real runtime consumption on the
+`hearthmind` side) are all shipped. Step 6 of the checklist's own
+SEQUENCE ("A9 reports + A10 score; A12 UI; C5 model passport") is now
+down to exactly one item — `A12`'s actual HTTP-servable daemon page +
+UI, a genuinely separate frontend/backend lift from anything shipped
+so far. Remaining in the checklist's own real order:
 
 `A12` web UI (incl. A12.9, the human-rating page over A4.3's already-
-real data model) + **C5** model passport (the rest of step 6) →
-`A4.2`'s remaining content-authoring half (the judge-scoring MECHANISM
-is already real; A5.1-A5.6's six subjective categories need real cases
-written against it) + `A4.3`'s human-rating page's own UI (step 7) →
-`A5.11` the world-level emergence run, gated on **B15.5**'s `reference_
-mode` (built, still unused — now genuinely closer, since A11.4/A8/A9/
-A10/A1.3 exist; step 8, explicitly last). `A6` structured-output
-validator (un-sequenced, buildable whenever, blocks nothing downstream)
-remains open but doesn't block any of the above. `A7.2` (a system-
-sampling thread), `A11.1`-`A11.3`/`A11.5` (the fuller quick/full/
-custom/strict-repro run-mode abstraction), and A9.1's latency/memory
-GRAPHS (no charting dependency exists in this repo) stay real,
-distinct, unstarted future work within their own already-partial
-items.
+real data model — the rest of step 6) → `A4.2`'s remaining content-
+authoring half (the judge-scoring MECHANISM is already real; A5.1-A5.6's
+six subjective categories need real cases written against it) + `A4.3`'s
+human-rating page's own UI (step 7) → `A5.11` the world-level emergence
+run, gated on **B15.5**'s `reference_mode` (built, still unused — now
+genuinely closer, since A11.4/A8/A9/A10/A1.3/C5 all exist; step 8,
+explicitly last). `A6` structured-output validator (un-sequenced,
+buildable whenever, blocks nothing downstream) remains open but
+doesn't block any of the above. `A7.2` (a system-sampling thread —
+needed for C5's own `peak_rss_mb_by_concurrency` field, honestly
+shipped empty until it exists), `A11.1`-`A11.3`/`A11.5` (the fuller
+quick/full/custom/strict-repro run-mode abstraction), and A9.1's
+latency/memory GRAPHS (no charting dependency exists in this repo)
+stay real, distinct, unstarted future work within their own
+already-partial items.
+
+- **C5 (the model passport) — SHIPPED, v1.34.284.** Both halves, per
+  the checklist's own literal spec — real emission on the `hearthbench`
+  side, real runtime consumption on the `hearthmind` side, coupled only
+  by a shared JSON shape (never a shared import — A1.2's firewall runs
+  BOTH directions).
+
+  New `hearthbench/reporting/passport.py`: `build_passport(score,
+  adapter_describe, latency_stats=None)` turns a real A10 `HearthBench
+  Score` + a real A2.1 `AdapterDescribe` (as a plain dict) + a real
+  `summarize_latency` output into a `ModelPassport` — model id/
+  quantization/file hash; the real composite score + confidence margin
+  (`world_score` honestly `None`, A5.11 doesn't exist yet); category
+  strengths/weaknesses (real score thresholds, `STRENGTH_THRESHOLD`/
+  `WEAKNESS_THRESHOLD`); measured throughput (flat real values, never
+  fabricated when unmeasured); `recommended_settings.needs_grammar_
+  constraints` (derived from the real structured_outputs score); real
+  hard warnings, one per A10.2 disqualification that actually fired.
+  `peak_rss_mb_by_concurrency` ships honestly empty — no A7.2
+  concurrency-sweep sampling mechanism exists yet to source it from.
+  `save_passport`/`load_passport` round-trip a versioned JSON file.
+
+  New consumption on the `hearthmind` side (`simulation/hardware_
+  profile.py`): `passport_filename_for` (a deterministic filesystem-
+  safe slug of a model id — no registry file to keep in sync),
+  `load_passport_dict` (reads the passport's own JSON shape as a plain
+  `dict`, degrades to `None` on any failure, same "never crash startup"
+  discipline `_load_or_create_machine_profile` already holds to), and
+  `seed_machine_profile_from_passport` — "Passport values are *priors*,
+  not overrides." Seeds `MachineProfile.measured_llm_throughput_
+  tokens_per_s` ONLY while that profile has never had a real live
+  measurement of its own; deliberately NOT gated on session count
+  (nothing in this codebase calls `record_llm_throughput` yet, so a
+  session-count gate would silently stop helping after a world's
+  second-ever startup with no live data having ever landed) — a
+  still-unseeded profile is re-consulted fresh every startup instead.
+  `MachineProfile` gained `passport_model_id`/`passport_warnings`
+  (round-trip safe, legacy pre-C5 profiles backfill to `None`/`[]`).
+
+  Wired at `SimulationEngine.__init__`'s real `_load_or_create_
+  machine_profile` call site via a new `_passport_path_for` (a
+  `passports/` directory sibling to wherever the world's own `Machine
+  Profile` persists, `None` under the identical `:memory:` condition
+  its sibling already exempts) — an operator who benchmarks a model
+  and drops the resulting `passport.json` at that exact path gets it
+  picked up automatically on the next startup, no config change
+  needed. The safety interlock ("a passport hard warning is surfaced
+  in the UI at startup"): `full_diagnostics()['machine_profile']`
+  gained `passport_model_id`/`passport_warnings`, rendered as a real
+  "Model passport: ⚠ ..." line in the existing "Adaptive runtime"
+  dev-console panel (`renderAdaptiveRuntimeStatus`, `app.js`) — a pure
+  presentation addition over already-real data, same discipline every
+  prior panel extension in this codebase has used.
+
+  New `scripts/verify_c5_model_passport.py` (41 checks, all pass): the
+  A1.2 firewall confirmed directly (AST-checked both directions, not
+  assumed); `build_passport`'s every field incl. a real disqualified
+  run producing a real worded hard warning; round-trip + schema-
+  version rejection; a real cross-implementation parity proof
+  (`hearthbench`'s own `produced_by_host()` matches `hearthmind`'s
+  independently-implemented `host_fingerprint()` on this real host,
+  confirming the two standalone reimplementations of the identical
+  formula genuinely agree); every `seed_machine_profile_from_passport`
+  case (fresh profile seeds, live-data profile never overwritten, a
+  many-times-loaded-but-never-measured profile is STILL seedable —
+  the direct proof the session-count gate was correctly left out);
+  `MachineProfile` round-trip incl. legacy backfill; and a real
+  end-to-end proof through `SimulationEngine.load_or_create` — a real
+  passport on disk seeds the fresh profile's throughput and surfaces
+  through `full_diagnostics()`, a mismatched model id neither seeds
+  nor crashes, and a `:memory:` db never touches disk for the lookup.
+
+  Verified: the new script (41 checks); `verify_hardware_profile.py`/
+  `verify_b7_hardware_citizenship.py`/`verify_b8_predictive_
+  scheduling.py`/`verify_runtime_diagnostics.py` all re-run clean;
+  `verify_hearthbench_isolation.py` (40 hearthbench files)/`verify_
+  hearthbench_adapter_isolation.py` both clean; `pyflakes` clean;
+  `node --check` clean on `app.js`. Unlike every other Phase 6 pass
+  this session, this ONE touches real `simulation/engine.py` code (the
+  `__init__` control point + `full_diagnostics()`) — `scripts/verify_
+  replay_hash.py` (800 ticks, seed 777, `--in-process`) and `scripts/
+  verify_native_soak.py` (seeds 1/55, 800 ticks) both re-run and MATCH,
+  confirming the new startup-time passport lookup is pure I/O/metadata
+  with zero effect on deterministic Body state or RNG consumption.
 
 - **A1.3 (process isolation) — SHIPPED, v1.34.283.** The prerequisite
   A12 itself names: "Bench runs execute in a subprocess with their own

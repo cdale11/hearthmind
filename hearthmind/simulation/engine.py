@@ -129,7 +129,10 @@ from hearthmind.simulation.scheduler import Scheduler, SubsystemBudget
 from hearthmind.simulation.tuning import BangBangController, SafetyClass, TunableRegistry, register_llm_pacing_tunables
 from hearthmind.simulation.tunable_evolution import TunableGenomePopulation, evaluate_tunable_genome_fitness
 from hearthmind.simulation.runtime_diagnostics import runtime_diagnostics_report
-from hearthmind.simulation.hardware_profile import GoodCitizenPolicy, HostProbe, MachineProfile, host_fingerprint, select_strategy
+from hearthmind.simulation.hardware_profile import (
+    PASSPORT_DIR_NAME, GoodCitizenPolicy, HostProbe, MachineProfile, host_fingerprint,
+    load_passport_dict, passport_filename_for, seed_machine_profile_from_passport, select_strategy,
+)
 from hearthmind.simulation.forecasting import (
     WORKLOAD_FORECAST_SCHEMA, ForecastAccuracyTracker, WorkloadForecaster, is_quiet_window, make_training_example,
 )
@@ -2138,6 +2141,23 @@ def _machine_profile_path_for(db_path: str) -> str | None:
     return os.path.join(directory, MACHINE_PROFILE_FILENAME)
 
 
+def _passport_path_for(machine_profile_path: str | None, model_id: str) -> str | None:
+    """C5's real control point: a benchmarked model's `passport.json`
+    lives in a `passports/` directory sibling to wherever this world's
+    own `MachineProfile` persists — `None` under the identical
+    `:memory:` condition `_machine_profile_path_for` already exempts
+    (no real directory to look in). The filename is derived purely
+    from `model_id` (`Config.llm_model`, the model this world is
+    actually configured to run) via `passport_filename_for` — an
+    operator who benchmarks a model with `hearthbench` and drops the
+    resulting `passport.json` at this exact path (no registry file to
+    update) gets it picked up automatically on the next startup."""
+    if machine_profile_path is None:
+        return None
+    directory = os.path.dirname(machine_profile_path)
+    return os.path.join(directory, PASSPORT_DIR_NAME, passport_filename_for(model_id))
+
+
 def _load_or_create_machine_profile(path: str | None) -> MachineProfile:
     """Loads a persisted `MachineProfile` if one exists and is readable;
     falls back to a fresh profile for this host on ANY failure (missing
@@ -2975,6 +2995,20 @@ class SimulationEngine:
         self._machine_profile_path = _machine_profile_path_for(config.db_path)
         self._machine_profile = _load_or_create_machine_profile(self._machine_profile_path)
         self._machine_profile.record_session()
+        # C5's real runtime-consumption half (docs/HEARTHBENCH-RUNTIME-
+        # 2026-07-23.md, Part C — "the runtime reads [a passport] at
+        # startup to configure itself"): a matching passport for THIS
+        # world's own configured model, if one exists on disk, seeds a
+        # genuinely fresh MachineProfile's throughput prior and
+        # refreshes any real hard warning it carries — a no-op, never a
+        # crash, when no passport exists yet or the profile already has
+        # real live data of its own. See `hardware_profile.seed_
+        # machine_profile_from_passport`'s own docstring for the exact
+        # freshness guard.
+        self._passport_path = _passport_path_for(self._machine_profile_path, config.llm_model)
+        passport = load_passport_dict(self._passport_path)
+        if passport is not None:
+            seed_machine_profile_from_passport(self._machine_profile, passport)
         self._last_strategy = None
         self._goal_policy_path = _goal_policy_path_for(config.db_path)
         self._goal_policy: "GoalPolicy | None" = _load_goal_policy(self._goal_policy_path)
@@ -18681,6 +18715,13 @@ class SimulationEngine:
                 "storage_write_mb_s": self._machine_profile.storage_write_mb_s,
                 "storage_read_mb_s": self._machine_profile.storage_read_mb_s,
                 "persisted": self._machine_profile_path is not None,
+                # C5's safety interlock: a matching passport's own real
+                # hard warnings ("fails grounding — not recommended"),
+                # refreshed at startup regardless of whether throughput
+                # itself was still seedable this session — `[]` when no
+                # matching passport was ever found, never fabricated.
+                "passport_model_id": self._machine_profile.passport_model_id,
+                "passport_warnings": list(self._machine_profile.passport_warnings),
                 "last_strategy": (
                     {
                         "llm_max_concurrent_hint": self._last_strategy.llm_max_concurrent_hint,

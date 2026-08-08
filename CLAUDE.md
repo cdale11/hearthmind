@@ -742,6 +742,79 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.284)
+
+Explicit user instruction: "continue phase 6" — C5 (the model
+passport), both halves per the checklist's own text: real emission on
+the `hearthbench` side, real runtime consumption on the `hearthmind`
+side, coupled only by a shared JSON shape (A1.2's firewall runs BOTH
+directions, confirmed via AST, not assumed).
+
+New `hearthbench/reporting/passport.py`: `build_passport(score,
+adapter_describe, latency_stats=None)` turns a real A10 `HearthBench
+Score` + a real A2.1 `describe()` dict + a real `summarize_latency`
+output into a `ModelPassport` — model id/quantization/file hash; score
++ confidence (`world_score` honestly `None`, A5.11 doesn't exist yet);
+category strengths/weaknesses; real measured throughput (never
+fabricated when unmeasured); `needs_grammar_constraints`; real hard
+warnings per A10.2 disqualification. `peak_rss_mb_by_concurrency`
+ships honestly empty (no A7.2 sampling thread yet). `save_passport`/
+`load_passport` round-trip a versioned JSON file.
+
+New consumption on `hearthmind`'s side (`hardware_profile.py`):
+`passport_filename_for`/`load_passport_dict` (degrades to `None` on
+any failure — never crashes startup) and `seed_machine_profile_from_
+passport` — "priors, not overrides." Seeds `MachineProfile.measured_
+llm_throughput_tokens_per_s` only while no real live measurement
+exists yet; deliberately NOT session-count-gated (nothing calls
+`record_llm_throughput` anywhere in this codebase yet, so that gate
+would silently stop helping after a world's second startup with zero
+live data ever landed) — a still-unseeded profile is re-consulted
+fresh every startup instead. `MachineProfile` gained `passport_model_
+id`/`passport_warnings` (round-trip safe, legacy profiles backfill to
+`None`/`[]`).
+
+Wired at `SimulationEngine.__init__` via new `_passport_path_for` (a
+`passports/` dir sibling to the world's own `MachineProfile`, `None`
+for `:memory:`) — drop a real `passport.json` there and it's picked up
+automatically, no config change needed. Safety interlock: `full_
+diagnostics()['machine_profile']` gained `passport_model_id`/
+`passport_warnings`, rendered as a real "Model passport: ⚠ ..." line
+in the dev console's "Adaptive runtime" panel.
+
+**Honestly flagged, not shipped**: "a passport from a very different
+machine contributes throughput priors with lower weight" — seeding is
+unconditional regardless of host match; needs a real similarity metric
+between two hardware profiles, real distinct future work.
+
+New `scripts/verify_c5_model_passport.py` (41 checks, all pass — one
+real test-script bug caught before shipping: the first end-to-end pass
+forgot to thread `latency_stats` into `build_passport` itself, so
+throughput stayed honestly empty; fixed, not a module bug): the A1.2
+firewall confirmed both directions; every `build_passport` field incl.
+a real disqualified run's worded hard warning; round-trip + schema
+rejection; a real cross-implementation parity proof (`hearthbench`'s
+`produced_by_host()` matches `hearthmind`'s independent `host_
+fingerprint()` on this real host); every seeding case (fresh seeds,
+live-data never overwritten, many-loads-never-measured STILL
+seedable); `MachineProfile` round-trip incl. legacy backfill; a real
+end-to-end proof through `SimulationEngine.load_or_create`.
+
+Verified: the new script (41 checks); `verify_hardware_profile.py`/
+`verify_b7_hardware_citizenship.py`/`verify_b8_predictive_
+scheduling.py`/`verify_runtime_diagnostics.py` all re-run clean;
+`verify_hearthbench_isolation.py` (40 hearthbench files)/`verify_
+hearthbench_adapter_isolation.py` both clean; `pyflakes` clean; `node
+--check` clean. Unlike every other Phase 6 pass this session, this ONE
+touches real `simulation/engine.py` code (`__init__` + `full_
+diagnostics()`) — `scripts/verify_replay_hash.py` (800 ticks, seed
+777, `--in-process`) and `scripts/verify_native_soak.py` (seeds 1/55,
+800 ticks) both re-run and MATCH, confirming the new startup-time
+passport lookup is pure I/O/metadata with zero effect on deterministic
+Body state or RNG consumption. Per SEQUENCE, `A12` (the web UI) is now
+the ONLY item left in step 6 — resume only on future explicit
+direction.
+
 ## Current state (v1.34.283)
 
 Explicit user instruction: "continue phase 6" — A1.3 (process

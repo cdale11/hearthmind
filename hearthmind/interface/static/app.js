@@ -525,6 +525,11 @@ function renderAdaptiveRuntimeStatus(engineReport) {
           + `${mp.storage_read_mb_s != null ? mp.storage_read_mb_s.toFixed(1) : "?"} MB/s`,
         `Persisted to disk: ${mp.persisted ? "yes" : "no (:memory: db)"}`,
         `Quiet window right now: ${mp.recent_llm_backlog_is_quiet_window ? "yes" : "no"}`,
+        `Model passport: ${mp.passport_model_id
+          ? `${mp.passport_model_id}${(mp.passport_warnings || []).length
+              ? " -- ⚠ " + mp.passport_warnings.join("; ")
+              : " (no warnings)"}`
+          : "no matching passport found"}`,
         strat
           ? `Hardware-derived hint: concurrency=${strat.llm_max_concurrent_hint}, `
             + `workers=${strat.worker_count_hint}, cache=${strat.cache_size_hint}, `

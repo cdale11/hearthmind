@@ -20,6 +20,17 @@ B7.4 `GoodCitizenPolicy`: back off before the OS starts swapping,
      yield under external load, respond to thermal state --
      configurable aggressiveness (a dedicated box may reasonably want
      less caution than a shared laptop).
+
+C5 `seed_machine_profile_from_passport`/`load_passport_dict`: the
+     runtime-side half of HearthBench's model passport (`hearthbench.
+     reporting.passport`) -- "HearthBench emits a small, portable
+     `passport.json` per benchmarked model that the runtime reads at
+     startup to configure itself." Deliberately reads a passport as a
+     plain `dict` (no import of `hearthbench` -- A1.2's firewall runs
+     BOTH directions) and only ever SEEDS `MachineProfile.measured_
+     llm_throughput_tokens_per_s` for a genuinely fresh profile,
+     wired at `simulation/engine.py`'s own real `_load_or_create_
+     machine_profile` call site.
 """
 from __future__ import annotations
 
@@ -27,9 +38,10 @@ import hashlib
 import json
 import os
 import platform
+import re
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 PROFILE_SCHEMA_VERSION = 1
@@ -199,6 +211,17 @@ class MachineProfile:
     optimal_batch_size: int | None = None
     storage_write_mb_s: float | None = None
     storage_read_mb_s: float | None = None
+    passport_model_id: str | None = None
+    """C5: the `model_id` of the passport most recently consulted at
+    startup (whether or not it actually seeded throughput this
+    session) -- `None` when no matching passport has ever been found
+    for the configured model."""
+    passport_warnings: list = field(default_factory=list)
+    """C5's safety interlock: every real hard warning a matching
+    passport carries (e.g. "fails grounding -- not recommended"),
+    refreshed every real startup regardless of whether throughput
+    itself was still seedable -- surfaced via `full_diagnostics()` so
+    a hard warning is never silently running unnoticed."""
 
     EMA_ALPHA = 0.3
 
@@ -229,6 +252,8 @@ class MachineProfile:
             measured_llm_throughput_tokens_per_s=d.get("measured_llm_throughput_tokens_per_s"),
             optimal_worker_count=d.get("optimal_worker_count"),
             optimal_batch_size=d.get("optimal_batch_size"),
+            passport_model_id=d.get("passport_model_id"),
+            passport_warnings=list(d.get("passport_warnings") or []),
             storage_write_mb_s=d.get("storage_write_mb_s"),
             storage_read_mb_s=d.get("storage_read_mb_s"),
         )
@@ -250,6 +275,82 @@ class MachineProfile:
         if os.path.isfile(path):
             return cls.load(path)
         return cls(host_fingerprint=host_fingerprint())
+
+
+PASSPORT_DIR_NAME = "passports"
+"""C5: where a benchmarked model's `passport.json` lives -- one file
+per model id, sibling to wherever a `MachineProfile` itself persists
+(`simulation/engine.py`'s own `_machine_profile_path_for` convention).
+A directory of passports accumulates naturally as more models get
+benchmarked over time; there is no registry file to keep in sync,
+since `passport_filename_for` derives the filename deterministically
+from the model id alone."""
+
+
+def passport_filename_for(model_id: str) -> str:
+    """A filesystem-safe slug of a model id -- lowercased, every run of
+    non `[a-z0-9._-]` characters collapsed to a single `_`. Deterministic
+    and stable for any real model id string this project has ever used
+    (`Config.llm_model`'s own docstring names several)."""
+    slug = re.sub(r"[^a-z0-9._-]+", "_", (model_id or "").strip().lower()).strip("_")
+    return f"{slug}.json" if slug else "unknown.json"
+
+
+def load_passport_dict(path: "str | None") -> "dict | None":
+    """Reads a raw passport JSON file into a plain `dict` -- no import
+    of `hearthbench` anywhere in this module or its callers (A1.2's
+    firewall runs BOTH directions: `hearthmind` must never import
+    `hearthbench`, only read the same JSON shape independently, same
+    "shared record schema, not a shared import" precedent A0.3/C4
+    already established). Any failure at all (missing file, corrupted
+    JSON, an unsupported/missing `schema_version`) degrades to `None`
+    -- a bad or absent passport must never be able to crash startup,
+    same discipline `_load_or_create_machine_profile` already holds to
+    for a bad `MachineProfile` file."""
+    if path is None or not os.path.isfile(path):
+        return None
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict) or data.get("schema_version") != 1:
+        return None
+    return data
+
+
+def seed_machine_profile_from_passport(profile: MachineProfile, passport: dict) -> bool:
+    """C5's real runtime-consumption half: "Passport values are
+    *priors*, not overrides -- B6's controllers still adapt from live
+    measurement." `measured_llm_throughput_tokens_per_s` is seeded
+    ONLY while the profile has never had a real live measurement of
+    its own (`measured_llm_throughput_tokens_per_s is None`) -- a
+    profile with even one real live reading (from `record_llm_
+    throughput`, whenever a future item wires a real caller) is never
+    touched by a passport again, regardless of `sessions_recorded`.
+    Deliberately NOT gated on session count: nothing in this codebase
+    calls `record_llm_throughput` yet, so a session-count gate would
+    silently stop helping after a world's second-ever startup even
+    though no live measurement has genuinely ever landed -- the real
+    freshness signal is "has this profile ever measured throughput for
+    itself," not "how many times has it been loaded." A still-unseeded
+    profile is re-consulted every startup, so a newer benchmark
+    passport can update a stale prior before any live data exists.
+    `passport_warnings`/`passport_model_id` are refreshed
+    unconditionally on every real call (the safety-interlock half:
+    surfaced via `full_diagnostics()` regardless of whether throughput
+    itself was still seedable). Returns whether throughput was
+    actually seeded this call."""
+    profile.passport_model_id = passport.get("model_id")
+    profile.passport_warnings = [str(w) for w in (passport.get("hard_warnings") or [])]
+    if profile.measured_llm_throughput_tokens_per_s is not None:
+        return False
+    throughput = passport.get("measured_throughput") or {}
+    tok_s = throughput.get("completion_tokens_per_s")
+    if not isinstance(tok_s, (int, float)) or tok_s <= 0:
+        return False
+    profile.measured_llm_throughput_tokens_per_s = float(tok_s)
+    return True
 
 
 def _ema(current: float | None, new: float, alpha: float) -> float:
