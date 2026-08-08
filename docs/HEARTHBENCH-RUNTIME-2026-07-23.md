@@ -68,7 +68,7 @@ themselves.
   `hearthmind` and `hearthbench` can share without either importing the
   other's runtime).
 
-## A1 — Module layout & isolation [PARTIAL — A1.1/A1.2 shipped v1.34.160]
+## A1 — Module layout & isolation [PARTIAL — A1.1/A1.2 shipped v1.34.160, A1.3 shipped v1.34.283]
 
 - [x] **A1.1 — Package skeleton — SHIPPED, v1.34.160.** `hearthbench/`
   as a sibling of `hearthmind/`, with the brief's modules as reserved
@@ -81,11 +81,24 @@ themselves.
   script walking every `.py` file under both packages, asserting
   neither imports the other in the forbidden direction. Not wired into
   a CI pipeline (none exists in this repo) — a manually-run gate.
-- [ ] **A1.3 — Process isolation.** Bench runs execute in a subprocess
-  with their own model server config, so a benchmark can never contend
-  with, pause, or corrupt a live sim. The UI page (A12) talks to a bench
-  daemon, not the sim engine. Not attempted — needs A2 (adapter layer)
-  and A11 (run modes) to exist first.
+- [x] **A1.3 — Process isolation — SHIPPED, v1.34.283.** Two real,
+  independent isolation layers: A2.4's `ServerLifecycle` already
+  isolates the model SERVER (llama-server) in its own process; this
+  item isolates the BENCH RUN ITSELF. New `hearthbench/runner/cli.py`:
+  a real `python -m hearthbench.runner.cli run ...` entry point
+  driving `run_cases_with_resume` in a fresh interpreter (grounding
+  cases only today — the one category with a runnable prompt of its
+  own, no fixture pack needed). New `hearthbench/runner/process.py`'s
+  `BenchRunProcess`: a real `subprocess.Popen` wrapper (start/is_
+  running/wait/stop, mirroring `ServerLifecycle`'s own shape) whose
+  `poll_progress` reads the run's real `completed_case_ids()` straight
+  off disk (A8) — no socket/pipe IPC, the shared run directory does
+  the work. A real end-to-end verify script found and fixed a real,
+  previously-shipped bug in the same pass: `BlobStore.__init__`
+  eagerly `mkdir`'d its root even behind a read-only `RunRecordReader`,
+  so reading back a broken (non-directory) run path crashed a reader
+  instead of degrading — fixed by making `BlobStore` fully lazy about
+  directory creation (only `put()`, a real write, ever creates one).
 
 ## A2 — Model Adapter Layer [SHIPPED, v1.34.276]
 
@@ -495,10 +508,13 @@ New `hearthbench/reporting/score.py`.
   settings, a `--strict-repro` mode that fails the run if the adapter
   reports non-deterministic capability.
 
-## A12 — Web UI [MISSING]
+## A12 — Web UI [MISSING, its own A1.3 prerequisite now real]
 
 - [ ] **A12.1** — New page in the existing UI, served by the bench
-  daemon (A1.3), clearly marked as not part of the sim.
+  daemon (A1.3 — `BenchRunProcess`/`hearthbench.runner.cli` are now
+  real; a real HTTP-servable daemon wrapping them for the UI to talk
+  to is still A12's own job, not attempted here), clearly marked as
+  not part of the sim.
 - [ ] **A12.2** — Select model/backend, configure run, start.
 - [ ] **A12.3** — Live progress (case i/N, ETA), live log stream,
   running per-category scores.

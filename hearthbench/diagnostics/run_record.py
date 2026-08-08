@@ -54,11 +54,19 @@ def _sha256_hex(text: str) -> str:
 
 
 class BlobStore:
-    """A8.3: content-addressed storage for prompt/completion text."""
+    """A8.3: content-addressed storage for prompt/completion text.
+
+    Deliberately lazy about directory creation: `__init__` touches no
+    filesystem state at all (a `BlobStore` behind a real-only-on-write
+    `RunRecordReader` must never turn a read into a write) — only
+    `put()` ever creates a directory, and only the one it's about to
+    write into. `get()` degrades to `None` on a missing/broken path
+    (including a `root` that isn't even a real directory) rather than
+    raising, the same "never crash a reader on a caller's own bad
+    input" discipline this whole package already holds."""
 
     def __init__(self, root: "str | Path"):
         self.root = Path(root)
-        self.root.mkdir(parents=True, exist_ok=True)
 
     def _path_for(self, digest: str) -> Path:
         return self.root / digest[:2] / f"{digest}.txt"
@@ -78,10 +86,13 @@ class BlobStore:
     def get(self, digest: "str | None") -> "str | None":
         if not digest:
             return None
-        path = self._path_for(digest)
-        if not path.exists():
+        try:
+            path = self._path_for(digest)
+            if not path.exists():
+                return None
+            return path.read_text(encoding="utf-8")
+        except OSError:
             return None
-        return path.read_text(encoding="utf-8")
 
 
 @dataclass

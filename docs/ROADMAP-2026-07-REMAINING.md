@@ -749,17 +749,20 @@ through in one pass per this project's own "never big-bang" discipline.
 
 ## Phase 6 — HearthBench (build the benchmark itself)
 
-`A0` (confirmed reusable pieces), `A1.1`/`A1.2` (package skeleton +
-import-isolation firewall), `A2` (model adapter layer), `A3` (prompt
-library/test definitions), `A4` (scoring — "the judge problem," the
-doc's own central design fork), `A5`'s three OBJECTIVE categories
-(`A5.7`/`A5.8`/`A5.9`, needing no judge model, plus `A5.10`'s guide),
-`A13`'s CI regression guard (`A13.1`-`A13.4`), `A7.1`/`A8` (the real
-run record + recomputable metrics)/`A11.4` (resume), and now `A9`/`A10`
-(reports + the real weighted composite Score) are shipped. Per the
-checklist's own SEQUENCE (step 6, "A9 reports + A10 score; A12 UI; C5
-model passport" — right after step 5's A7/A8/A11.4), remaining in the
-checklist's own real order:
+`A0` (confirmed reusable pieces), `A1.1`/`A1.2`/`A1.3` (package
+skeleton, import-isolation firewall, process isolation), `A2` (model
+adapter layer), `A3` (prompt library/test definitions), `A4` (scoring
+— "the judge problem," the doc's own central design fork), `A5`'s
+three OBJECTIVE categories (`A5.7`/`A5.8`/`A5.9`, needing no judge
+model, plus `A5.10`'s guide), `A13`'s CI regression guard
+(`A13.1`-`A13.4`), `A7.1`/`A8` (the real run record + recomputable
+metrics)/`A11.4` (resume), and `A9`/`A10` (reports + the real weighted
+composite Score) are all shipped. Per the checklist's own SEQUENCE
+(step 6, "A9 reports + A10 score; A12 UI; C5 model passport"), `A12`
+is the one item of step 6 still unbuilt (`A1.3`, its own named
+prerequisite, is now real — `A12`'s remaining gap is the actual
+HTTP-servable daemon page + UI, a genuinely separate lift). Remaining
+in the checklist's own real order:
 
 `A12` web UI (incl. A12.9, the human-rating page over A4.3's already-
 real data model) + **C5** model passport (the rest of step 6) →
@@ -768,14 +771,77 @@ is already real; A5.1-A5.6's six subjective categories need real cases
 written against it) + `A4.3`'s human-rating page's own UI (step 7) →
 `A5.11` the world-level emergence run, gated on **B15.5**'s `reference_
 mode` (built, still unused — now genuinely closer, since A11.4/A8/A9/
-A10 exist; step 8, explicitly last). `A1.3` process isolation (gated
-on A2+A11, A2 already real) and `A6` structured-output validator
-(un-sequenced, buildable whenever, blocks nothing downstream) remain
-open but don't block any of the above. `A7.2` (a system-sampling
-thread), `A11.1`-`A11.3`/`A11.5` (the fuller quick/full/custom/strict-
-repro run-mode abstraction), and A9.1's latency/memory GRAPHS (no
-charting dependency exists in this repo) stay real, distinct,
-unstarted future work within their own already-partial items.
+A10/A1.3 exist; step 8, explicitly last). `A6` structured-output
+validator (un-sequenced, buildable whenever, blocks nothing downstream)
+remains open but doesn't block any of the above. `A7.2` (a system-
+sampling thread), `A11.1`-`A11.3`/`A11.5` (the fuller quick/full/
+custom/strict-repro run-mode abstraction), and A9.1's latency/memory
+GRAPHS (no charting dependency exists in this repo) stay real,
+distinct, unstarted future work within their own already-partial
+items.
+
+- **A1.3 (process isolation) — SHIPPED, v1.34.283.** The prerequisite
+  A12 itself names: "Bench runs execute in a subprocess with their own
+  model server config, so a benchmark can never contend with, pause,
+  or corrupt a live sim. The UI page talks to a bench daemon, not the
+  sim engine." A2/A11 were already real, so this was pure process-
+  boundary wiring, not new scoring/adapter logic.
+
+  New `hearthbench/runner/cli.py`: a real `python -m hearthbench.
+  runner.cli run --category ... --run-dir ... --adapter-endpoint ...
+  --adapter-model ...` entry point — resolves a category to real
+  `TestCase`s (`_cases_for_category`, today `"grounding"` only, a real
+  `ValueError` for anything else), builds a real `OpenAICompatAdapter`
+  + A8 environment snapshot, drives the already-real `run_cases_with_
+  resume` — orchestration only, zero new execution logic. New
+  `hearthbench/runner/process.py`'s `BenchRunProcess` mirrors A2.4's
+  already-shipped `ServerLifecycle` (same `LaunchRecord` reused, not
+  duplicated) but purpose-built for a bench run: `poll_progress
+  (expected_case_ids)` reads real progress purely off disk via A8's
+  `RunRecordReader.completed_case_ids()` — no IPC beyond the
+  filesystem both processes already share; a nonzero exit with
+  incomplete work is flagged `crashed: True`, `expected_case_ids=None`
+  degrades honestly rather than guessing.
+
+  **Real, previously-invisible production bug found and fixed via the
+  crash test, not in this pass's own new code.** Forcing a genuine
+  crash (a plain file where a run_dir should be, so `RunRecordWriter.
+  __init__`'s own `mkdir()` raises `FileExistsError` inside the child)
+  worked as intended — but polling that same broken path afterward via
+  `RunRecordReader` then crashed with `NotADirectoryError`. Root
+  cause: `BlobStore.__init__` (shipped v1.34.281) unconditionally
+  called `mkdir()` regardless of whether the caller was a real writer
+  or a read-only reader, and `<file>/blobs` can't be created as a
+  subdirectory of a plain file. Fixed by making `BlobStore.__init__`
+  touch no filesystem state at all — only `put()` (a genuine write,
+  already had its own `mkdir()`) creates a directory now; `get()`
+  gained a `try/except OSError` degrade as defense-in-depth. Exactly
+  the class of gap real non-mocked subprocess verification exists to
+  catch — a narrower in-process test of `RunRecordReader` alone would
+  plausibly never have exercised a genuinely-broken-directory read.
+
+  New `scripts/verify_a1_3_process_isolation.py` (27 checks, all pass
+  after the fix above): pure-function coverage of `_cases_for_
+  category`/`build_arg_parser`/`build_bench_run_command`; `cli.main()`
+  in-process against a real local HTTP server standing in for a live
+  model; `BenchRunProcess` exercised as a REAL OS subprocess (`sub
+  process.Popen`, never mocked) — a genuine double-start `RuntimeError`,
+  real mid-run partial progress read purely off disk while a
+  deliberately slow fake server is still answering, a clean full
+  completion (4/4 committed, never flagged crashed), the real crash
+  case above, and a real `stop()` against a genuinely hung 30-second
+  request confirming the process is truly no longer running afterward.
+
+  Verified: the new script (27 checks); `scripts/verify_hearthbench_
+  isolation.py` (39 hearthbench files)/`verify_hearthbench_adapter_
+  isolation.py` both clean; `pyflakes` clean; `verify_a2_model_
+  adapters.py`/`verify_a3_prompt_library.py`/`verify_a4_scoring.py`/
+  `verify_a5_categories.py`/`verify_a13_ci_guard.py`/`verify_a7_a8_run_
+  diagnostics.py`/`verify_a9_a10_score_report.py` all re-run clean. No
+  native module or `simulation/engine.py` code path touched — `git
+  status` confirmed only `hearthbench/diagnostics/run_record.py` (the
+  fix), `hearthbench/runner/__init__.py`, the two new `hearthbench/
+  runner/` modules, and the new verify script changed.
 
 - **A9/A10 (reports + the HearthBench Score) — SHIPPED, v1.34.282.**
   Per the checklist's own SEQUENCE, step 6 right after step 5's A7/A8/
