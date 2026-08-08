@@ -108,11 +108,16 @@ def _normalize_axis_score(raw: Any) -> float | None:
     return (float(raw) - 1.0) / 4.0
 
 
-def build_judge_prompt(output_text: str, context_text: str = "") -> str:
+def build_judge_prompt(output_text: str, context_text: str = "", rubric_prompt: str | None = None) -> str:
     """Pure — the exact prompt `JudgeScorer` sends, exposed standalone
     so a caller can inspect/log/replay it without constructing a full
-    adapter call."""
-    return JUDGE_RUBRIC_PROMPT.format(context=context_text or "(no additional context)", output_text=output_text)
+    adapter call. `rubric_prompt=None` (every pre-A5.2 call site)
+    reproduces the original dialogue rubric byte-for-byte; a category-
+    specific rubric template (must itself contain `{context}`/
+    `{output_text}` placeholders, same shape as `JUDGE_RUBRIC_PROMPT`)
+    formats identically otherwise."""
+    template = rubric_prompt if rubric_prompt is not None else JUDGE_RUBRIC_PROMPT
+    return template.format(context=context_text or "(no additional context)", output_text=output_text)
 
 
 class JudgeScorer:
@@ -122,11 +127,33 @@ class JudgeScorer:
     parameter) — `as_scorer()` closes over a specific adapter instance
     and returns a real `Scorer`, the same "construct the closure, then
     register it" shape a caller uses for any adapter-bound scorer.
-    """
 
-    def __init__(self, adapter: Any, judge_model_label: str | None = None):
+    A5.1 (Dialogue) is exactly what this class's own default rubric/
+    axes already score — pass nothing extra and you get the original
+    dialogue-quality judge unchanged. A5.2-A5.6 each need a genuinely
+    different rubric (the checklist states distinct criteria per
+    category — dialogue's "naturalness/personality/emotional realism"
+    is not what should grade e.g. belief revision or plan coherence),
+    so the three rubric-shaping fields below are real constructor
+    parameters, not hardcoded module constants, while staying 100%
+    backward compatible: `JudgeScorer(adapter)` with no extra args
+    reproduces the exact original dialogue rubric/axes/version/prompt-
+    formatting byte-for-byte (verified directly in `scripts/verify_
+    a5_1_6_subjective_categories.py`)."""
+
+    def __init__(
+        self,
+        adapter: Any,
+        judge_model_label: str | None = None,
+        rubric_prompt: str | None = None,
+        axes: "tuple[str, ...] | None" = None,
+        rubric_version: str | None = None,
+    ):
         self.adapter = adapter
         self.judge_model_label = judge_model_label or self._infer_label(adapter)
+        self.rubric_prompt = rubric_prompt if rubric_prompt is not None else JUDGE_RUBRIC_PROMPT
+        self.axes = axes if axes is not None else _JUDGE_AXES
+        self.rubric_version = rubric_version if rubric_version is not None else JUDGE_RUBRIC_VERSION
 
     @staticmethod
     def _infer_label(adapter: Any) -> str:
@@ -152,7 +179,7 @@ class JudgeScorer:
         `Scorer.score()` itself (this method is what a `Scorer.fn`
         built from `as_scorer()` actually calls, so this IS where that
         discipline has to live)."""
-        prompt = build_judge_prompt(output_text, context_text)
+        prompt = build_judge_prompt(output_text, context_text, rubric_prompt=self.rubric_prompt)
         result = self.adapter.generate(prompt, system=None, schema=None, max_tokens=200, temperature=0.0)
         if getattr(result, "error", None):
             return ScoreDetail(scorer_id="", scorer_version="", value=None, passed=None,
@@ -164,27 +191,28 @@ class JudgeScorer:
             return ScoreDetail(scorer_id="", scorer_version="", value=None, passed=None,
                                 detail={"parse_error": "judge did not return a JSON object",
                                         "raw_text": getattr(result, "text", "")})
-        axis_scores = {axis: _normalize_axis_score(parsed.get(axis)) for axis in _JUDGE_AXES}
+        axis_scores = {axis: _normalize_axis_score(parsed.get(axis)) for axis in self.axes}
         scoreable = [v for v in axis_scores.values() if v is not None]
         composite = statistics.mean(scoreable) if scoreable else None
         return ScoreDetail(
             scorer_id="", scorer_version="", value=composite, passed=None,
             detail={
                 "axis_scores": axis_scores, "reason": parsed.get("reason"),
-                "judge_model": self.judge_model_label, "rubric_version": JUDGE_RUBRIC_VERSION,
-                "raw_ratings": {axis: parsed.get(axis) for axis in _JUDGE_AXES},
+                "judge_model": self.judge_model_label, "rubric_version": self.rubric_version,
+                "raw_ratings": {axis: parsed.get(axis) for axis in self.axes},
             },
         )
 
-    def as_scorer(self, scorer_id: str = "judge_dialogue_quality", category: str = "dialogue") -> Scorer:
+    def as_scorer(self, scorer_id: str = "judge_dialogue_quality", category: str = "dialogue",
+                   description: str | None = None) -> Scorer:
         def _fn(case, result: CaseResult, context: dict) -> ScoreDetail:
             output_text = " ".join(v for v in (result.output or {}).values() if isinstance(v, str) and v.strip())
             context_text = context.get("context_text") or ""
             return self.score_output(output_text, context_text)
 
         return Scorer(
-            id=scorer_id, version=f"rubric-{JUDGE_RUBRIC_VERSION}", fn=_fn, tier=2, category=category,
-            description="LLM-judge rating of naturalness/personality/emotional realism against a fixed rubric.",
+            id=scorer_id, version=f"rubric-{self.rubric_version}", fn=_fn, tier=2, category=category,
+            description=description or "LLM-judge rating of naturalness/personality/emotional realism against a fixed rubric.",
         )
 
 

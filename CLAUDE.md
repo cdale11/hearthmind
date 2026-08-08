@@ -742,6 +742,97 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.286)
+
+Explicit user instruction: "continue phase 6." Ships the checklist's
+own SEQUENCE step 7 ("A4.2 judge + remaining subjective categories")
+— all six A5.1-A5.6 subjective benchmark categories are now real,
+built on a generalized A4.2 `JudgeScorer`. **This closes step 7 of the
+checklist's own SEQUENCE in full** — only A4.3's human-rating page UI
+(deferred to A12.9) remains open within either item.
+
+`hearthbench/scoring/judge.py`'s `JudgeScorer` previously hardcoded
+ONE rubric (dialogue's naturalness/personality/emotional-realism) via
+module-level constants — the real blocker every one of A5.2-A5.6's own
+distinct judged axes needed removed first. Gained optional `rubric_
+prompt`/`axes`/`rubric_version` constructor params, each defaulting to
+the pre-existing module constants; `JudgeScorer(adapter)` with no
+extra args reproduces the exact original dialogue scorer byte-for-byte
+(verified directly), zero behavior change for any pre-existing call
+site. `build_judge_prompt()` gained a matching optional `rubric_
+prompt` param with the same default-preserving contract; `as_scorer()`
+gained an optional `description` override.
+
+Six new `hearthbench/tests/` modules, each following `grounding.py`'s
+own shape (a real `Category` at A10.1's own stated weight, real hand-
+authored `TestCase`s, a `build_*_judge_scorer(adapter)` factory):
+`dialogue.py` (A5.1, weight 15 — reuses the DEFAULT rubric unmodified,
+since its own checklist text is exactly what that rubric already
+scores; new Tier 1 scorer `no_ambient_filler`, a closed vocabulary of
+generic-agreement/aphorism filler phrases — the checklist's own
+explicitly-named gap, distinct from `VOICE_LINE_DUPLICATE_OVERLAP`/
+`FOLKLORE_DUPLICATE_OVERLAP`'s exact-repeat detection); `personality.py`
+(A5.2, weight 10 — voice consistency/distinctiveness/trait
+plausibility; honest scope trim in its own docstring: scores ONE
+case's output against a stated profile, not cross-conversation
+aggregation, which needs a future A11 runner); `memory.py` (A5.3,
+weight 12 — recall accuracy/appropriate forgetting/contradiction
+resistance, the first real category built on A3.3's own `Turn.
+injected_fact`/`expects_recall_of`/`offers_contradiction` machinery);
+`beliefs.py` (A5.4, weight 12 — evidence grounding/revision quality/
+confidence calibration; `revision_on_new_evidence` is the deliberate
+mirror image of Memory's `contradiction_resistance` case — same `Turn`
+machinery, opposite correct behavior: Memory tests HOLDING to a known
+truth against a false contradiction, Beliefs tests REVISING a theory
+when the evidence genuinely changes); `planning.py` (A5.5, weight 8 —
+goal coherence/horizon realism/adaptation when blocked); `village_
+cognition.py` (A5.6, weight 10 — cultural reasoning/institutional
+grounding/social plausibility; the one category scored from the
+SETTLEMENT-scale collective "village voice," matching how `llm/town_
+brain.py`/`llm/beliefs.py`'s settlement-scoped path/`llm/culture.py`
+already speak in production, never a single named agent). Every
+non-dialogue rubric prompt/axes tuple is verified pairwise-distinct,
+not just individually different from dialogue's default.
+
+`hearthbench/tests/__init__.py`'s `CATEGORY_REGISTRY` now holds all
+nine real categories the checklist names; `DEFAULT_REGISTRY` gained
+`no_ambient_filler` alongside `no_unsupported_specifics`. Every
+`judge_*` scorer is deliberately NOT auto-registered (per `hearthbench.
+scoring`'s own stated Tier 2/3 discipline — each needs a live adapter
+at construction time); `build_*_judge_scorer(adapter)` is the real
+per-category wiring a caller uses instead. `hearthbench/reporting/
+score.py`'s `MISSING_SUBJECTIVE_CATEGORY_WEIGHTS` is now genuinely
+empty (every category it recorded is real) — kept, not deleted, as the
+real extension point it always was for a future genuinely-new
+category.
+
+New `scripts/verify_a5_1_6_subjective_categories.py` (real HTTP
+round-trips via the same `_CapturingHandler`/`OpenAICompatAdapter`
+technique `verify_a4_scoring.py` already established, never a mocked
+adapter): `JudgeScorer`'s backward compatibility; all nine `CATEGORY_
+REGISTRY` weights matching A10.1's table exactly; every new category's
+real cases; all six rubric prompts pairwise-distinct; `no_ambient_
+filler`'s clean/filler-laden/heavily-filler-laden/empty cases; Memory's
+and Beliefs' real multi-turn machinery incl. the deliberate final-turn
+`expects_recall_of` distinction between the two categories' cases; two
+full real end-to-end judge round-trips (Memory, Personality) confirming
+the real HTTP request carries each category's OWN rubric/axes, never
+Dialogue's; `measure_self_consistency` composing cleanly with a custom
+(Planning) rubric. All pass, first run, no bug found in the module
+under test.
+
+Verified: the new script; `scripts/verify_hearthbench_isolation.py`/
+`verify_hearthbench_adapter_isolation.py` both clean (50/42 files);
+`pyflakes` clean on all new/touched files; `verify_a4_scoring.py`/
+`verify_a5_categories.py` (updated for the real 9-category `CATEGORY_
+REGISTRY`)/`verify_a9_a10_score_report.py`/`verify_a13_ci_guard.py`/
+`verify_a7_a8_run_diagnostics.py`/`verify_a12_bench_daemon.py`/
+`verify_a1_3_process_isolation.py`/`verify_c5_model_passport.py` all
+re-run clean. No native module or `simulation/engine.py` code path
+touched (confirmed via `git status`) — only `hearthbench/` package
+files, `docs/`, and `scripts/verify_*.py` changed — no replay-hash/
+native-soak re-run needed.
+
 ## Current state (v1.34.285)
 
 Explicit user instruction: "continue phase 6" — A12.1-A12.5, the bench

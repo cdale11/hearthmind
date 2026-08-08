@@ -1,19 +1,21 @@
 """HearthBench A10 — The HearthBench Score.
 
 A10.1 (weighted composite, explained): `CATEGORY_REGISTRY[id].weight`
-already IS the checklist's own stated default weight table (Grounding
-20, Reliability/structured-output 8, Performance 5 are real Category
-objects today; `MISSING_SUBJECTIVE_CATEGORY_WEIGHTS` records the other
-six named weights — Dialogue 15, Beliefs 12, Memory 12, Village
-cognition 10, Personality 10, Planning 8 — purely as INFORMATION
-`compute_score` can report as missing, never a fabricated hardcoded
-duplicate of a table that already lives on each real `Category`).
-`compute_score` renormalizes weight over ONLY the categories that
-actually have real scored data this run — a category with zero real
-cases contributes neither a fabricated zero (which would be a
-made-up penalty) nor silent full credit (which would overstate
-confidence); it is named in `categories_missing` instead, and the
-report (A9) must say so plainly (A9.4).
+already IS the checklist's own stated default weight table — all nine
+named categories (Grounding 20, Dialogue 15, Beliefs 12, Memory 12,
+Village cognition 10, Personality 10, Planning 8, Reliability/
+structured-output 8, Performance 5) are now real `Category` objects
+(A5.1-A5.6 shipped their judge rubric + content; `MISSING_SUBJECTIVE_
+CATEGORY_WEIGHTS` is kept only as a real, empty extension point — a
+future genuinely-new category with no `Category` yet can still be
+recorded there for honest "missing" reporting before it ships, the
+same role it played for A5.1-A5.6 themselves). `compute_score`
+renormalizes weight over ONLY the categories that actually have real
+scored data this run — a category with zero real cases contributes
+neither a fabricated zero (which would be a made-up penalty) nor
+silent full credit (which would overstate confidence); it is named in
+`categories_missing` instead, and the report (A9) must say so plainly
+(A9.4).
 
 A10.2 (disqualifying floors): `DEFAULT_DISQUALIFYING_FLOORS` — the
 checklist's own worked example (grounding < 50 caps the total at 60)
@@ -64,18 +66,15 @@ from hearthbench.tests import CATEGORY_REGISTRY
 
 SCORE_RUBRIC_VERSION = "1"
 
-MISSING_SUBJECTIVE_CATEGORY_WEIGHTS = {
-    "dialogue": 15.0, "beliefs": 12.0, "memory": 12.0,
-    "village_cognition": 10.0, "personality": 10.0, "planning": 8.0,
-}
-"""The checklist's own A10.1 weight table entries for the six A5.1-A5.6
-subjective categories, which don't exist as real `Category` objects
-yet (need A4.2's judge tier + real content authoring — the judge
-MECHANISM is real, the content isn't). Recorded here purely so
-`compute_score` can report an honest, WEIGHTED sense of "how much of
-the intended composite is still unmeasured," not to imply these
-categories are scored — they never are, by construction, until a real
-`Category` for each exists in `hearthbench.tests.CATEGORY_REGISTRY`."""
+MISSING_SUBJECTIVE_CATEGORY_WEIGHTS: dict = {}
+"""Empty as of A5.1-A5.6 shipping — every category the checklist's own
+A10.1 weight table names now has a real `Category` in `hearthbench.
+tests.CATEGORY_REGISTRY`. Kept (not deleted) as the real extension
+point it always was: a future genuinely-new category can be recorded
+here — `{category_id: weight}` — the moment its weight is DECIDED but
+before its `Category`/content/scorer ship, so `compute_score` can
+report it as honestly "missing" from day one rather than silently
+absent from `categories_missing` until the code catches up."""
 
 DEFAULT_DISQUALIFYING_FLOORS = {
     "grounding": (50.0, 60.0, "a model that fails grounding cannot be recommended regardless of other scores"),

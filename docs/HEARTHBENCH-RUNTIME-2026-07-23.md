@@ -266,11 +266,16 @@ registry.
   detection" this pass ships; a genuine active-contradiction check
   needs semantic understanding, left to Tier 2).
 - [x] **A4.2 — Tier 2: judge-model scorers (optional, subjective
-  categories) — SHIPPED.** `JudgeScorer` wraps any A2 `ModelAdapter`
-  behind a fixed, versioned rubric (naturalness/personality/emotional-
-  realism, worked anchors); judge model + rubric version recorded on
-  every result; `measure_self_consistency` re-scores a sample and
-  reports the real stdev/agreement.
+  categories) — SHIPPED, generalized v1.34.286.** `JudgeScorer` wraps
+  any A2 `ModelAdapter` behind a versioned rubric with worked anchors;
+  judge model + rubric version recorded on every result; `measure_
+  self_consistency` re-scores a sample and reports the real stdev/
+  agreement. Originally one fixed rubric (naturalness/personality/
+  emotional-realism, hardcoded via module constants); now takes
+  optional `rubric_prompt`/`axes`/`rubric_version` constructor params,
+  defaulting to that exact original rubric unchanged — the real
+  mechanism A5.2-A5.6 each needed their own distinct rubric to exist
+  at all, with zero behavior change for any pre-existing call site.
 - [x] **A4.3 — Tier 3: human rating (calibration ground truth) —
   PARTIAL.** The blind-pairwise DATA MODEL (`HumanRatingTask`/
   `HumanRating`, append-only JSONL storage) and `judge_human_agreement`
@@ -282,30 +287,83 @@ registry.
   version) — scorer version is part of a run's identity, mechanically
   enforced, not just stated.
 
-## A5 — Benchmark categories [PARTIAL, v1.34.279] — every one from the brief
+## A5 — Benchmark categories [PARTIAL, v1.34.286] — every one from the brief
 
 Each becomes a category module with concrete cases and scorers. Per
-the checklist's own SEQUENCE ("A4.1 deterministic scorers + A5.7/A5.8
-[grounding + structured output]" precedes "A4.2 judge + remaining
-subjective categories"), the three OBJECTIVE categories (A5.7/A5.8/
-A5.9, none needing a judge model) plus A5.10's guide are shipped this
-pass in `hearthbench/tests/`; the six subjective categories (A5.1-A5.6)
-and A5.11 (gated on B15.5) remain open — see `docs/ROADMAP-2026-07-
-REMAINING.md`'s Phase 6 entry for full detail.
+the checklist's own SEQUENCE, step 6 shipped the three OBJECTIVE
+categories (A5.7/A5.8/A5.9, none needing a judge model) plus A5.10's
+guide; step 7 ("A4.2 judge + remaining subjective categories") ships
+now — all six subjective categories are real. A5.11 (gated on B15.5)
+remains open — see `docs/ROADMAP-2026-07-REMAINING.md`'s Phase 6 entry
+for full detail.
 
-- [ ] **A5.1 — Dialogue.** Naturalness, coherence, personality
-  expression, emotional realism, incl. an "ambient filler" penalty for
-  aphorism ping-pong/mutual-agreement patterns.
-- [ ] **A5.2 — Personality.** Stability across many conversations,
-  long-term consistency, individual-voice distinguishability.
-- [ ] **A5.3 — Memory.** Recall, appropriate forgetting, contradiction
-  resistance, long-term integration.
-- [ ] **A5.4 — Beliefs.** Formation from evidence, revision when
-  evidence flips, theory quality, confidence calibration.
-- [ ] **A5.5 — Planning.** Goal formation, multi-step coherence,
-  horizon realism, adaptation when blocked.
-- [ ] **A5.6 — Village cognition.** Cultural belief formation,
-  institution reasoning, tradition crystallization, social reasoning.
+Made possible by generalizing A4.2's own `JudgeScorer`
+(`hearthbench/scoring/judge.py`): it previously hardcoded ONE rubric
+(dialogue's) via module-level constants; it now takes optional
+`rubric_prompt`/`axes`/`rubric_version` constructor params, defaulting
+to that exact original rubric unchanged — `JudgeScorer(adapter)` with
+no extra args is still byte-for-byte the same dialogue scorer as
+before (verified directly). A5.1 (Dialogue) reuses that default rubric
+as-is, since its own checklist text is exactly what it already scored;
+A5.2-A5.6 each get a genuinely distinct rubric/axes matching their own
+stated criteria below — never a copy-pasted dialogue rubric with the
+category name swapped (verified: all five are pairwise-distinct texts).
+
+- [x] **A5.1 — Dialogue — SHIPPED.** `hearthbench/tests/dialogue.py`,
+  weight 15. Naturalness/coherence/personality/emotional realism via
+  A4.2's own default judge rubric, unmodified. New category-specific
+  Tier 1 scorer `no_ambient_filler`: a closed, hand-authored vocabulary
+  of the exact generic-agreement/aphorism phrases ("wise words," "true
+  enough," "so it goes," ...) this project's own dialogue system has
+  independently fought before under a different failure shape
+  (`VOICE_LINE_DUPLICATE_OVERLAP`/`FOLKLORE_DUPLICATE_OVERLAP` catch
+  verbatim repeats; this catches never-identical-but-still-empty
+  agreement filler) — bounded penalty, same shape as grounding's
+  `no_unsupported_specifics`. Two real hand-authored cases.
+- [x] **A5.2 — Personality — SHIPPED.** `hearthbench/tests/
+  personality.py`, weight 10. Judge axes: voice consistency/
+  distinctiveness/trait plausibility. Honest scope trim stated in the
+  module's own docstring: a single judge call scores one case's output
+  against a stated personality profile — a real, testable proxy for
+  "consistency," not literal cross-conversation aggregation (which
+  needs a future A11 runner comparing several real outputs from the
+  same subject, not attempted here). Two cases with deliberately
+  opposite stated profiles (blunt/impatient vs. gentle/patient).
+- [x] **A5.3 — Memory — SHIPPED.** `hearthbench/tests/memory.py`,
+  weight 12. Judge axes: recall accuracy/appropriate forgetting/
+  contradiction resistance, alongside the real deterministic
+  `multi_turn_recall`/`context_reflection` scorers (A4.1). Real
+  multi-turn cases built on A3.3's own `Turn.injected_fact`/`expects_
+  recall_of`/`offers_contradiction` machinery — `memory:recall_after_
+  gap` (a fact stated early, recalled several turns later) and
+  `memory:contradiction_resistance` (a later turn states something
+  false that conflicts with an established fact; the case checks the
+  character HOLDS to the truth rather than flipping).
+- [x] **A5.4 — Beliefs — SHIPPED.** `hearthbench/tests/beliefs.py`,
+  weight 12. Judge axes: evidence grounding/revision quality/
+  confidence calibration. The deliberate mirror image of Memory's
+  contradiction-resistance case: `beliefs:revision_on_new_evidence`
+  reuses the identical `Turn` machinery, but this time the LATER turn
+  establishes genuinely NEW real evidence (not a bare false claim), and
+  the case checks the character's THEORY correctly updates in response
+  — Memory tests holding a known truth against a false contradiction,
+  Beliefs tests revising a theory when the evidence actually changes.
+  Plus `beliefs:formation_from_evidence` (a theory formed from a stated
+  anomaly with no prior belief to revise).
+- [x] **A5.5 — Planning — SHIPPED.** `hearthbench/tests/planning.py`,
+  weight 8. Judge axes: goal coherence/horizon realism/adaptation when
+  blocked. Two cases: a real goal-formation scenario (repair a granary
+  before winter) and a real mid-plan obstacle (a washed-out bridge)
+  testing whether the stated plan actually changes in response.
+- [x] **A5.6 — Village cognition — SHIPPED.** `hearthbench/tests/
+  village_cognition.py`, weight 10. Judge axes: cultural reasoning/
+  institutional grounding/social plausibility. Distinct in shape from
+  every other subjective category: cases are authored from the
+  SETTLEMENT-scale collective "village voice" this project's own
+  production code already speaks in (`llm/town_brain.py`, `llm/
+  beliefs.py`'s settlement-scoped path, `llm/culture.py`), never a
+  single named agent — a real tradition-crystallization case and a
+  real declining-institution case.
 - [x] **A5.7 — Grounding — SHIPPED.** `hearthbench/tests/grounding.py`,
   weight 20 (A10.1's stated highest default). Four real hand-authored
   adversarial bait `TestCase`s (each a single `Turn` withholding the
@@ -864,7 +922,9 @@ greenfield at the time this doc was written):**
 4. **A13 CI regression guard** — lands as soon as (3) works.
 5. A7/A8 metrics + diagnostics; A11.4 resume.
 6. A9 reports + A10 score; A12 UI; **C5 model passport**.
-7. A4.2 judge + remaining subjective categories; A4.3 human calibration.
+7. **A4.2 judge + remaining subjective categories — SHIPPED, v1.34.286**
+   (A5.1-A5.6 all real now); A4.3 human calibration stays PARTIAL (the
+   rating page is still A12.9, not attempted).
 8. **A5.11 world-level run** — last, only after B15.5 exists.
 
 # THE TESTS

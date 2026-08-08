@@ -752,31 +752,34 @@ through in one pass per this project's own "never big-bang" discipline.
 `A0` (confirmed reusable pieces), `A1.1`/`A1.2`/`A1.3` (package
 skeleton, import-isolation firewall, process isolation), `A2` (model
 adapter layer), `A3` (prompt library/test definitions), `A4` (scoring
-— "the judge problem," the doc's own central design fork), `A5`'s
+— "the judge problem," the doc's own central design fork, now
+including a genuinely generalized `A4.2` judge), `A5` in full — the
 three OBJECTIVE categories (`A5.7`/`A5.8`/`A5.9`, needing no judge
-model, plus `A5.10`'s guide), `A13`'s CI regression guard
-(`A13.1`-`A13.4`), `A7.1`/`A8` (the real run record + recomputable
-metrics)/`A11.4` (resume), `A9`/`A10` (reports + the real weighted
-composite Score), **C5** (the model passport, both halves — real
-emission on the `hearthbench` side, real runtime consumption on the
-`hearthmind` side), and `A12.1`-`A12.5` (the bench daemon's own first
-slice — start/poll/cancel/browse, through a real page clearly marked
-"not the live sim") are all shipped. **This closes step 6 of the
-checklist's own SEQUENCE in full** ("A9 reports + A10 score; A12 UI;
-C5 model passport" — `A12`'s own remaining sub-items, `A12.6`-`A12.9`,
-are real distinct future work WITHIN the item, not blockers on step 6
-closing). Remaining in the checklist's own real order:
+model, plus `A5.10`'s guide) AND all six SUBJECTIVE categories
+(`A5.1`-`A5.6`, real judge rubrics + real hand-authored cases each) —
+`A13`'s CI regression guard (`A13.1`-`A13.4`), `A7.1`/`A8` (the real
+run record + recomputable metrics)/`A11.4` (resume), `A9`/`A10`
+(reports + the real weighted composite Score), **C5** (the model
+passport, both halves — real emission on the `hearthbench` side, real
+runtime consumption on the `hearthmind` side), and `A12.1`-`A12.5`
+(the bench daemon's own first slice — start/poll/cancel/browse,
+through a real page clearly marked "not the live sim") are all
+shipped. **This closes both step 6 AND step 7 of the checklist's own
+SEQUENCE in full** ("A9 reports + A10 score; A12 UI; C5 model
+passport" was step 6; "A4.2 judge + remaining subjective categories"
+was step 7 — `A12`'s own remaining sub-items, `A12.6`-`A12.9`, and
+`A4.3`'s own rating-page UI are real distinct future work WITHIN their
+items, not blockers on either step closing). Remaining in the
+checklist's own real order:
 
 `A12.6`-`A12.9` (compare runs/drill into a case/download/the human-
 rating page — real future work, each needs only a new route over
 already-real `hearthbench.reporting.report` functions, not a new
-mechanism) → `A4.2`'s remaining content-authoring half (the judge-
-scoring MECHANISM is already real; A5.1-A5.6's six subjective
-categories need real cases written against it) + `A4.3`'s human-rating
-page's own UI, `A12.9` (step 7) → `A5.11` the world-level emergence
-run, gated on **B15.5**'s `reference_mode` (built, still unused — now
-genuinely closer, since A11.4/A8/A9/A10/A1.3/C5/A12.1-A12.5 all exist;
-step 8, explicitly last). `A6` structured-output validator
+mechanism) + `A4.3`'s human-rating page's own UI (`A12.9`) → `A5.11`
+the world-level emergence run, gated on **B15.5**'s `reference_mode`
+(built, still unused — now genuinely closer, since A11.4/A8/A9/A10/
+A1.3/C5/A12.1-A12.5/A5.1-A5.6 all exist; step 8, explicitly last,
+the checklist's own final item). `A6` structured-output validator
 (un-sequenced, buildable whenever, blocks nothing downstream) remains
 open but doesn't block any of the above. `A7.2` (a system-sampling
 thread — needed for C5's own `peak_rss_mb_by_concurrency` field,
@@ -785,6 +788,102 @@ quick/full/custom/strict-repro run-mode abstraction), and A9.1's
 latency/memory GRAPHS (no charting dependency exists in this repo)
 stay real, distinct, unstarted future work within their own
 already-partial items.
+
+- **A4.2 (generalized) + A5.1-A5.6 (all six subjective categories) —
+  SHIPPED, v1.34.286.** Closes step 7 of the checklist's own SEQUENCE
+  in full. Investigation found A4.2's judge MECHANISM and A4.3's data
+  model were already real (prior passes) — the actual remaining gap
+  was real content: six category modules, each with its own genuinely
+  distinct judge rubric and real hand-authored `TestCase`s, none of
+  which could exist until `JudgeScorer` itself stopped hardcoding
+  Dialogue's own rubric.
+
+  `hearthbench/scoring/judge.py`'s `JudgeScorer` gained optional
+  `rubric_prompt`/`axes`/`rubric_version` constructor params, each
+  defaulting to the pre-existing module-level `JUDGE_RUBRIC_PROMPT`/
+  `_JUDGE_AXES`/`JUDGE_RUBRIC_VERSION` — `JudgeScorer(adapter)` with no
+  extra args reproduces the exact original dialogue scorer byte-for-
+  byte (verified directly); `build_judge_prompt()` gained a matching
+  optional `rubric_prompt` param with the same default-preserving
+  contract. `as_scorer()` gained an optional `description` override.
+  Zero behavior change for any pre-existing call site.
+
+  Six new `hearthbench/tests/` modules, each following `grounding.py`'s
+  own established shape (a real `Category` with A10.1's own stated
+  weight, real hand-authored `TestCase`s, a `build_*_judge_scorer
+  (adapter)` factory): `dialogue.py` (A5.1, weight 15 — reuses
+  `JudgeScorer`'s DEFAULT rubric unmodified, since its own checklist
+  text is exactly what that rubric already scores; new category-
+  specific Tier 1 scorer `no_ambient_filler`, a closed hand-authored
+  vocabulary of generic-agreement/aphorism filler phrases — the
+  checklist's own explicitly-named gap no judge call needed to close);
+  `personality.py` (A5.2, weight 10 — voice consistency/distinctiveness/
+  trait plausibility; honest scope trim stated in its own docstring:
+  scores ONE case's output against a stated profile, not literal
+  cross-conversation aggregation, which needs a future A11 runner);
+  `memory.py` (A5.3, weight 12 — recall accuracy/appropriate
+  forgetting/contradiction resistance, built on A3.3's own `Turn.
+  injected_fact`/`expects_recall_of`/`offers_contradiction` machinery
+  for the first time by a real category); `beliefs.py` (A5.4, weight
+  12 — evidence grounding/revision quality/confidence calibration; its
+  `revision_on_new_evidence` case is the deliberate mirror image of
+  Memory's `contradiction_resistance` case — same `Turn` machinery,
+  opposite correct behavior: Memory tests HOLDING to a known truth
+  against a false contradiction, Beliefs tests REVISING a theory when
+  the evidence genuinely changes); `planning.py` (A5.5, weight 8 —
+  goal coherence/horizon realism/adaptation when blocked); `village_
+  cognition.py` (A5.6, weight 10 — cultural reasoning/institutional
+  grounding/social plausibility; the one category scored from the
+  SETTLEMENT-scale collective "village voice," never a single named
+  agent, matching how `llm/town_brain.py`/`llm/beliefs.py`'s
+  settlement-scoped path/`llm/culture.py` already speak in production).
+  Every non-dialogue rubric prompt/axes tuple is genuinely distinct —
+  verified pairwise, not just individually different from dialogue's.
+
+  `hearthbench/tests/__init__.py`'s `CATEGORY_REGISTRY` now holds all
+  nine real categories the checklist names; `DEFAULT_REGISTRY` gained
+  `no_ambient_filler` alongside the pre-existing `no_unsupported_
+  specifics`. Every `judge_*` scorer is deliberately NOT auto-
+  registered (per `hearthbench.scoring`'s own stated Tier 2/3
+  discipline — each needs a live adapter at construction time);
+  `build_*_judge_scorer(adapter)` is the real per-category wiring a
+  caller uses instead. `hearthbench/reporting/score.py`'s `MISSING_
+  SUBJECTIVE_CATEGORY_WEIGHTS` is now genuinely empty (every category
+  it used to record is real) — kept, not deleted, as the real
+  extension point it always was for a FUTURE genuinely-new category.
+
+  New `scripts/verify_a5_1_6_subjective_categories.py` (real HTTP
+  round-trips via the same `_CapturingHandler`/`OpenAICompatAdapter`
+  technique `verify_a4_scoring.py` already established, never a mocked
+  adapter): `JudgeScorer`'s backward compatibility (default rubric/
+  axes/version match the pre-refactor constants exactly, a supplied
+  custom rubric is genuinely used instead); all nine `CATEGORY_
+  REGISTRY` weights matching A10.1's table exactly; every new
+  category's real cases (system prompt or turns present, scorers
+  matching the category's own `scorer_ids`, a real non-crashing
+  rendered turn sequence); all six rubric prompts pairwise-distinct;
+  `no_ambient_filler`'s clean/filler-laden/heavily-filler-laden/empty
+  cases; Memory's and Beliefs' real multi-turn `Turn` machinery
+  (recall-after-gap, contradiction-resistance, and revision-on-new-
+  evidence, including the deliberate final-turn-`expects_recall_of`
+  distinction between Memory's and Beliefs' cases); two full real
+  end-to-end judge round-trips (Memory, Personality) confirming the
+  real HTTP request/response carries each category's OWN rubric text
+  and axis names, never Dialogue's; `measure_self_consistency`
+  composing cleanly with a custom (Planning) rubric. All pass, first
+  run, no bug found in the module under test.
+
+  Verified: the new script; `scripts/verify_hearthbench_isolation.py`/
+  `verify_hearthbench_adapter_isolation.py` both clean (50/42 files
+  respectively); `pyflakes` clean on all new/touched files; `verify_
+  a4_scoring.py`/`verify_a5_categories.py` (updated for the real
+  9-category `CATEGORY_REGISTRY`)/`verify_a9_a10_score_report.py`/
+  `verify_a13_ci_guard.py`/`verify_a7_a8_run_diagnostics.py`/`verify_
+  a12_bench_daemon.py`/`verify_a1_3_process_isolation.py`/`verify_c5_
+  model_passport.py` all re-run clean. No `simulation/engine.py` code
+  path or native module touched (confirmed via `git status` — only
+  `hearthbench/` package files, `docs/`, and `scripts/verify_*.py`
+  changed) — no replay-hash/native-soak re-run needed.
 
 - **A12.1-A12.5 (the bench daemon's first slice) — SHIPPED, v1.34.285.**
   Closes step 6 of the checklist's own SEQUENCE in full.

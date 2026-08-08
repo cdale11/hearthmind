@@ -42,12 +42,23 @@ def check(name, condition, detail=""):
 
 def main() -> int:
     # --- CATEGORY_REGISTRY ---------------------------------------------------
-    check("CATEGORY_REGISTRY has exactly the 3 objective categories shipped this pass",
-          set(CATEGORY_REGISTRY) == {"grounding", "structured_outputs", "performance"}, str(sorted(CATEGORY_REGISTRY)))
+    # A5.1-A5.6 shipped their judge rubric + content in a later pass — all
+    # nine of A10.1's own named categories are now real Category objects.
+    check("CATEGORY_REGISTRY has all 9 real categories (3 objective + 6 subjective)",
+          set(CATEGORY_REGISTRY) == {
+              "grounding", "structured_outputs", "performance",
+              "dialogue", "personality", "memory", "beliefs", "planning", "village_cognition",
+          }, str(sorted(CATEGORY_REGISTRY)))
     check("grounding is weighted highest, matching A10.1's own stated default table",
           GROUNDING_CATEGORY.weight == max(c.weight for c in CATEGORY_REGISTRY.values()))
     check("performance is weighted lowest, matching A10.1's own stated default table",
           PERFORMANCE_CATEGORY.weight == min(c.weight for c in CATEGORY_REGISTRY.values()))
+    check("every real category's weight matches A10.1's own stated default table exactly",
+          {cid: c.weight for cid, c in CATEGORY_REGISTRY.items()} == {
+              "grounding": 20.0, "dialogue": 15.0, "beliefs": 12.0, "memory": 12.0,
+              "village_cognition": 10.0, "personality": 10.0, "planning": 8.0,
+              "structured_outputs": 8.0, "performance": 5.0,
+          }, str({cid: c.weight for cid, c in CATEGORY_REGISTRY.items()}))
 
     # --- percentile / summarize_scores (shared A5 infra) ----------------------
     check("percentile: median of an odd-length sorted list", percentile([1, 2, 3, 4, 5], 0.5) == 3)
