@@ -34,6 +34,7 @@ from __future__ import annotations
 from hearthbench.diagnostics.run_record import CaseRecord, RunRecordReader, RunRecordWriter
 from hearthbench.prompts.schema import render_turn_sequence
 from hearthbench.scoring.types import CaseResult
+from hearthbench.validation.schema_resolver import resolve_schema
 
 
 def render_case_prompt(case, fixtures_by_id: dict | None = None) -> tuple:
@@ -68,7 +69,14 @@ def _execute_case(
     prompt, system_prompt, structured_input = render_case_prompt(case, fixtures_by_id)
     if prompt is None:
         return None
-    result = adapter.generate(prompt, system=system_prompt, schema=None, max_tokens=max_tokens, temperature=temperature)
+    # A6.1: a case naming a real hearthmind.llm.json_schemas task via
+    # `schema_ref` now actually REQUESTS schema-constrained decoding,
+    # not just gets scored afterward against that same schema (A4.1's
+    # `schema_validity` already did the latter) -- `resolve_schema`
+    # returns None for an unset/unrecognized ref, reproducing the
+    # exact prior unconstrained call byte-for-byte.
+    schema = resolve_schema(getattr(case, "schema_ref", None))
+    result = adapter.generate(prompt, system=system_prompt, schema=schema, max_tokens=max_tokens, temperature=temperature)
     case_result = CaseResult.from_adapter_result(case.task if hasattr(case, "task") else case.category, structured_input, result)
     scorers = registry.resolve(case.scorers)
     scored = {scorer.id: scorer.score(case, case_result, context) for scorer in scorers}
@@ -149,6 +157,7 @@ def run_cases_with_resume(
             parsed_json=case_result.output or None,
             structured_input=structured_input,
             fallback_used=case_result.fallback_used, parse_repaired=case_result.parse_repaired,
+            repair_rung=case_result.repair_rung, repair_reason=case_result.repair_reason,
             retries=case_result.retries, latency_ms=case_result.latency_ms, ttft_ms=case_result.ttft_ms,
             prompt_tokens=getattr(result, "prompt_tokens", None),
             completion_tokens=getattr(result, "completion_tokens", None),

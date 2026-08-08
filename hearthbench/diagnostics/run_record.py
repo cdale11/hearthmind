@@ -113,6 +113,10 @@ class CaseRecord:
     structured_input: dict = field(default_factory=dict)
     fallback_used: bool = False
     parse_repaired: bool = False
+    repair_rung: "str | None" = None
+    """A6.2's real ladder rung (`"raw"`/`"repaired"`/`"failed"`) — see
+    `hearthbench.validation.repair_ladder.classify_repair`."""
+    repair_reason: "str | None" = None
     retries: int = 0
     latency_ms: "float | None" = None
     ttft_ms: "float | None" = None
@@ -132,6 +136,7 @@ class CaseRecord:
             prompt_hash=data.get("prompt_hash"), completion_hash=data.get("completion_hash"),
             parsed_json=data.get("parsed_json"), structured_input=dict(data.get("structured_input") or {}),
             fallback_used=bool(data.get("fallback_used", False)), parse_repaired=bool(data.get("parse_repaired", False)),
+            repair_rung=data.get("repair_rung"), repair_reason=data.get("repair_reason"),
             retries=int(data.get("retries", 0) or 0),
             latency_ms=data.get("latency_ms"), ttft_ms=data.get("ttft_ms"),
             prompt_tokens=data.get("prompt_tokens"), completion_tokens=data.get("completion_tokens"),

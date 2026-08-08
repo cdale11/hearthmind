@@ -216,6 +216,7 @@ async function showCaseDetail(runId, caseId) {
   detail.innerHTML = `
     <p><b>${esc(c.case_id)}</b> (${esc(c.category)}) — latency ${c.latency_ms == null ? "—" : c.latency_ms.toFixed(0) + "ms"},
     fallback_used=${c.fallback_used}, retries=${c.retries}</p>
+    <p>Repair ladder: <b>${esc(c.repair_rung || "—")}</b>${c.repair_reason ? " — " + esc(c.repair_reason) : ""}</p>
     <pre><b>Prompt:</b>\n${esc(c.prompt)}</pre>
     <pre><b>Completion:</b>\n${esc(c.completion)}</pre>
     <table><thead><tr><th>Scorer</th><th>Value</th><th>Passed</th></tr></thead><tbody>${scoreRows}</tbody></table>`;

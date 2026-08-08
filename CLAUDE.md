@@ -742,6 +742,81 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.289)
+
+Explicit user instruction: "continue phase 6 and then phase 7" — ships
+A6 (structured output validator, all three sub-items), un-sequenced
+per its own SEQUENCE but a real gap-closer, not decorative
+completeness. **This closes every remaining non-`A5.11` item in
+Phase 6** — `A5.11` (the world-level emergence run) is now the only
+genuinely open SEQUENCED item, gated on a live LLM server this
+offline environment lacks; `A7.2`/`A11.1`-`A11.3`/`A11.5`/A9.1's
+graphs remain real, distinct, non-blocking future work within
+already-partial items.
+
+A6.1: new `hearthbench/validation/schema_resolver.py`'s `resolve_
+schema(schema_ref)` reuses `hearthmind.llm.json_schemas.schema_for_
+task` directly — legal under A1.2 (only `hearthmind.simulation`/
+`.agents`/`.world` are banned, not `hearthmind.llm`), real reuse ahead
+of A0's still-unbuilt shared `cognition_contract` package. Closed a
+real, previously-unexercised gap: `TestCase.schema_ref` (A3.2's own
+field) had never been consumed by the runner — `hearthbench/runner/
+run.py`'s `_execute_case` hardcoded `schema=None` on every call
+regardless of what a case named. Now wired; `schema_ref=None` (every
+case shipped before this pass) reproduces the exact prior
+unconstrained request byte-for-byte, verified against the real
+outgoing HTTP request body.
+
+A6.2: new `hearthbench/validation/repair_ladder.py`'s `classify_
+repair(text, parsed, error)` — a real, uniform "raw"/"repaired"/
+"failed" classifier over any A2.2 adapter's own `AdapterResult`, no
+per-adapter instrumentation needed. Wired into `hearthbench.scoring.
+types.CaseResult.from_adapter_result`, replacing a `parse_repaired=
+False` stub that had NEVER actually been computed since A4.4 first
+shipped — a real, previously-unnoticed gap, not new scope. New
+`CaseResult`/`CaseRecord` `repair_rung`/`repair_reason` fields
+(additive, backward-compatible), surfaced through the daemon's case-
+detail route and `page.py`.
+
+A6.3: new `hearthbench/validation/dual_mode.py`'s `run_case_dual_
+mode` — the SAME case run through the adapter TWICE (constrained/
+unconstrained), real per-scorer delta, deliberately opt-in (two real
+calls, not folded into the fast default). `constrained_supported=
+False` (never a fabricated delta) when no `schema_ref` or the adapter
+can't do constrained decoding — confirmed a real skip makes only ONE
+HTTP request, never a wasted second call. Distinct from A5.8's own
+category-level `score_structured_output_delta` — the two compose,
+neither duplicates the other.
+
+New `scripts/verify_a6_structured_output_validator.py` (32 checks, 3
+consecutive clean runs, real local HTTP server through the real
+`OpenAICompatAdapter`, never mocked): `resolve_schema`'s exact match
+against the real production schema; `classify_repair`'s four real
+cases; `CaseResult`/`CaseRecord` wiring incl. backward-compatible
+degradation; a real outgoing HTTP request proof that `schema_ref`
+genuinely requests `json_schema` decoding on a capable adapter,
+degrades to `json_object` on an incapable one, and sends no
+`response_format` at all when unset; three real end-to-end runs
+through `run_cases_with_resume` proving a clean/prose-wrapped/
+unrecoverable completion commits the correct real rung to a
+`CaseRecord` read back purely off disk; `run_case_dual_mode`'s real
+2-request/1-request/0-request proofs across all five real scenarios.
+
+Verified: the new script; `verify_hearthbench_isolation.py`/`verify_
+hearthbench_adapter_isolation.py`/`verify_a1_3_process_isolation.py`/
+`verify_a2_model_adapters.py`/`verify_a3_prompt_library.py`/`verify_
+a4_scoring.py`/`verify_a5_categories.py`/`verify_a5_1_6_subjective_
+categories.py`/`verify_a7_a8_run_diagnostics.py`/`verify_a9_a10_
+score_report.py`/`verify_a13_ci_guard.py`/`verify_c5_model_
+passport.py`/`verify_a12_bench_daemon.py` all re-run clean —
+confirming the `CaseResult`/`CaseRecord` field additions and `_
+execute_case`'s new `schema` argument disturbed nothing already
+shipped. `pyflakes` clean on all touched/new files. No `simulation/
+engine.py` code path or native module touched — pure `hearthbench/`
+work, no replay-hash/native-soak re-run needed. Per this same "and
+then phase 7" instruction, Phase 7 (opportunistic native performance)
+is next — resume there in the same session.
+
 ## Current state (v1.34.288)
 
 Explicit user instruction: "Continue" — ships A12.9, the human-rating

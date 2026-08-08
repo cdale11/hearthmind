@@ -763,22 +763,92 @@ weighted composite Score), **C5** (the model passport, both halves —
 real emission on the `hearthbench` side, real runtime consumption on
 the `hearthmind` side), and `A12` in full — `A12.1`-`A12.5` (start/
 poll/cancel/browse), `A12.6`-`A12.8` (compare/drill-in/download), and
-`A12.9` (the real human-rating page) — are all shipped. **This closes
-step 6, step 7, AND the last flagged gap within them (A4.3/A12.9) in
-full.** Remaining in the checklist's own real order:
+`A12.9` (the real human-rating page) — and **A6** (structured output
+validator: `A6.1` schema-constrained decoding wired from a case's own
+`schema_ref`, `A6.2` the real repair-ladder classifier, `A6.3` real
+per-case dual-mode scoring) — are all shipped. **This closes step 6,
+step 7, AND every flagged gap within them (A4.3/A12.9, A6) in full.**
+Remaining in the checklist's own real order:
 
 `A5.11` the world-level emergence run, gated on **B15.5**'s `reference_
 mode` (built, still unused — now genuinely closer, since A11.4/A8/A9/
-A10/A1.3/C5/A12.1-A12.9/A4.3/A5.1-A5.6 all exist; step 8, explicitly
-last, the checklist's own final item). `A6` structured-output
-validator (un-sequenced, buildable whenever, blocks nothing
-downstream) remains open but doesn't block any of the above. `A7.2` (a
-system-sampling thread — needed for C5's own `peak_rss_mb_by_
-concurrency` field, honestly shipped empty until it exists),
-`A11.1`-`A11.3`/`A11.5` (the fuller quick/full/custom/strict-repro
-run-mode abstraction), and A9.1's latency/memory GRAPHS (no charting
+A10/A1.3/C5/A12.1-A12.9/A4.3/A5.1-A5.6/A6 all exist; step 8, explicitly
+last, the checklist's own final item — this is now the only real
+SEQUENCED item left in Phase 6). `A7.2` (a system-sampling thread —
+needed for C5's own
+`peak_rss_mb_by_concurrency` field, honestly shipped empty until it
+exists), `A11.1`-`A11.3`/`A11.5` (the fuller quick/full/custom/
+strict-repro run-mode abstraction), and A9.1's latency/memory GRAPHS
+(no charting
 dependency exists in this repo) stay real, distinct, unstarted future
 work within their own already-partial items.
+
+- **A6 (structured output validator, all three sub-items) — SHIPPED,
+  v1.34.289.** Un-sequenced per the checklist's own SEQUENCE, but
+  closes real, previously-flagged gaps rather than being decorative.
+
+  `A6.1`: new `hearthbench/validation/schema_resolver.py`'s `resolve_
+  schema(schema_ref)` reuses `hearthmind.llm.json_schemas.schema_for_
+  task` DIRECTLY — legal under A1.2 (only `hearthmind.simulation`/
+  `.agents`/`.world` are banned, `hearthmind.llm` isn't), real reuse
+  ahead of A0's still-unbuilt shared `cognition_contract` package.
+  Closed a real, previously-unexercised gap: `TestCase.schema_ref`
+  (A3.2's own field) had never been consumed by the runner —
+  `hearthbench/runner/run.py`'s `_execute_case` hardcoded `schema=
+  None` on every call regardless of what a case named. Now wired;
+  `schema_ref=None` (every case shipped before this pass) reproduces
+  the exact prior unconstrained request byte-for-byte.
+
+  `A6.2`: new `hearthbench/validation/repair_ladder.py`'s `classify_
+  repair(text, parsed, error)` — a real, uniform "raw"/"repaired"/
+  "failed" classifier over any A2.2 adapter's own `AdapterResult`, no
+  per-adapter instrumentation needed. Wired into `hearthbench.scoring.
+  types.CaseResult.from_adapter_result`, replacing a `parse_repaired=
+  False` stub that had NEVER been computed since A4.4 first shipped —
+  a real pre-existing gap, not new scope. New `CaseResult`/`CaseRecord`
+  `repair_rung`/`repair_reason` fields (additive, backward-compatible),
+  surfaced through the daemon's case-detail route and `page.py`.
+
+  `A6.3`: new `hearthbench/validation/dual_mode.py`'s `run_case_dual_
+  mode` — the SAME case run through the adapter twice (constrained/
+  unconstrained), real per-scorer delta, deliberately opt-in (two real
+  calls, not folded into the fast single-call default every ordinary
+  run keeps using). `constrained_supported=False` (never a fabricated
+  delta) when no `schema_ref` or the adapter can't do constrained
+  decoding — confirmed a real skip case makes only ONE HTTP request,
+  never a wasted second call. Distinct from A5.8's own pre-existing
+  category-level `score_structured_output_delta` (that one operates on
+  `CategoryScoreSummary.pass_rate` across a whole pre-built case pair;
+  A6.3 operates per-case, per-scorer) — the two compose, neither
+  duplicates the other.
+
+  New `scripts/verify_a6_structured_output_validator.py` (32 checks,
+  3 consecutive clean runs, real local HTTP server through the real
+  `OpenAICompatAdapter`, never mocked): `resolve_schema`'s exact match
+  against the real production schema; `classify_repair`'s four real
+  cases; `CaseResult`/`CaseRecord` wiring incl. backward-compatible
+  degradation on a pre-A6.2 record; a real outgoing HTTP request proof
+  that `schema_ref` genuinely requests `json_schema` decoding on a
+  capable adapter, degrades to `json_object` on an incapable one
+  (A2.1's own documented fallback), and sends no `response_format` at
+  all when no `schema_ref` is named; three real end-to-end runs
+  through `run_cases_with_resume` proving a clean/prose-wrapped/
+  unrecoverable completion commits the correct real rung to a
+  `CaseRecord` read back purely off disk; `run_case_dual_mode`'s real
+  2-request/1-request/0-request proofs across all five real scenarios.
+
+  Verified: the new script; `scripts/verify_hearthbench_isolation.py`/
+  `verify_hearthbench_adapter_isolation.py`/`verify_a1_3_process_
+  isolation.py`/`verify_a2_model_adapters.py`/`verify_a3_prompt_
+  library.py`/`verify_a4_scoring.py`/`verify_a5_categories.py`/
+  `verify_a5_1_6_subjective_categories.py`/`verify_a7_a8_run_
+  diagnostics.py`/`verify_a9_a10_score_report.py`/`verify_a13_ci_
+  guard.py`/`verify_c5_model_passport.py`/`verify_a12_bench_daemon.py`
+  all re-run clean — the `CaseResult`/`CaseRecord` field additions and
+  `_execute_case`'s new `schema` argument disturbed nothing already
+  shipped. `pyflakes` clean on all touched/new files. No `simulation/
+  engine.py` code path or native module touched — pure `hearthbench/`
+  work, no replay-hash/native-soak re-run needed.
 
 - **A12.9 (the human-rating page, closes A4.3) — SHIPPED, v1.34.287.**
   Built entirely on A4.3's own already-real `HumanRatingTask`/`Human

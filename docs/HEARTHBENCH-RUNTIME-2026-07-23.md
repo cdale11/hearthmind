@@ -381,9 +381,14 @@ category name swapped (verified: all five are pairwise-distinct texts).
   derives a real `(grammar, no_grammar)` `TestCase` pair per task
   actually registered in `hearthmind.llm.json_schemas.TASK_SCHEMAS` —
   zero hardcoded task list, grows automatically. `score_structured_
-  output_delta` is this pass's real answer to A6.3's identical "score
-  both modes, report the delta," needing nothing from the still-
-  unbuilt A6.
+  output_delta` was this category's own real answer to A6.3's
+  identical "score both modes, report the delta," needing nothing from
+  A6, which was unbuilt at the time — the two now coexist deliberately:
+  A5.8's delta operates at the CATEGORY level (`CategoryScoreSummary.
+  pass_rate` across a whole pre-built case pair), A6.3's `run_case_
+  dual_mode` (SHIPPED, v1.34.289) operates at the single-CASE level
+  (real per-scorer `ScoreDetail.value` deltas for any one case naming
+  a `schema_ref`), a genuinely finer grain neither duplicates.
 - [x] **A5.9 — Performance — SHIPPED.** `hearthbench/tests/
   performance.py`, weight 5. Wraps A4.1's `latency` scorer (a pure
   measurement); `summarize_latency` computes real p50/p95/max/mean for
@@ -408,14 +413,85 @@ category name swapped (verified: all five are pairwise-distinct texts).
   firewall still holds for the core benchmark. Last item to build —
   needs B15.5 on the runtime side first.
 
-## A6 — Structured Output Validator [PARTIAL]
+## A6 — Structured Output Validator [SHIPPED IN FULL, v1.34.289]
 
-- [ ] **A6.1** — Reuse `json_schemas.py` via the shared contract package
-  so bench validation is identical to production validation.
-- [ ] **A6.2** — Record the full repair ladder per call (raw → parse →
-  repair → schema → fallback) with the reason at each rung.
-- [ ] **A6.3** — Score both constrained and unconstrained modes when
-  supported, report the delta.
+- [x] **A6.1 — SHIPPED.** `hearthbench/validation/schema_resolver.py`'s
+  `resolve_schema(schema_ref)` reuses `hearthmind.llm.json_schemas.
+  schema_for_task` DIRECTLY — legal under A1.2 (only `hearthmind.
+  simulation`/`.agents`/`.world` are banned, confirmed via `scripts/
+  verify_hearthbench_isolation.py`, not `hearthmind.llm`), real reuse
+  rather than waiting on A0's still-unbuilt shared `cognition_contract`
+  package. The real gap this closes: `TestCase.schema_ref` (A3.2's own
+  field, "a future... `hearthmind.llm.json_schemas` task key") had
+  never been consumed by the runner — `hearthbench/runner/run.py`'s
+  `_execute_case` hardcoded `schema=None` on every call. Now a case
+  naming a real task via `schema_ref` genuinely REQUESTS schema-
+  constrained decoding (`adapter.generate(..., schema=resolve_schema(
+  case.schema_ref))`) — A4.1's `schema_validity` scorer already scored
+  a case's output against the same schema post-hoc; A6.1 makes the
+  request itself match. `schema_ref=None` (every case shipped before
+  this pass) reproduces the exact prior unconstrained call byte-for-
+  byte, verified directly against the real outgoing HTTP request body.
+- [x] **A6.2 — SHIPPED.** `hearthbench/validation/repair_ladder.py`'s
+  `classify_repair(text, parsed, error)`: a real, uniform classifier
+  over every A2.2 adapter's own `AdapterResult` (no per-adapter
+  instrumentation needed) — `"raw"` (a bare `json.loads` of the
+  completion text matched the parsed result), `"repaired"` (the parsed
+  result exists but didn't come from a bare parse — some recovery step
+  ran upstream, whatever it was), `"failed"` (no valid JSON at all, or
+  a genuine backend error), each with a real plain-language reason.
+  Wired into `hearthbench.scoring.types.CaseResult.from_adapter_
+  result`, replacing a `parse_repaired=False` stub that was NEVER
+  actually computed since A4.4 first shipped — a real, previously-
+  unnoticed gap this item closes, not a new field bolted on. New
+  `CaseResult.repair_rung`/`repair_reason` and matching `hearthbench.
+  diagnostics.run_record.CaseRecord.repair_rung`/`repair_reason`
+  fields (additive, `from_dict` degrades a pre-A6.2 record to `None`,
+  not a crash) — a run's own committed record now carries the real
+  reason at each rung, surfaced through the daemon's `GET /api/runs/
+  {id}/cases/{case_id}` route and a new line in `page.py`'s case-
+  detail panel.
+- [x] **A6.3 — SHIPPED.** `hearthbench/validation/dual_mode.py`'s
+  `run_case_dual_mode`: issues the SAME case through the adapter
+  TWICE — schema-constrained (A6.1) and unconstrained — and reports a
+  real per-scorer delta. Deliberately opt-in, not folded into the fast
+  default `run_case_against_adapter`/`run_cases_with_resume` path
+  every ordinary run still uses (two real calls per case is real extra
+  cost a caller should choose). `constrained_supported=False` (never a
+  fabricated delta) when the case names no `schema_ref` or the
+  adapter's own `capabilities().json_schema` says it can't do
+  constrained decoding — confirmed a real skip in this case makes only
+  ONE HTTP request, never a wasted second call.
+
+  New `scripts/verify_a6_structured_output_validator.py` (32 checks,
+  all pass, 3 consecutive clean runs, real local HTTP server through
+  the real `OpenAICompatAdapter`, never mocked): `resolve_schema`'s own
+  correctness incl. an exact match against the real production schema;
+  `classify_repair`'s four real cases; `CaseResult`/`CaseRecord`
+  wiring incl. backward-compatible degradation on a pre-A6.2 record; a
+  real outgoing HTTP request proof that `schema_ref` genuinely requests
+  `json_schema` decoding on a capable adapter, degrades to
+  `json_object` on an incapable one (A2.1's own documented fallback),
+  and sends no `response_format` at all when no `schema_ref` is named;
+  three real end-to-end runs through `run_cases_with_resume` proving a
+  clean/prose-wrapped/unrecoverable completion commits the correct
+  real rung to a `CaseRecord` read back purely off disk; `run_case_
+  dual_mode`'s real 2-request/1-request/0-request proofs across all
+  five real scenarios (supported, no schema_ref, adapter incapable, no
+  renderable prompt).
+
+  Verified: the new script; `scripts/verify_hearthbench_isolation.py`/
+  `verify_hearthbench_adapter_isolation.py`/`verify_a1_3_process_
+  isolation.py`/`verify_a2_model_adapters.py`/`verify_a3_prompt_
+  library.py`/`verify_a4_scoring.py`/`verify_a5_categories.py`/
+  `verify_a5_1_6_subjective_categories.py`/`verify_a7_a8_run_
+  diagnostics.py`/`verify_a9_a10_score_report.py`/`verify_a13_ci_
+  guard.py`/`verify_c5_model_passport.py`/`verify_a12_bench_daemon.py`
+  all re-run clean — confirming the `CaseResult`/`CaseRecord` field
+  additions and `_execute_case`'s new `schema` argument disturbed
+  nothing already shipped. `pyflakes` clean on all touched/new files.
+  No `simulation/engine.py` code path or native module touched — pure
+  `hearthbench/` work, no replay-hash/native-soak re-run needed.
 
 ## A7 — Metrics Collector [PARTIAL, A7.1+A7.3 shipped v1.34.281]
 
@@ -974,6 +1050,11 @@ greenfield at the time this doc was written):**
    was already real; A12.9 shipped the page/routes it needed to become
    usable).
 8. **A5.11 world-level run** — last, only after B15.5 exists.
+
+`A6` (structured output validator) was never one of these 8 numbered
+steps — its own text says "un-sequenced, buildable whenever, blocks
+nothing downstream" — but is now **SHIPPED IN FULL, v1.34.289**
+regardless, closing the checklist's own last non-A5.11 gap.
 
 # THE TESTS
 

@@ -361,6 +361,7 @@ def create_app(runs_root: str) -> FastAPI:
                 "completion": reader.blobs.get(r.completion_hash) or "",
                 "parsed_json": r.parsed_json, "structured_input": r.structured_input,
                 "fallback_used": r.fallback_used, "parse_repaired": r.parse_repaired,
+                "repair_rung": r.repair_rung, "repair_reason": r.repair_reason,
                 "retries": r.retries, "latency_ms": r.latency_ms, "ttft_ms": r.ttft_ms,
                 "prompt_tokens": r.prompt_tokens, "completion_tokens": r.completion_tokens,
                 "error": r.error, "scores": r.scores, "recorded_at": r.recorded_at,

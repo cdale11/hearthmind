@@ -29,6 +29,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable
 
+from hearthbench.validation.repair_ladder import classify_repair
+
 
 @dataclass
 class CaseResult:
@@ -44,6 +46,14 @@ class CaseResult:
     raw_text: str = ""
     fallback_used: bool = False
     parse_repaired: bool = False
+    repair_rung: str | None = None
+    """A6.2's own real ladder rung this call landed on (`"raw"`/
+    `"repaired"`/`"failed"`) — see `hearthbench.validation.repair_
+    ladder.classify_repair`. `None` only for `from_archive_example`
+    (a pre-A6.2 archived record carries no `AdapterResult` to classify
+    from — an honest "not measured," never guessed)."""
+    repair_reason: str | None = None
+    """The human-readable reason for `repair_rung`, same source."""
     retries: int = 0
     latency_ms: float | None = None
     ttft_ms: float | None = None
@@ -54,14 +64,21 @@ class CaseResult:
         """`result` is an A2 `AdapterResult` (or anything with the
         same attribute names — duck-typed deliberately, so this
         doesn't import `hearthbench.adapters` and create a scoring<-
-        >adapters coupling neither package needs)."""
+        >adapters coupling neither package needs). `parse_repaired`/
+        `repair_rung`/`repair_reason` are real, computed via A6.2's
+        `classify_repair` against this result's own `text`/`parsed`/
+        `error` — not a hardcoded stub."""
+        repair = classify_repair(
+            getattr(result, "text", "") or "", getattr(result, "parsed", None), getattr(result, "error", None),
+        )
         return cls(
             task=task,
             output=result.parsed if isinstance(getattr(result, "parsed", None), dict) else {},
             structured_input=dict(structured_input or {}),
             raw_text=getattr(result, "text", "") or "",
             fallback_used=getattr(result, "parsed", None) is None,
-            parse_repaired=False,
+            parse_repaired=repair["parse_repaired"],
+            repair_rung=repair["rung"], repair_reason=repair["reason"],
             retries=int(getattr(result, "retries", 0) or 0),
             latency_ms=getattr(result, "latency_ms", None),
             ttft_ms=getattr(result, "ttft_ms", None),
