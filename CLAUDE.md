@@ -742,6 +742,33 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.298)
+
+Explicit user instruction: "cleanup the roadmap docs... summarize work
+done at the bottom... at the top create new roadmap of things that are
+still pending ordered by priority and blocking release... audit all
+docs and code." Docs-only — the second such consolidation of `docs/
+ROADMAP-2026-07-REMAINING.md` (the first, v1.34.250, cut it 6,013 ->
+227 lines; per-item shipping narrative had regrown it to 2,281).
+
+Audited this doc in full plus `docs/REFACTOR-2026-07.md`/`docs/
+MASTERCHECKLIST-2026-07-22.md`/`docs/COGNITIVE-ARCHITECTURE-2026-08-
+02.md`/`docs/CONSTITUTION.md`/`docs/DECISIONS.md` (the latter four via
+a parallel research agent, every claim cross-checked against real code
+before trusting it). One real staleness found: B5's own "SHIPPED,
+v1.34.61" entry over-claimed — `llm/ontology.py`'s `build_evolve_
+prompt`/`build_merge_prompt` still lack the `discoverable_combinations`/
+`discoverable_reactions` grounding params `build_propose_prompt` has;
+re-opened. Nothing else audited was found stale either direction.
+
+Rewrote the roadmap (2,281 -> 225 lines): a priority-ordered "Still
+open" section at the top (Group 1 small real gaps -> Group 4 perpetual
+standing discipline) replacing the old 9-phase mostly-shipped-narrative
+structure, plus a condensed "Shipped so far" summary at the bottom —
+both pointing to `CHANGELOG.md`/this file for narrative/verification
+detail instead of duplicating it. `docs/README.md`'s two stale
+pointers to the old "Phase 1 -> 9" structure corrected to match.
+
 ## Current state (v1.34.297)
 
 Explicit user instruction: "start a2 and a3 of phase 8" — the two

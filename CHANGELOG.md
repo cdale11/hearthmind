@@ -4,6 +4,47 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.298] — Roadmap consolidation pass (docs-only)
+
+Explicit user instruction: "cleanup the roadmap docs... summarize work
+done at the bottom... at the top create new roadmap of things that are
+still pending ordered by priority and blocking release... audit all
+docs and code." Docs-only. The second such consolidation — the first
+(v1.34.250) rewrote `docs/ROADMAP-2026-07-REMAINING.md` from 6,013
+lines to 227; the per-item shipping narrative accumulated since then
+(every phase closing out in place, script-by-script) had regrown it to
+2,281 lines, the identical bloat class recurring.
+
+Audited: this document in full, plus `docs/REFACTOR-2026-07.md`/`docs/
+MASTERCHECKLIST-2026-07-22.md`/`docs/COGNITIVE-ARCHITECTURE-2026-08-
+02.md`/`docs/CONSTITUTION.md`/`docs/DECISIONS.md` in full (the last
+four via a parallel research agent, cross-checked against the codebase
+before trusting any "still open" claim). One real staleness found and
+corrected: B5's own prior "SHIPPED, v1.34.61" entry over-claimed —
+`llm/ontology.py`'s `build_evolve_prompt`/`build_merge_prompt` still
+lack the `discoverable_combinations`/`discoverable_reactions`
+grounding params `build_propose_prompt` has (confirmed directly by
+reading all three signatures); re-opened. Nothing else audited was
+found stale in either direction — every other doc's "genuinely open"
+list checked out.
+
+Rewrote `docs/ROADMAP-2026-07-REMAINING.md` (2,281 -> 225 lines):
+replaced the 9-phase, mostly-shipped-narrative structure with a
+priority-ordered "Still open" section at the top (Group 1 — small
+scoped real gaps worth doing first: B5's affordance grounding,
+`carrying_capacity` as a possible learned target, B4.2's distant-
+wildlife dormancy; Group 2 — HearthBench's remaining SEQUENCED items
+(A5.11/A7.2/A11.1-3/A11.5/A9.1); Group 3 — larger/unscoped/opportunistic
+(A7/A8 grammar, A4 gossip-on-fields, A10's coupled food web, A12
+material generalization, R1's remaining `population.py` slices, R8's
+remaining native port, Part B pillars' full refactor); Group 4 —
+perpetual standing discipline (A22-A25, C4's general auditor, Tier 0/
+0.5's opportunistic maintenance, live-diagnostic re-measurement)) and a
+condensed "Shipped so far" summary at the bottom, pointing to
+`CHANGELOG.md`/`CLAUDE.md` for all narrative/verification detail
+instead of duplicating it inline. `docs/README.md`'s two stale pointers
+to the old "Phase 1 → 9" structure updated to match.
+
 ## [1.34.297] — A2: contiguity-weighted wildfire spread + A3: settled as LLM-authored
 
 Explicit user instruction: "start a2 and a3 of phase 8" (docs/ROADMAP-

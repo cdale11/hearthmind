@@ -39,15 +39,16 @@ moved to `docs/archive/` (see the path-change note at the bottom).
   subsystem among several, impasse-gated deliberation, a global
   workspace with broadcast, prediction-error salience. Also defines the
   **Cognitive Observatory** UI and the amended three-surface rule.
-  `CONSTITUTION.md` still wins on priority ordering. Roadmap: Tier 7 —
-  now mostly SHIPPED (Stages A/B/C/D/G/H in full, E except one gap);
-  see `ROADMAP-2026-07-REMAINING.md`'s Phase 1/3 for what's left, not
-  this doc's own static §7 (kept as the original spec).
+  `CONSTITUTION.md` still wins on priority ordering. Tier 7 (HCA) is
+  now fully SHIPPED — see `ROADMAP-2026-07-REMAINING.md`'s "Still open"
+  section for anything left project-wide, not this doc's own static §7
+  (kept as the original spec).
 
-- **`ROADMAP-2026-07-REMAINING.md`** — **the** roadmap. A phase-ordered
-  (Phase 1 → 9) list of every genuinely open item across the whole
-  project; shipped history is summarized at its own bottom and lives in
-  full in `CHANGELOG.md`/this file's own "Current state" log.
+- **`ROADMAP-2026-07-REMAINING.md`** — **the** roadmap. A priority-
+  ordered "Still open" list at the top (Group 1 small real gaps →
+  Group 4 perpetual standing discipline), shipped history condensed at
+  the bottom; full detail lives in `CHANGELOG.md`/this file's own
+  "Current state" log.
 
 - **`DECISIONS.md`** — running design-decision log: root causes,
   rationale, verification data. Appended to by every behavioural
