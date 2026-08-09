@@ -4,6 +4,56 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.299] — B5: evolve/merge get the same affordance/reaction grounding as propose
+
+Explicit user instruction: "start group 1" — the first, unambiguous
+item in the roadmap's newly-rewritten "Group 1" (v1.34.298 found this
+gap during its own audit and re-opened B5, which had previously been
+marked shipped in error).
+
+`llm/ontology.py`'s `build_propose_prompt` has grounded Innovation's
+generate-step in real physical affordances/reactions since A5/A6/A13
+(`discoverable_combinations`/`discoverable_reactions`, sourced from
+`world.affordances.discover_combinations`/`world.chemistry.discover_
+reactions` over a settlement's own standing buildings/materials) —
+`build_evolve_prompt`/`build_merge_prompt` never got the same params,
+so a reinterpreted or combined idea was grounded in recent events
+only, never in what's actually physically buildable right now. Both
+gained the identical two optional params, same additive shape and
+wording as `build_propose_prompt`'s own blocks (`discoverable_
+combinations`/`discoverable_reactions`, both `None`-default,
+reproducing the exact prior prompt text byte-for-byte when absent).
+
+`simulation/engine.py`'s `_maybe_schedule_ontology_evolution` (the one
+call site for both `evolve` and `merge`) now computes `present_tags`/
+`present_materials`/`discoverable`/`discoverable_reactions` from the
+picked settlement's own standing buildings right after `settlement` is
+resolved — the identical query `_maybe_schedule_ontology_proposal`
+already runs, reused rather than duplicated, and threaded into
+whichever branch (merge or evolve) actually fires that cycle.
+
+Verified: direct unit tests confirming both prompt builders reproduce
+their exact prior text with the new params absent, and that supplying
+real combinations/reactions changes the output (including composing
+correctly alongside `build_merge_prompt`'s existing `candidate_hint`
+param); a real end-to-end production-path test driving the actual
+`_maybe_schedule_ontology_evolution` through a real `SimulationEngine`
+with a fake LLM adapter and two real established concepts plus a real
+standing FORGE building — both the `evolve` and `merge` branches were
+observed firing with their prompts genuinely grounded in the real
+building's affordances/reactions. `pyflakes` clean (only the six known
+pre-existing forward-ref findings in `engine.py`); a 3000-tick
+LLM-disabled production soak with a clean `World.to_dict()`/
+`from_dict()` round-trip. No native module, persisted schema, or
+RNG-consumption path touched — pure prompt-text grounding, same scope
+class as `build_propose_prompt`'s own original A5/A6/A13 additions —
+no `scripts/verify_native_soak.py` re-run needed.
+
+`docs/ROADMAP-2026-07-REMAINING.md`'s Group 1 updated — B5 closed,
+two items remain (`carrying_capacity` as a possible learned target,
+B4.2's distant-wildlife dormancy), both explicitly needing a human
+product decision per that document's own text.
+
 ## [1.34.298] — Roadmap consolidation pass (docs-only)
 
 Explicit user instruction: "cleanup the roadmap docs... summarize work

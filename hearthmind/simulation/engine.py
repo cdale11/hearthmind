@@ -9899,6 +9899,20 @@ class SimulationEngine:
             return picked
 
         settlement = self._settlement_by_id(established[0].origin_settlement_id) or self._job_target()
+        # Roadmap Group 1: `evolve`/`merge` never got the same real
+        # affordance/reaction grounding `propose` has had since A5/A6/
+        # A13 — same query over the SAME settlement's own standing
+        # buildings/materials, computed once here and threaded into
+        # whichever branch fires below.
+        standing = [b for b in settlement.buildings if b.stage is BuildingStage.STANDING]
+        present_tags: set[str] = set()
+        for b in standing:
+            present_tags |= building_instance_affordances(b)
+        discoverable = discover_combinations(present_tags)
+        present_materials = {
+            name for b in standing if (name := effective_material_name(b)) is not None
+        }
+        discoverable_reactions = discover_reactions(present_materials, present_tags)
         if do_merge:
             a, b = weighted_pick(2)
             # A16 "tech-as-DAG" (docs/ROADMAP-2026-07-REMAINING.md): a real
@@ -9914,7 +9928,10 @@ class SimulationEngine:
             while graph_algorithms.shares_lineage(self.world, a.id, b.id) and attempts < 4:
                 a, b = weighted_pick(2)
                 attempts += 1
-            prompt = ontology_llm.build_merge_prompt(a.name, a.description, b.name, b.description, settlement.name or "The village")
+            prompt = ontology_llm.build_merge_prompt(
+                a.name, a.description, b.name, b.description, settlement.name or "The village",
+                discoverable_combinations=discoverable, discoverable_reactions=discoverable_reactions,
+            )
             fallback = ontology_llm.fallback_merge(a.name, b.name)
             system_prompt = ontology_llm.SYSTEM_PROMPT_MERGE
             parent_ids = [a.id, b.id]
@@ -9964,7 +9981,10 @@ class SimulationEngine:
                 )
         else:
             parent = weighted_pick(1)[0]
-            prompt = ontology_llm.build_evolve_prompt(parent.name, parent.description, settlement.name or "The village", [])
+            prompt = ontology_llm.build_evolve_prompt(
+                parent.name, parent.description, settlement.name or "The village", [],
+                discoverable_combinations=discoverable, discoverable_reactions=discoverable_reactions,
+            )
             fallback = ontology_llm.fallback_evolve(parent.name)
             system_prompt = ontology_llm.SYSTEM_PROMPT_EVOLVE
             parent_id = parent.id

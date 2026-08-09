@@ -742,6 +742,51 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.299)
+
+Explicit user instruction: "start group 1" — the first, unambiguous
+item in the roadmap's own newly-rewritten Group 1 (B5), found stale
+during v1.34.298's own audit pass and re-opened there.
+
+`llm/ontology.py`'s `build_propose_prompt` has grounded Innovation's
+generate-step in real physical affordances/reactions since A5/A6/A13
+(`discoverable_combinations`/`discoverable_reactions`, sourced from
+`world.affordances.discover_combinations`/`world.chemistry.discover_
+reactions` over a settlement's own standing buildings/materials);
+`build_evolve_prompt`/`build_merge_prompt` never got the same
+treatment, so a reinterpreted or combined idea was grounded in recent
+events only. Both gained the identical two optional params, same
+additive shape/wording as `build_propose_prompt`'s own blocks,
+`None`-default reproducing the exact prior prompt text byte-for-byte.
+`simulation/engine.py`'s `_maybe_schedule_ontology_evolution` (the one
+shared call site for both `evolve` and `merge`) now computes the same
+`present_tags`/`present_materials`/`discoverable`/`discoverable_
+reactions` query `ontology_proposal` already runs, right after
+`settlement` is resolved, threaded into whichever branch fires.
+
+Verified: direct unit tests confirming both prompt builders reproduce
+their exact prior text with the new params absent and change output
+correctly when supplied (including composing with `build_merge_
+prompt`'s existing `candidate_hint` param); a real end-to-end
+production-path test through a real `SimulationEngine` with a fake
+LLM adapter, two real established concepts, and a real standing FORGE
+building — both branches observed firing with genuinely grounded
+prompts. `pyflakes` clean (only the six known pre-existing forward-ref
+findings in `engine.py`); a 3000-tick LLM-disabled production soak
+with a clean `World.to_dict()`/`from_dict()` round-trip. No native
+module, persisted schema, or RNG-consumption path touched — pure
+prompt-text grounding, same scope class as `build_propose_prompt`'s
+own original additions — no `scripts/verify_native_soak.py` re-run
+needed.
+
+Two Group 1 items remain, both explicitly needing a human product
+decision per the roadmap's own text, not an implementation task:
+`Population.carrying_capacity` as a possible learned regression
+target (genuinely ambiguous whether it crosses `docs/CONSTITUTION.md`'s
+Body/Mind line), and B4.2's distant-wildlife dormancy (re-investigated
+four times with the same conclusion — "stop re-investigating without
+that decision").
+
 ## Current state (v1.34.298)
 
 Explicit user instruction: "cleanup the roadmap docs... summarize work

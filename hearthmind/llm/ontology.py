@@ -366,12 +366,45 @@ SYSTEM_PROMPT_EVOLVE = (
 )
 
 
-def build_evolve_prompt(parent_name: str, parent_description: str, settlement_name: str, recent_events: list[dict]) -> str:
+def build_evolve_prompt(
+    parent_name: str, parent_description: str, settlement_name: str, recent_events: list[dict],
+    discoverable_combinations: list[str] | None = None, discoverable_reactions: list[str] | None = None,
+) -> str:
+    """`discoverable_combinations`/`discoverable_reactions` (roadmap
+    Group 1: `build_propose_prompt` has grounded a proposal in real
+    physical affordances/reactions since A5/A6/A13 — `evolve`/`merge`
+    never got the same treatment, so a reinterpreted idea was grounded
+    in recent events only, never in what's actually physically
+    buildable right now. Same additive/optional shape and same
+    `world.affordances.discover_combinations`/`world.chemistry.
+    discover_reactions` source as `build_propose_prompt`'s own params
+    of these names; empty/`None` (both defaults) reproduces the exact
+    prior prompt text byte-for-byte."""
     lines = [f"- {event['description']}" for event in recent_events]
     events_text = "\n".join(lines) if lines else "Nothing notable happened recently."
+    discoverable_text = (
+        ", ".join(c.replace("_", " ") for c in discoverable_combinations)
+        if discoverable_combinations else ""
+    )
+    discoverable_block = (
+        f"What could physically be combined here right now: {discoverable_text}. "
+        "You don't have to use one of these, but a real evolution grounded "
+        "in one is especially credible.\n" if discoverable_text else ""
+    )
+    reactions_text = (
+        ", ".join(r.replace("_", " ") for r in discoverable_reactions)
+        if discoverable_reactions else ""
+    )
+    reactions_block = (
+        f"What could be produced here right now by working a material under the right "
+        f"conditions: {reactions_text}. Again, optional but especially credible if used.\n"
+        if reactions_text else ""
+    )
     return (
         f"{settlement_name} already has this idea: {parent_name} — {parent_description}\n"
         f"Recent history:\n{events_text}\n"
+        f"{discoverable_block}"
+        f"{reactions_block}"
         "Propose how this idea has genuinely evolved."
     )
 
@@ -427,6 +460,7 @@ SYSTEM_PROMPT_MERGE = (
 def build_merge_prompt(
     a_name: str, a_description: str, b_name: str, b_description: str, settlement_name: str,
     candidate_hint: str = "",
+    discoverable_combinations: list[str] | None = None, discoverable_reactions: list[str] | None = None,
 ) -> str:
     """`candidate_hint` (Tier 7 HCA F1, `hearthmind/cognition/
     semantic_pointers.py`) is an optional grounding line naming the
@@ -437,15 +471,43 @@ def build_merge_prompt(
     neighborhood instead of a blind combination. Empty string (the
     default, and the only path any real call site uses today — no
     engine call passes a real hint yet) reproduces the exact prior
+    prompt text byte-for-byte.
+
+    `discoverable_combinations`/`discoverable_reactions` (roadmap Group
+    1, same rationale/source as `build_evolve_prompt`'s own params of
+    these names): what's actually physically buildable in the
+    settlement right now, so a merged concept can be grounded in real
+    affordances the way `propose` already is. Same additive/optional
+    shape; empty/`None` (both defaults) reproduces the exact prior
     prompt text byte-for-byte."""
     hint_line = (
         f"A blend of these two ideas leans toward: {candidate_hint}.\n" if candidate_hint else ""
+    )
+    discoverable_text = (
+        ", ".join(c.replace("_", " ") for c in discoverable_combinations)
+        if discoverable_combinations else ""
+    )
+    discoverable_block = (
+        f"What could physically be combined here right now: {discoverable_text}. "
+        "You don't have to use one of these, but a real combined idea grounded "
+        "in one is especially credible.\n" if discoverable_text else ""
+    )
+    reactions_text = (
+        ", ".join(r.replace("_", " ") for r in discoverable_reactions)
+        if discoverable_reactions else ""
+    )
+    reactions_block = (
+        f"What could be produced here right now by working a material under the right "
+        f"conditions: {reactions_text}. Again, optional but especially credible if used.\n"
+        if reactions_text else ""
     )
     return (
         f"{settlement_name} has two separate ideas:\n"
         f"1. {a_name} — {a_description}\n"
         f"2. {b_name} — {b_description}\n"
         f"{hint_line}"
+        f"{discoverable_block}"
+        f"{reactions_block}"
         "Propose one new idea that genuinely combines them."
     )
 

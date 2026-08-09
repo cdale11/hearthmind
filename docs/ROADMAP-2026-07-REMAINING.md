@@ -48,15 +48,13 @@ larger, or perpetual-by-nature.
 
 ### Group 1 — small, scoped, real gaps (do these first if resuming)
 
-- **B5 — Innovation's `evolve`/`merge` paths still skip the affordance/
-  reaction grounding `propose` already has.** `llm/ontology.py`'s
-  `build_propose_prompt` takes `discoverable_combinations`/
-  `discoverable_reactions` (what standing buildings/materials actually
-  allow); `build_evolve_prompt`/`build_merge_prompt` do not — an
-  evolved or merged concept is grounded in recent events only, not in
-  what's physically buildable. Small, scoped: add the same two params
-  to both signatures and thread them from the same call sites `propose`
-  already reads them from.
+- ~~**B5 — Innovation's `evolve`/`merge` paths still skip the
+  affordance/reaction grounding `propose` already has.**~~ **SHIPPED,
+  v1.34.299.** `build_evolve_prompt`/`build_merge_prompt` gained the
+  same `discoverable_combinations`/`discoverable_reactions` params
+  `build_propose_prompt` already had, threaded from
+  `_maybe_schedule_ontology_evolution`'s one call site (same query
+  `ontology_proposal` already runs, reused not duplicated).
 - **`Population.carrying_capacity` as a possible learned regression
   target — flagged, not decided.** A 10-term hand-set weighted sum
   gating reproduction/migration; the same "hand-tuned constant standing
