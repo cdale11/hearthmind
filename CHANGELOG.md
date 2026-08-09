@@ -4,6 +4,65 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); versions correspond
 to `hearthmind.__version__`.
 
+## [1.34.300] — Group 1 closed: learned carrying capacity + distant-wildlife dormancy
+
+Explicit user instruction closing both remaining Group 1 items
+(`docs/ROADMAP-2026-07-REMAINING.md`), each needing a human product
+decision the roadmap had been waiting on since v1.34.299 — both were
+given explicitly this pass.
+
+**`Population.carrying_capacity` as a learned regression target.** New
+`hearthmind/ml/carrying_capacity.py`'s `CarryingCapacityModel` (a
+linear-output MLP over a 7-field schema built from real, already-
+persisted per-sim-day `metrics` rows), a self-supervised label
+(`compute_carrying_capacity_label`) derived from real hunger/
+starvation-death history rather than hand-labeled, and `blended_
+capacity` — a bounded ±25% ratio correction on top of the hand
+formula's own already-clamped output, applied BEFORE the final
+`dynamic_population_cap` safety valve, never able to override it.
+`carrying_capacity_model=None` (every world until an operator trains
+one) reproduces the exact prior byte-for-byte output. New `scripts/
+train_carrying_capacity_from_world.py` (trains from a world's own
+`metrics` history, no recorder archive needed), added to `scripts/
+train_all.py`; wired via `Population.tick()` -> `World.tick()` ->
+`SimulationEngine`'s new `CARRYING_CAPACITY_MODEL_FILENAME`/loader,
+same never-auto-created discipline as every prior Tier 6 model.
+README's "Local ML training" section extended.
+
+**Distant-wildlife dormancy, B4.2's last named candidate** — closed
+with an explicit, documented departure from `docs/CONSTITUTION.md`'s
+B15 `TWO_PART_GUARANTEE`, per an explicit user product decision (not a
+default choice): a herd/pack with no living agent within observation
+range for `WILDLIFE_DORMANCY_IDLE_CHECKS_THRESHOLD` consecutive real
+`day_end` checks is skipped ENTIRELY by `WildlifeGrid.tick`'s per-herd
+loop (`dormant_herd_ids` param, `None`/empty byte-identical to
+before); on wake, `fast_forward_wildlife_population` applies a
+closed-form logistic growth/decline APPROXIMATION (grounded in the
+real `GRAZER_REPRODUCE_CHANCE` constant and the herd's own real
+`hardiness` gene) plus a bounded probabilistic local-extinction roll
+for a small, fragile, long-dormant herd — a genuinely non-lossless
+statistical catch-up, not a replay, honestly documented as such in
+`world/wildlife.py`'s own module-level comment. New `SimulationEngine.
+_update_wildlife_dormancy`/`_apply_wildlife_wake_catchup`/`_dormant_
+wildlife_herd_ids` (same `DormancyManager` shape as the four Mind-
+layer-only B4.2 siblings, but a real `day_end` cadence and — the one
+real difference — actually gating Body-deterministic ticking). New
+`wildlife_dormancy_woken`/`wildlife_dormancy_lapsed` events (`app.js`
+icons), `full_diagnostics()['wildlife_dormancy']`.
+
+Verified: `scripts/verify_carrying_capacity_model.py` (35 checks) and
+`scripts/verify_wildlife_dormancy.py` (27 checks), both all-pass;
+`pyflakes` clean on every touched/new file (only the six known pre-
+existing forward-ref findings in `engine.py`); `scripts/verify_replay_
+hash.py` (800 ticks, seed 777, `--in-process`) and `scripts/verify_
+native_soak.py` (2 seeds x 800 ticks) both re-run and MATCH for the
+default (untrained-model, no-cross-hardware) configuration — the
+wildlife-dormancy deviation is scoped and explicitly NOT re-verified
+against those two scripts for a cross-runtime-decision scenario, by
+design; see `scripts/verify_wildlife_dormancy.py`'s own header.
+
+**This closes docs/ROADMAP-2026-07-REMAINING.md's Group 1 in full.**
+
 ## [1.34.299] — B5: evolve/merge get the same affordance/reaction grounding as propose
 
 Explicit user instruction: "start group 1" — the first, unambiguous

@@ -533,6 +533,7 @@ from hearthmind.world.terrain_evolution import (
     apply_ritual_activity,
     apply_road_scar,
 )
+from hearthmind.ml.carrying_capacity import blended_capacity, carrying_capacity_features
 from hearthmind.world.fields import FieldGrid
 from hearthmind.world.graph_algorithms import bfs_distances, build_relationship_graph
 from hearthmind.world.layout_grammar import layout_site_bonus
@@ -2043,6 +2044,7 @@ class Population(PathfindingMixin):
         land_use_override_kind: "BuildingKind | None" = None,
         civic_build_convicted: bool = False,
         killed_in_battle: "set[int] | None" = None,
+        carrying_capacity_model=None,
     ) -> list[tuple[str, str]]:
         """Advance every agent by one tick: needs, foraging, movement,
         relationships, construction/repair, farming, birth, and death.
@@ -2383,6 +2385,7 @@ class Population(PathfindingMixin):
                     established_roads=established_roads,
                     members=[a for a in self.agents if home_of(a).id == s.id],
                     map_tiles=map_tiles,
+                    carrying_capacity_model=carrying_capacity_model,
                 )
                 # "Known scope trim" fix (v1.34.22's own docstring): a
                 # settlement's collectivized district population is
@@ -4552,6 +4555,7 @@ class Population(PathfindingMixin):
     def carrying_capacity(
         self, settlement: Settlement, housing_capacity: int, weather_harsh: bool, predator_pressure: bool,
         established_roads: int = 0, members: "list[Agent] | None" = None, map_tiles: int | None = None,
+        carrying_capacity_model=None,
     ) -> float:
         """Dynamic carrying capacity (H1, docs/ROADMAP.md Phase H):
         composes housing (the base), economy, security, and labor/
@@ -4572,7 +4576,24 @@ class Population(PathfindingMixin):
         flat `POPULATION_CAP` — a settlement that fills a large map
         with housing shouldn't hit the same hard number a tiny map
         would. `None` (a caller not passing map area) keeps the old
-        flat-`POPULATION_CAP` behavior unchanged."""
+        flat-`POPULATION_CAP` behavior unchanged.
+
+        `carrying_capacity_model` (roadmap Group 1, explicit user
+        product decision — `hearthmind.ml.carrying_capacity.
+        CarryingCapacityModel`, duck-typed here the same way `llm/
+        cognition.py`'s `fallback_goal(goal_policy=None)` stays
+        untyped, so this module never needs a hard import of the
+        model class itself): `None` (every world until an operator
+        trains one, `simulation/engine.py`'s `_load_carrying_capacity_
+        model`) means the return value below is the hand formula's own
+        output, byte-for-byte, exactly as before this parameter
+        existed — verified directly. A loaded model only ever nudges
+        the hand formula's own already-clamped output by a bounded
+        ratio (`hearthmind.ml.carrying_capacity.blended_capacity`,
+        `CARRYING_CAPACITY_MODEL_BLEND_MAX`) BEFORE the final
+        `dynamic_population_cap` safety-valve clamp below — the learned
+        correction can never widen that ceiling, only shift where
+        below it the settlement's own real capacity sits."""
         # Multi-settlement pass: capacity is per community — `members`
         # scopes the human terms (sickness, labor) to this settlement's
         # own people; None keeps the legacy whole-population behavior.
@@ -4665,7 +4686,20 @@ class Population(PathfindingMixin):
             + coordination_term + knowledge_term + infrastructure_term
         )
         multiplier = clamp(multiplier, CARRYING_CAPACITY_MIN_MULTIPLIER, CARRYING_CAPACITY_MAX_MULTIPLIER)
-        return min(dynamic_population_cap(map_tiles), housing_capacity * multiplier)
+        hand_capacity = housing_capacity * multiplier
+        if carrying_capacity_model is not None:
+            avg_energy = (sum(a.energy for a in members) / total) if total else 0.0
+            buildings_standing = sum(
+                1 for b in settlement.buildings if b.stage is BuildingStage.STANDING
+            )
+            features = carrying_capacity_features(
+                population=float(total), avg_hunger=avg_member_hunger, avg_energy=avg_energy,
+                materials=settlement.materials, currency=settlement.currency,
+                buildings_standing=float(buildings_standing), tech_level=float(settlement.tech_level),
+            )
+            predicted = carrying_capacity_model.predict(features)
+            hand_capacity = blended_capacity(hand_capacity, predicted)
+        return min(dynamic_population_cap(map_tiles), hand_capacity)
 
     def _maybe_reproduce(
         self, by_position: dict[tuple[int, int], list[Agent]], rng: random.Random,

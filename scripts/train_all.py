@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """One-command wrapper over every real local ML trainer this project
 ships (Tier 6 L1.1/L2.1/L2.2/L3.1/L4.1, the four `DecisionPolicy`
-sites, and `laws.py`'s candidate scorer) — see README's "Local ML
-training" section for what each model needs and does once trained.
+sites, `laws.py`'s candidate scorer, and the roadmap Group 1 carrying-
+capacity model) — see README's "Local ML training" section for what
+each model needs and does once trained.
 
 Runs every trainer that's ready to run, in dependency order, against
 ONE world's own db + recorder archive, and writes every weights file
@@ -10,15 +11,16 @@ into the same directory (next to that world's `db_path`) `Simulation
 Engine` auto-loads from. Nothing here is invented beyond what each
 individual `scripts/train_*.py` already does — this just calls all of
 them for you, in the right order, with the right flags, so training
-"everything" is one command instead of eight.
+"everything" is one command instead of nine.
 
-Three of the eight models need only the world's own db (no live-LLM
+Four of the nine models need only the world's own db (no live-LLM
 recorder archive): the embedding, the belief calibrator, the value
-model. The other five need a real recorder archive (`--archive-dir`,
-default `training_archive`) with real, non-fallback LLM call examples
-in it — if that directory doesn't exist yet or has too little data for
-a given model, this script reports that plainly and moves on; it never
-treats "not enough data yet" as a fatal error for the whole run.
+model, the carrying-capacity model. The other five need a real
+recorder archive (`--archive-dir`, default `training_archive`) with
+real, non-fallback LLM call examples in it — if that directory doesn't
+exist yet or has too little data for a given model, this script
+reports that plainly and moves on; it never treats "not enough data
+yet" as a fatal error for the whole run.
 
 Usage:
     python3 scripts/train_all.py --db-path /path/to/world/hearthmind.db
@@ -94,6 +96,13 @@ def main() -> int:
         "L2.1 value model",
         _run("L2.1 -- value/consequence model (from this world's living core cast)", [
             os.path.join(SCRIPTS_DIR, "train_value_model_from_archive.py"),
+            "--db-path", args.db_path, "--out-dir", out_dir, "--seed", str(args.seed),
+        ]),
+    ))
+    results.append((
+        "carrying capacity model",
+        _run("Roadmap Group 1 -- carrying-capacity regression (from this world's own metrics history)", [
+            os.path.join(SCRIPTS_DIR, "train_carrying_capacity_from_world.py"),
             "--db-path", args.db_path, "--out-dir", out_dir, "--seed", str(args.seed),
         ]),
     ))

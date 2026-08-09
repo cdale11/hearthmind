@@ -925,11 +925,33 @@ class World:
 
     # --- tick --------------------------------------------------------------
 
-    def tick(self) -> list[str]:
+    def tick(
+        self, carrying_capacity_model=None, dormant_wildlife_herd_ids: "frozenset[int] | None" = None,
+    ) -> list[str]:
         """Advance the world by one tick. Returns calendar-boundary events
         crossed (e.g. ["day_end"]), for the caller to log. Births/deaths/
         construction/farming events from this tick are left on
-        `last_life_events` for the caller."""
+        `last_life_events` for the caller.
+
+        `carrying_capacity_model` (roadmap Group 1, explicit user
+        product decision): threaded straight through to `self.
+        population.tick(...)` -- `World` never loads or owns this
+        model itself (same "ML weights are per-world/per-deployment
+        state, never stored ON `World`" discipline every other Tier 6
+        model in this codebase holds to, see `simulation/engine.py`'s
+        own `_goal_policy`/`_value_model`/etc.). `None` (every caller
+        that doesn't pass one -- `scripts/verify_*.py`, `simulation/
+        sandbox.py`'s forked counterfactual worlds) reproduces the
+        exact prior `carrying_capacity()` output byte-for-byte.
+
+        `dormant_wildlife_herd_ids` (roadmap Group 1, distant-wildlife
+        dormancy -- a DELIBERATE, explicitly-documented departure from
+        B15's `TWO_PART_GUARANTEE`, see `world/wildlife.py`'s own
+        module-level comment above `fast_forward_wildlife_population`
+        for the full reasoning): threaded straight through to `self.
+        wildlife.tick(...)`. `None`/empty (every caller before this
+        parameter existed) reproduces the exact prior `WildlifeGrid.
+        tick()` behavior byte-for-byte."""
         events = self.clock.advance()
         self.weather = compute_weather(
             seed=self.config.seed,
@@ -973,6 +995,7 @@ class World:
             # had exactly one consumer (human-side fission-site
             # avoidance) — this gives it a real wildlife-side one too.
             scent=self.fields.fields.get("scent"),
+            dormant_herd_ids=dormant_wildlife_herd_ids,
         )
         settlement_events: list[tuple[str, str]] = []
         self.newly_named_settlement_ids = []
@@ -1092,6 +1115,7 @@ class World:
             land_use_override_kind=land_use_override_kind,
             civic_build_convicted=civic_build_convicted,
             killed_in_battle=killed_in_battle,
+            carrying_capacity_model=carrying_capacity_model,
         )
         # C2 "Intention channel" close-the-loop, "build": a genuine
         # civic construction reinforces "prosperity" to full confidence

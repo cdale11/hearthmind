@@ -55,28 +55,33 @@ larger, or perpetual-by-nature.
   `build_propose_prompt` already had, threaded from
   `_maybe_schedule_ontology_evolution`'s one call site (same query
   `ontology_proposal` already runs, reused not duplicated).
-- **`Population.carrying_capacity` as a possible learned regression
-  target — flagged, not decided.** A 10-term hand-set weighted sum
-  gating reproduction/migration; the same "hand-tuned constant standing
-  in for a judgment, with a real outcome label already in the world's
-  own history" shape L2.1's value/consequence model already targets.
-  Genuinely ambiguous whether this crosses `docs/CONSTITUTION.md`'s
-  Body/Mind line (carrying capacity is today deterministic Body, which
-  the Constitution says must stay strictly deterministic) — needs an
-  explicit product call before building OR dismissing it, not a code
-  change on its own.
-- **B4.2 — "distant wildlife" dormancy, the one candidate of five left
-  unshipped.** Re-investigated independently FOUR times (v1.34.183,
-  .190, .192, .208/.210, .271) with the same conclusion each time:
-  `WildlifeGrid.tick()`'s single shared RNG stream makes a naive
-  "freeze distant herds" unsafe (predator-grazer same-tile collision
-  lives inside the same loop — freezing one species but not its nearby
-  predator/prey would change who lives or dies based on an arbitrary
-  scheduling decision, which `docs/CONSTITUTION.md`'s B15 `TWO_PART_
-  GUARANTEE` forbids). A real fix needs a genuine product decision (how
-  a woken herd's population should read after N frozen ticks — freeze-
-  exactly-as-was vs. a closed-form catch-up formula), not another
-  investigation. **Stop re-investigating without that decision.**
+- ~~**`Population.carrying_capacity` as a possible learned regression
+  target.**~~ **SHIPPED, v1.34.300.** Explicit product decision: yes,
+  as a bounded ±25% learned CORRECTION on top of the hand formula's own
+  already-clamped output (never a replacement, never able to widen the
+  `dynamic_population_cap` safety valve) — see CLAUDE.md's v1.34.300
+  entry and `docs/DECISIONS.md`'s matching entry for the full
+  reasoning. `hearthmind/ml/carrying_capacity.py`, `scripts/train_
+  carrying_capacity_from_world.py`, wired via `Population.carrying_
+  capacity`'s new `carrying_capacity_model` param (`None` = exact prior
+  byte-for-byte output, verified against `scripts/verify_replay_
+  hash.py`).
+- ~~**B4.2 — "distant wildlife" dormancy, the one candidate of five
+  left unshipped.**~~ **SHIPPED, v1.34.300**, via an explicit product
+  decision to accept a deliberate, documented departure from `docs/
+  CONSTITUTION.md`'s B15 `TWO_PART_GUARANTEE` for this ONE subsystem —
+  a statistical (non-lossless) catch-up on wake, not a lossless
+  reconstruction, per CLAUDE.md's own standing "determinism is not a
+  requirement" workflow rule. See CLAUDE.md's v1.34.300 entry, `docs/
+  DECISIONS.md`'s matching entry, and `world/wildlife.py`'s own
+  module-level comment (the primary source of truth) for the full
+  reasoning and scope of the exception — every other dormancy candidate
+  and every other Body system keeps the guarantee exactly as before.
+  `fast_forward_wildlife_population` (closed-form logistic growth/
+  decline approximation + a bounded extinction roll),
+  `SimulationEngine._update_wildlife_dormancy`.
+
+**This closes Group 1 in full** — resume the next pass from Group 2.
 
 ### Group 2 — HearthBench's own remaining SEQUENCED items
 

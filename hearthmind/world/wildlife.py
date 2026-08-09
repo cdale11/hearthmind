@@ -11,6 +11,7 @@ wild foraging — see Population._maybe_forage. See docs/DECISIONS.md, A4.
 from __future__ import annotations
 
 import hashlib
+import math
 import random
 from dataclasses import dataclass, field
 from enum import Enum
@@ -433,6 +434,157 @@ def _inherit_hardiness(rng: random.Random, gene_pool: list[float]) -> float:
     return clamp(avg + rng.gauss(0.0, HARDINESS_MUTATION_STDDEV), 0.0, 1.0)
 
 
+# --- Distant-wildlife dormancy (Tier 5 B4.2's last named candidate) --------
+#
+# roadmap Group 1, explicit user product decision: unlike every other
+# `DormancyManager` consumer in this codebase (`_update_institution_
+# dormancy`/`_update_idea_dormancy`/`_update_tradition_dormancy`/
+# `_update_settlement_dormancy`, `simulation/engine.py`), which only ever
+# gate MIND-layer LLM-scheduling attention and leave every real Body-
+# deterministic per-tick effect untouched, this candidate gates the
+# actual per-tick `WildlifeGrid.tick()` loop itself for a herd nobody's
+# near — the harder problem every prior B4.2 filing (see CLAUDE.md's own
+# v1.34.183/.271/.294 history) correctly declined to attempt, because an
+# exact-replay-preserving skip isn't possible for a stochastic per-tick
+# process without literally replaying every skipped tick, which defeats
+# dormancy's entire point.
+#
+# **This is a deliberate, explicit departure from `docs/CONSTITUTION.
+# md`'s B15 `TWO_PART_GUARANTEE`** ("the deterministic Body is replay-
+# identical regardless of any runtime decision"), not an oversight or a
+# quiet exception. The user's own explicit reasoning for choosing this
+# path: CLAUDE.md's own standing workflow rule already states
+# "Determinism/reproducibility is NOT a requirement... new work should
+# favor whatever produces the most interesting emergence," and the
+# Constitution's own priority order (Emergence > Memory efficiency >
+# Performance > Simplicity > Backward compatibility) never lists
+# determinism/replay-hash parity at all. A living, unattended ecology
+# that can still grow, crash, or vanish while nobody's watching was
+# judged more valuable than exact replay-hash parity for this ONE
+# subsystem — every other dormancy candidate, and every other Body
+# system in this codebase, keeps the `TWO_PART_GUARANTEE` exactly as
+# before; this is a scoped, named exception, not a precedent for
+# loosening it elsewhere. `scripts/verify_replay_hash.py`/`scripts/
+# verify_native_soak.py` are deliberately NOT re-run against this
+# specific mechanism for that reason (see `scripts/verify_wildlife_
+# dormancy.py`'s own header) — every OTHER system in this codebase still
+# holds to both, and both are re-run for every change that touches them.
+#
+# The real substitute for lossless replay is `fast_forward_wildlife_
+# population` below: a closed-form logistic-growth-and-decline
+# APPROXIMATION over the real elapsed tick count, not a literal replay
+# of the discrete per-tick reproduce/hunt/starve mechanic (which has no
+# closed form) — genuinely statistical, genuinely NOT the same number a
+# real tick-by-tick simulation would have produced, honestly documented
+# as such rather than silently passed off as equivalent.
+
+WILDLIFE_DORMANCY_OBSERVATION_RADIUS = WILDLIFE_SEARCH_RADIUS
+"""How far a living agent has to be from a herd/pack for that herd to
+count as "observed" this check — reused directly from `WILDLIFE_
+SEARCH_RADIUS` (a FORAGE-goal agent's own real "how far can I see a
+grazer herd" radius) rather than inventing a second, unrelated
+distance constant: if no agent could even notice this herd from where
+they stand, nothing in the simulation is meaningfully "watching" it
+either."""
+
+WILDLIFE_DORMANCY_GROWTH_RATE = {
+    Species.GRAZER: GRAZER_REPRODUCE_CHANCE,
+    Species.PREDATOR: GRAZER_REPRODUCE_CHANCE * 0.5,
+}
+"""The real per-tick reproduce-chance constant the live tick mechanic
+itself uses (`GRAZER_REPRODUCE_CHANCE`), reused as the logistic model's
+intrinsic growth rate `r` rather than inventing an unrelated ecology-
+textbook figure — grounded in this codebase's own existing tuning, not
+a fresh guess. Predators are halved: a predator pack's own real
+reproduce roll (see `WildlifeGrid.tick`'s predator branch) only ever
+fires CONTINGENT on a successful same-tile hunt that tick, a real
+extra hurdle the grazer branch doesn't have — a flat 0.5x accounts for
+that contingency without inventing a second, separately-tuned
+constant."""
+
+WILDLIFE_DORMANCY_EXTINCTION_FLOOR = 2
+"""A fast-forwarded count at or below this is fragile enough to roll
+for local extinction below — real small/isolated wildlife populations
+carry genuine demographic/genetic risk a deterministic closed-form
+growth curve alone can't express; a bounded probabilistic check stands
+in for it. A herd that fast-forwards to something comfortably above
+this floor never rolls at all."""
+
+WILDLIFE_DORMANCY_EXTINCTION_TICKS_SCALE = 20_000
+"""Ticks of real dormancy before extinction risk saturates toward its
+own bounded maximum (`WILDLIFE_DORMANCY_EXTINCTION_MAX_CHANCE`) — a
+reasoned "a herd nobody's checked on in the equivalent of several real
+months is genuinely at risk" starting point; no live-diagnostic
+history exists yet to tune this further."""
+
+WILDLIFE_DORMANCY_EXTINCTION_MAX_CHANCE = 0.35
+"""Even after an extremely long dormancy, a fragile fast-forwarded herd
+has at most this chance of having quietly died out — bounded so
+dormancy can never become a near-certain silent extinction machine;
+most long-dormant small herds still survive the roll."""
+
+
+def _wildlife_dormancy_rng(seed: int, herd_id: int, wake_tick: int) -> random.Random:
+    """A dedicated RNG stream, distinct from `_wildlife_tick_rng`'s
+    shared per-tick draw — the wake-time catch-up roll below must not
+    perturb the ordinary tick loop's own RNG-consumption sequence for
+    every OTHER herd/pack any more than dormancy already does by
+    skipping ticks outright."""
+    digest = hashlib.sha256(f"{seed}:wildlife_dormancy:{herd_id}:{wake_tick}".encode()).hexdigest()
+    return random.Random(int(digest[:16], 16))
+
+
+def fast_forward_wildlife_population(
+    species: Species, count: int, hardiness: float, capacity: int, elapsed_ticks: int,
+    seed: int, herd_id: int, wake_tick: int,
+) -> int:
+    """The real statistical (NOT lossless) catch-up for a herd that
+    spent `elapsed_ticks` real ticks DORMANT — completely skipped by
+    `WildlifeGrid.tick`'s per-herd loop (see the module-level comment
+    above for the full, explicit "why this deviates from `TWO_PART_
+    GUARANTEE`" reasoning). A logistic growth/decline curve toward
+    `capacity` (continuous closed-form APPROXIMATION of the real
+    discrete per-tick reproduce-roll mechanic, not a literal replay of
+    it — the discrete mechanic has no closed form), parameterized by
+    the herd's own real heritable `hardiness` gene (via `hardiness_
+    reproduce_factor`, the same real consumer the live tick loop
+    itself uses), followed by a small, bounded probabilistic local-
+    extinction check for a herd that fast-forwards to something small
+    and fragile.
+
+    `count<=0`/`elapsed_ticks<=0`/`capacity<=0` are all safe no-ops —
+    nothing to grow, nothing to decay, or no real habitat to model
+    toward."""
+    if count <= 0 or elapsed_ticks <= 0 or capacity <= 0:
+        return max(0, count)
+    rate = WILDLIFE_DORMANCY_GROWTH_RATE.get(species, GRAZER_REPRODUCE_CHANCE) * hardiness_reproduce_factor(hardiness)
+    n0 = float(count)
+    k = float(capacity)
+    if n0 == k:
+        n_t = k
+    else:
+        ratio = (k - n0) / n0
+        try:
+            n_t = k / (1.0 + ratio * math.exp(-rate * elapsed_ticks))
+        except OverflowError:
+            # A very long dormancy at a real rate drives the exponent to
+            # 0 (growth toward capacity) or +inf (decline toward
+            # capacity from above) well before this ever triggers in
+            # practice -- kept as a defensive floor, never silently
+            # crashing a real wake event.
+            n_t = k if ratio < 0.0 else 0.0
+    new_count = max(0, min(capacity, round(n_t)))
+
+    if 0 < new_count <= WILDLIFE_DORMANCY_EXTINCTION_FLOOR:
+        rng = _wildlife_dormancy_rng(seed, herd_id, wake_tick)
+        time_factor = min(1.0, elapsed_ticks / WILDLIFE_DORMANCY_EXTINCTION_TICKS_SCALE)
+        fragility = 1.0 - clamp(hardiness, 0.0, 1.0)
+        chance = WILDLIFE_DORMANCY_EXTINCTION_MAX_CHANCE * time_factor * (0.5 + 0.5 * fragility)
+        if rng.random() < chance:
+            return 0
+    return new_count
+
+
 @dataclass
 class AnimalHerd:
     id: int
@@ -627,12 +779,28 @@ class WildlifeGrid:
         carcass_decomposition: "dict[tuple[int, int], float] | None" = None,
         population_density: "list[list[float]] | None" = None,
         scent: "list[list[float]] | None" = None,
+        dormant_herd_ids: "frozenset[int] | None" = None,
     ) -> list[tuple[str, str]]:
         """Advance every herd/pack by one tick. Returns (category,
         description) events for a successful hunt or a pack/herd going
         fully extinct — animal-vs-animal interaction visible in the
         event log, not just silent numbers. See docs/DECISIONS.md,
         "LLM-as-brain batch."
+
+        `dormant_herd_ids` (roadmap Group 1, explicit user product
+        decision -- distant-wildlife dormancy; see the module-level
+        comment above `fast_forward_wildlife_population` for the full,
+        deliberate `TWO_PART_GUARANTEE` deviation this represents):
+        a herd/pack whose id appears here is skipped ENTIRELY this
+        tick — no movement, no reproduce/hunt/starve roll, no RNG
+        consumption at all for it. `simulation/engine.py`'s `_update_
+        wildlife_dormancy` decides which ids these are and calls
+        `fast_forward_wildlife_population` once a dormant herd wakes
+        (an agent comes back within observation range) to catch its
+        `count` up statistically. `None`/empty (every caller before
+        this parameter existed, and every caller that never opts in)
+        reproduces the exact prior behavior byte-for-byte — verified
+        directly.
 
         `migration_trails` (M4, `World.migration_trails`, optional —
         `None` reproduces the exact pre-M4 behavior): a GRAZER herd
@@ -726,6 +894,15 @@ class WildlifeGrid:
 
         for herd in self.herds.values():
             if herd.count <= 0:
+                continue
+            if dormant_herd_ids and herd.id in dormant_herd_ids:
+                # Distant-wildlife dormancy: no movement, no reproduce/
+                # hunt/starve roll, no RNG consumption for this herd at
+                # all this tick — it still counts toward the trophic-
+                # pressure aggregates computed above (it's still really
+                # there, just unobserved), only its OWN per-tick step is
+                # skipped. See `fast_forward_wildlife_population` for
+                # the statistical catch-up applied on wake.
                 continue
             # A10, competition slice: this herd's tile as it stood when
             # `grazer_tile_counts` was built, captured before movement

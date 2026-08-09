@@ -116,7 +116,9 @@ from hearthmind.cognition.workspace import Bid, GlobalWorkspace, PillarBus
 from hearthmind.world.disasters import FLOOD_PRESSURE_THRESHOLD, GOVERNOR_TUNING_BAND, HEATWAVE_PRESSURE_THRESHOLD, WILDFIRE_CHANCE_PER_WEEK
 from hearthmind.world.terrain_evolution import REFOREST_MIN_FALLOW_WEEKS
 from hearthmind.world.wildlife import (
-    HARDINESS_VARIANT_BUMP, MAX_SPECIES_VARIANTS_STORED, SpeciesVariant, WILDLIFE_SEARCH_RADIUS,
+    HARDINESS_VARIANT_BUMP, MAX_PREDATOR_PACK, MAX_SPECIES_VARIANTS_STORED, SpeciesVariant, Species,
+    WILDLIFE_SEARCH_RADIUS, WILDLIFE_DORMANCY_OBSERVATION_RADIUS, fast_forward_wildlife_population,
+    habitat_capacity,
 )
 from hearthmind.simulation.sandbox import evaluate_concept_dual_fork, run_counterfactual
 from hearthmind.simulation.dormancy import DormancyManager
@@ -124,6 +126,7 @@ from hearthmind.simulation.history_compression import CompressionLadder, Compres
 from hearthmind.ml.social_features import compute_social_features
 from hearthmind.ml.belief_calibration import BeliefConfidenceCalibrator
 from hearthmind.ml.value_model import ValueConsequenceModel
+from hearthmind.ml.carrying_capacity import CarryingCapacityModel
 from hearthmind.simulation.task_graph import PriorityClass, Task, TaskRegistry, TriggerKind
 from hearthmind.simulation.scheduler import Scheduler, SubsystemBudget
 from hearthmind.simulation.tuning import BangBangController, SafetyClass, TunableRegistry, register_llm_pacing_tunables
@@ -2399,6 +2402,37 @@ def _load_llm_cost_regressor(path: str | None) -> "LLMCostRegressor | None":
         return None
 
 
+CARRYING_CAPACITY_MODEL_FILENAME = "carrying_capacity_model_weights.json"
+"""Roadmap Group 1, `Population.carrying_capacity` as a learned
+regression target -- explicit user product decision, closing the item
+CLAUDE.md's v1.34.299 entry left flagged. `hearthmind.ml.carrying_
+capacity.CarryingCapacityModel`'s own file-next-to-`db_path`,
+never-auto-created weights -- same discipline as `GOAL_POLICY_
+FILENAME`/`VALUE_MODEL_FILENAME`. `None` (no file present, every world
+until an operator trains one via `scripts/train_carrying_capacity_
+from_world.py`) reproduces `Population.carrying_capacity`'s exact
+prior hand-formula output byte-for-byte -- verified directly against
+`scripts/verify_replay_hash.py`. See `hearthmind.ml.carrying_
+capacity.blended_capacity` for the bounded-ratio blend a loaded model
+contributes once trained weights exist."""
+
+
+def _carrying_capacity_model_path_for(db_path: str) -> str | None:
+    if db_path == ":memory:":
+        return None
+    directory = os.path.dirname(os.path.abspath(db_path))
+    return os.path.join(directory, CARRYING_CAPACITY_MODEL_FILENAME)
+
+
+def _load_carrying_capacity_model(path: str | None) -> "CarryingCapacityModel | None":
+    if path is None or not os.path.exists(path):
+        return None
+    try:
+        return CarryingCapacityModel.load(path)
+    except (OSError, ValueError, KeyError, json.JSONDecodeError):
+        return None
+
+
 INSTITUTION_DORMANCY_IDLE_CHECKS_THRESHOLD = 3
 """Tier 5 B4.2 pilot ("idle institutions"): consecutive monthly
 `_update_institution_dormancy` checks with an unchanged fingerprint
@@ -2504,6 +2538,33 @@ def _settlement_fingerprint(settlement: "Settlement", population_count: int) -> 
     monthly checks is genuinely quiet; a birth/death, era advance, new
     building, or invention wakes it immediately."""
     return (population_count, settlement.era, len(settlement.buildings), settlement.tech_level)
+
+
+WILDLIFE_DORMANCY_IDLE_CHECKS_THRESHOLD = 3
+"""Roadmap Group 1's real distant-wildlife dormancy candidate — the
+LAST B4.2 candidate this codebase's own history (CLAUDE.md's
+v1.34.183/.271/.294 entries) repeatedly investigated and correctly
+declined, because it needed either a genuinely lossless elapsed-tick
+Body reconstruction (impossible for a stochastic per-tick process) or
+an explicit product decision to accept an approximate, non-lossless
+one instead. That decision has now been made explicitly — see `world/
+wildlife.py`'s own module-level comment above `fast_forward_wildlife_
+population` for the full, deliberately-documented `TWO_PART_GUARANTEE`
+deviation this represents.
+
+Same idle-checks shape as the four Mind-layer-only dormancy siblings
+above, but checked on a DAILY cadence (`WILDLIFE_DORMANCY_CHECK_
+EVENT` below), not monthly — wildlife herds move and reproduce on a
+per-tick timescale, meaningfully faster than village-level social/
+civic patterns, so 3 consecutive daily "no agent within observation
+range" checks (roughly half a sim-week) is the reasoned equivalent
+responsiveness the monthly siblings get from their own 3-month
+window."""
+
+WILDLIFE_DORMANCY_CHECK_EVENT = "day_end"
+"""See `WILDLIFE_DORMANCY_IDLE_CHECKS_THRESHOLD`'s docstring for why
+this candidate checks daily rather than monthly like its four Mind-
+layer-only siblings."""
 
 
 EMERGENCE_COMPRESSION_RAW_THRESHOLD = StageThreshold(max_count=EMERGENCE_LOG_MAX_STORED // 5, max_age_ticks=1_000_000)
@@ -3050,6 +3111,15 @@ class SimulationEngine:
         """Tier 6 L2.1 (roadmap Phase 2). `None` reproduces `_voice_
         narrative_extra_scores`'s exact prior hand-set-weighted-sum
         behavior byte-for-byte — see that method's own docstring."""
+        self._carrying_capacity_model_path = _carrying_capacity_model_path_for(config.db_path)
+        self._carrying_capacity_model: "CarryingCapacityModel | None" = _load_carrying_capacity_model(
+            self._carrying_capacity_model_path,
+        )
+        """Roadmap Group 1 (explicit user product decision). `None`
+        reproduces `Population.carrying_capacity`'s exact prior hand
+        formula output byte-for-byte — see that method's own
+        docstring and `hearthmind.ml.carrying_capacity.blended_
+        capacity`."""
         self._belief_calibrator_path = _belief_calibrator_path_for(config.db_path)
         self._belief_calibrator: "BeliefConfidenceCalibrator | None" = _load_belief_calibrator(
             self._belief_calibrator_path,
@@ -3551,6 +3621,25 @@ class SimulationEngine:
         narrative attention is gated. Runtime scheduling state, never
         persisted — same restart-safe discipline as the three
         siblings."""
+        self._wildlife_dormancy = DormancyManager()
+        self._wildlife_idle_checks: dict[int, int] = {}
+        """Roadmap Group 1 — distant-wildlife dormancy, `WildlifeGrid`
+        herds/packs instead of a Mind-layer settlement job. UNLIKE the
+        four siblings above, this one DOES gate real Body-deterministic
+        per-tick ticking (`WildlifeGrid.tick`'s own per-herd loop) — a
+        deliberate, explicit, documented exception to B15's `TWO_PART_
+        GUARANTEE`, not the same shape as the others. See `world/
+        wildlife.py`'s module-level comment above `fast_forward_
+        wildlife_population` for the full reasoning, and `_update_
+        wildlife_dormancy`/`_apply_wildlife_wake_catchup` below for the
+        mechanism. No `_wildlife_fingerprint` dict is needed (unlike
+        the four siblings) — "observed" is a direct live distance
+        check against current agent positions each call, not a stored
+        fingerprint comparison. Runtime scheduling state, never
+        persisted — same restart-safe discipline as the four
+        siblings (a restart just means a currently-dormant herd is
+        re-registered ACTIVE and re-earns dormancy again from
+        scratch, never a correctness issue)."""
         self._agent_memory_log_tiers = MemoryTierManager()
         self._agent_memory_log_cache: dict[int, list] = {}
         """Tier 5 B11's real first consumer: `GET /agents/{id}/memory_
@@ -4736,6 +4825,28 @@ class SimulationEngine:
             priority_class=PriorityClass.CRITICAL,
         ))
         self._runtime_scheduler_settlement_dormancy = Scheduler(self._runtime_registry_settlement_dormancy)
+
+        # Roadmap Group 1's real distant-wildlife dormancy candidate —
+        # same ON_EVENT shape as the four siblings above, but a real
+        # `day_end` (not `month_end`) cadence — see WILDLIFE_DORMANCY_
+        # IDLE_CHECKS_THRESHOLD's own docstring for why. This is the
+        # one dormancy job in this codebase that gates real Body-
+        # deterministic per-tick work, not just Mind-layer attention —
+        # see world/wildlife.py's module-level comment for the full
+        # deliberate TWO_PART_GUARANTEE deviation.
+        self._runtime_registry_wildlife_dormancy = TaskRegistry()
+        self._runtime_registry_wildlife_dormancy.register(Task(
+            id="wildlife_dormancy",
+            subsystem="wildlife_dormancy",
+            fn=self._update_wildlife_dormancy,
+            trigger=TriggerKind.ON_EVENT,
+            event_types=frozenset({WILDLIFE_DORMANCY_CHECK_EVENT}),
+            reads=frozenset({"world.wildlife"}),
+            writes=frozenset({"world.wildlife"}),
+            timescale="tick",
+            priority_class=PriorityClass.CRITICAL,
+        ))
+        self._runtime_scheduler_wildlife_dormancy = Scheduler(self._runtime_registry_wildlife_dormancy)
 
         # Tier 5 B11's real first consumer: demotes an idle agent's
         # cached memory-log tier (and, past HOT, actually frees the
@@ -6723,6 +6834,7 @@ class SimulationEngine:
         ("_update_idea_dormancy", _JOB_NO_ARGS),
         ("_update_tradition_dormancy", _JOB_NO_ARGS),
         ("_update_settlement_dormancy", _JOB_NO_ARGS),
+        ("_update_wildlife_dormancy", _JOB_NO_ARGS),
         ("_maybe_demote_agent_memory_log_cache", _JOB_NO_ARGS),
         ("_maybe_schedule_institution_culture", _JOB_EVENTS),
         ("_schedule_due_cognition", _JOB_NO_ARGS),
@@ -6808,6 +6920,7 @@ class SimulationEngine:
         "_update_idea_dormancy": "_runtime_scheduler_idea_dormancy",
         "_update_tradition_dormancy": "_runtime_scheduler_tradition_dormancy",
         "_update_settlement_dormancy": "_runtime_scheduler_settlement_dormancy",
+        "_update_wildlife_dormancy": "_runtime_scheduler_wildlife_dormancy",
         "_maybe_demote_agent_memory_log_cache": "_runtime_scheduler_agent_memory_log_demotion",
         "_maybe_schedule_institution_culture": "_runtime_scheduler_institution_culture",
     }
@@ -6839,6 +6952,7 @@ class SimulationEngine:
     tick), the real structural CPU win B3.1's own text names."""
 
     _DAY_END_GATED_JOBS: frozenset[str] = frozenset({
+        "_update_wildlife_dormancy",
         "_maybe_schedule_chronicle",
         "_maybe_schedule_documentary",
         "_maybe_schedule_tradition",
@@ -6913,7 +7027,10 @@ class SimulationEngine:
         self._apply_pending_interventions()
 
         previous_season = self.world.clock.season
-        events = self.world.tick()
+        events = self.world.tick(
+            carrying_capacity_model=self._carrying_capacity_model,
+            dormant_wildlife_herd_ids=self._dormant_wildlife_herd_ids(),
+        )
         # Tier 5 B3's real control point, extended in Roadmap Phase 4's
         # B3.3 pass (explicit user instruction "continue with phase 4")
         # from the original 4-job pilot to every real B0.3-migrated job
@@ -12190,6 +12307,112 @@ class SimulationEngine:
         for settlement_id in stale:
             del self._settlement_fingerprint[settlement_id]
             del self._settlement_idle_checks[settlement_id]
+
+    def _apply_wildlife_wake_catchup(self, herd, elapsed_ticks: int) -> None:
+        """Roadmap Group 1's real statistical (NOT lossless) wake catch-
+        up — see `world/wildlife.py`'s module-level comment above
+        `fast_forward_wildlife_population` for the full, deliberate
+        `TWO_PART_GUARANTEE` deviation this represents. A wake with
+        `elapsed_ticks<=0` (the herd was never actually skipped, or
+        this is its very first real observation) is a safe no-op."""
+        if elapsed_ticks <= 0:
+            return
+        if herd.species is Species.GRAZER:
+            nutrients_at = self.world.fields.get_at(
+                "nutrients", (herd.x, herd.y), self.world.config.width, self.world.config.height,
+            )
+            capacity = habitat_capacity(nutrients_at)
+        else:
+            capacity = MAX_PREDATOR_PACK
+        before = herd.count
+        herd.count = fast_forward_wildlife_population(
+            herd.species, herd.count, herd.hardiness, capacity, elapsed_ticks,
+            self.world.config.seed, herd.id, self.world.clock.tick_count,
+        )
+        # A real, non-trivial catch-up is worth surfacing — same "the
+        # map should read as alive, not just numbers" discipline every
+        # other real wildlife-population event in this codebase already
+        # follows (`wildlife_hunt`/`wildlife_extinct`/`wildlife_
+        # recolonized`); a wake that changed nothing (a herd already at
+        # its own real capacity) stays silent.
+        if herd.count == 0 and before > 0:
+            self._log(
+                "wildlife_dormancy_lapsed",
+                f"A dormant {herd.species.value} population near ({herd.x}, {herd.y}) "
+                "was found to have quietly died out.",
+            )
+        elif herd.count != before:
+            direction = "grown" if herd.count > before else "thinned"
+            self._log(
+                "wildlife_dormancy_woken",
+                f"A dormant {herd.species.value} population near ({herd.x}, {herd.y}) has {direction} "
+                f"while unwatched ({before} -> {herd.count}).",
+            )
+
+    def _dormant_wildlife_herd_ids(self) -> "frozenset[int]":
+        """The real set threaded into `World.tick(dormant_wildlife_herd_
+        ids=...)` -> `WildlifeGrid.tick`'s own skip check — a cheap
+        O(tracked herds) filter over `DormancyManager` state already
+        computed this tick by `_update_wildlife_dormancy` (called
+        earlier the same tick, see `_TICK_JOBS`'s own ordering)."""
+        if not self._wildlife_idle_checks:
+            return frozenset()
+        return frozenset(
+            herd_id for herd_id in self._wildlife_idle_checks
+            if not self._wildlife_dormancy.is_scheduled(str(herd_id))
+        )
+
+    def _update_wildlife_dormancy(self) -> None:
+        """Roadmap Group 1's real distant-wildlife dormancy candidate —
+        see `WILDLIFE_DORMANCY_IDLE_CHECKS_THRESHOLD`'s docstring for
+        the cadence/threshold reasoning and `world/wildlife.py`'s
+        module-level comment above `fast_forward_wildlife_population`
+        for the full, deliberate `TWO_PART_GUARANTEE` deviation this
+        candidate represents (the one real difference from its four
+        Mind-layer-only B4.2 siblings).
+
+        A herd/pack with at least one living agent within `WILDLIFE_
+        DORMANCY_OBSERVATION_RADIUS` this check is "observed" — its
+        idle-check counter resets to 0, and if it was asleep, `wake()`
+        returns the real elapsed-tick gap, immediately caught up via
+        `_apply_wildlife_wake_catchup` (a herd nobody ever put to
+        sleep just keeps ticking normally the whole time — `wake()`
+        on an already-ACTIVE entity is a documented no-op returning 0,
+        so this never double-applies a catch-up). One that stays
+        unobserved for `WILDLIFE_DORMANCY_IDLE_CHECKS_THRESHOLD`
+        consecutive daily checks goes to sleep — `WildlifeGrid.tick`'s
+        own per-herd loop then skips it entirely via `_dormant_
+        wildlife_herd_ids()` until it's next observed."""
+        agent_positions = [(a.x, a.y) for a in self.world.population.agents]
+        seen: set[int] = set()
+        for herd in self.world.wildlife.herds.values():
+            if herd.count <= 0:
+                continue
+            seen.add(herd.id)
+            key = str(herd.id)
+            observed = any(
+                max(abs(herd.x - ax), abs(herd.y - ay)) <= WILDLIFE_DORMANCY_OBSERVATION_RADIUS
+                for ax, ay in agent_positions
+            )
+            if herd.id not in self._wildlife_idle_checks:
+                self._wildlife_dormancy.register(key, self.world.clock.tick_count)
+                self._wildlife_idle_checks[herd.id] = 0
+                continue
+            if observed:
+                self._wildlife_idle_checks[herd.id] = 0
+                elapsed = self._wildlife_dormancy.wake(key, self.world.clock.tick_count)
+                self._apply_wildlife_wake_catchup(herd, elapsed)
+                continue
+            idle = self._wildlife_idle_checks.get(herd.id, 0) + 1
+            self._wildlife_idle_checks[herd.id] = idle
+            if idle >= self._dormancy_idle_threshold(WILDLIFE_DORMANCY_IDLE_CHECKS_THRESHOLD):
+                self._wildlife_dormancy.sleep(key, self.world.clock.tick_count)
+        # A herd that died out (hunted to extinction, starved) or was
+        # never re-seen this call drops out — bounded by however many
+        # real herds/packs `WildlifeGrid` itself ever holds at once.
+        stale = set(self._wildlife_idle_checks) - seen
+        for herd_id in stale:
+            del self._wildlife_idle_checks[herd_id]
 
     def _load_agent_memory_log(self, key: str, tier: "Tier") -> list:
         """Tier 5 B11.3's real `load_fn` — see `_agent_memory_log_
@@ -18871,6 +19094,23 @@ class SimulationEngine:
             # `_voice_narrative_extra_scores`'s exact original hand-set
             # weighted sum, unchanged.
             "value_model": {"loaded": self._value_model is not None, "path": self._value_model_path},
+            # Roadmap Group 1, explicit user product decision:
+            # `loaded=False` means `Population.carrying_capacity`'s
+            # exact original hand-formula output, unchanged.
+            "carrying_capacity_model": {
+                "loaded": self._carrying_capacity_model is not None, "path": self._carrying_capacity_model_path,
+            },
+            # Roadmap Group 1, distant-wildlife dormancy — the one
+            # dormancy candidate that gates real Body-deterministic
+            # per-tick ticking (see world/wildlife.py's module-level
+            # comment for the explicit TWO_PART_GUARANTEE deviation).
+            "wildlife_dormancy": {
+                "tracked_herds": len(self._wildlife_idle_checks),
+                "dormant_herds": sum(
+                    1 for herd_id in self._wildlife_idle_checks
+                    if not self._wildlife_dormancy.is_scheduled(str(herd_id))
+                ),
+            },
             # Tier 6 L4.1, wired (roadmap Phase 2): `loaded=False` means
             # `_calibrated_confidence` is a no-op, unchanged.
             "belief_calibrator": {

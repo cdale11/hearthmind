@@ -7,6 +7,93 @@ contributors (including future us) don't relitigate them without context.
 
 ---
 
+## Group 1 closed: carrying capacity as a learned target, and an explicit `TWO_PART_GUARANTEE` exception for wildlife dormancy (v1.34.300)
+
+Two roadmap items (`docs/ROADMAP-2026-07-REMAINING.md`'s Group 1) had
+sat flagged since v1.34.299 specifically because each needed a real
+human product decision, not an implementation judgment call. Both
+decisions were given explicitly this pass; this entry records the
+reasoning, not just the mechanism (already covered in CLAUDE.md's own
+v1.34.300 entry and CHANGELOG.md).
+
+**Decision 1: yes, `carrying_capacity` may cross the Body/Mind line —
+as a bounded learned CORRECTION, never a replacement.** The
+ambiguity flagged at v1.34.299 was real: `carrying_capacity()` sits
+inside `Population.tick()`, squarely inside the deterministic Body
+`docs/CONSTITUTION.md` says must stay strictly deterministic-and-
+tuned, not LLM/ML-authored. The resolution taken: a loaded model never
+computes the ceiling outright — it only nudges the hand formula's own
+already-clamped output by a bounded ±25% ratio, applied BEFORE the
+final `dynamic_population_cap` map-size safety valve, so every one of
+the formula's own tuned weights and hard limits stays structurally
+dominant regardless of what the model predicts. This is the same
+"bounded correction, not a replacement" shape `LLMCostRegressor`'s
+`should_preflight_defer`/`law_scorer`'s tiebreak-only role/`value_
+model`'s additive bonus all already use elsewhere in this codebase —
+applied here to a genuinely load-bearing Body quantity for the first
+time, which is why it needed an explicit decision rather than being
+assumed to be fine by precedent alone.
+
+The self-supervised label is a proxy, not a measurement, and is
+documented as such in `hearthmind/ml/carrying_capacity.py`'s own
+docstring: no true labeled "this was the real carrying capacity at
+this moment" ground truth exists anywhere in this codebase, and
+building one would need either a controlled experiment (deliberately
+overshoot a settlement's population to find where it breaks — not
+something this project does to a live world) or trusting the very
+hand formula the model is meant to eventually surpass. Real hunger/
+starvation-death evidence, both already logged per sim-day, is the
+best available honest signal instead.
+
+**Decision 2: yes, distant-wildlife dormancy may deviate from B15's
+`TWO_PART_GUARANTEE` — using an approximate statistical catch-up.**
+Every prior B4.2 dormancy candidate (idle institutions/unused ideas/
+forgotten traditions/inactive settlements) found a way to stay
+`TWO_PART_GUARANTEE`-compliant by only ever gating Mind-layer LLM-
+scheduling attention — a settlement's or institution's own Body state
+was always left completely untouched, only which one got this
+month's narrative LLM call was gated. Distant wildlife was
+investigated repeatedly under that same constraint (CLAUDE.md's own
+v1.34.183/.271/.294 entries) and each time correctly declined, because
+there is no way to skip a stochastic per-tick process (`WildlifeGrid.
+tick`'s reproduce/hunt/starve rolls) and later reconstruct EXACTLY
+what a real tick-by-tick simulation would have produced — that would
+require literally replaying every skipped tick, which defeats
+dormancy's entire performance point.
+
+The explicit product decision resolves this by accepting the
+trade-off directly rather than continuing to defer it indefinitely:
+CLAUDE.md's own standing workflow rule already states determinism/
+reproducibility is NOT a requirement in this codebase, and `docs/
+CONSTITUTION.md`'s priority order (Emergence > Memory efficiency >
+Performance > Simplicity > Backward compatibility) never lists
+determinism/replay-hash parity as a priority at all — so refusing to
+build this on those grounds was holding this one subsystem to a
+stricter bar than the project's own stated values ask for. A herd
+that can genuinely grow, crash, or vanish while nobody's watching was
+judged a more valuable piece of "a living, unattended ecology" than
+exact replay-hash parity.
+
+This is a **scoped, named exception**, not a precedent that loosens
+`TWO_PART_GUARANTEE` generally — every other Body system in this
+codebase (weather, farming, disease, construction, every other
+dormancy candidate) keeps the guarantee exactly as before, and the
+deviation is documented in three places on purpose so it can't be
+quietly forgotten or misread as a broader policy change: `world/
+wildlife.py`'s own module-level comment (the primary source of
+truth, read by anyone touching this code next), CLAUDE.md's v1.34.300
+entry, and this one. `scripts/verify_replay_hash.py`/`scripts/verify_
+native_soak.py` were deliberately NOT extended to prove cross-
+hardware/cross-runtime-decision equivalence for this specific
+mechanism — that would be proving the wrong thing, since the whole
+point of the decision is that such equivalence is no longer promised
+here. Both scripts were still re-run against the DEFAULT same-config
+case (where the mechanism is, incidentally, still fully deterministic
+given a fixed seed/config, since nothing about it consults real
+wall-clock time or genuine external entropy) and both passed.
+
+---
+
 ## Two audit findings: an unreachable flood threshold, and FMA contraction in the native build (v1.34.64)
 
 Explicit user request for a full codebase + docs audit. Two real bugs

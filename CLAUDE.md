@@ -742,6 +742,152 @@ is the bulk of Part B and, per B1.4, must happen incrementally, one
 subsystem at a time, each verified against `scripts/verify_replay_
 hash.py` — never a big-bang rewrite.
 
+## Current state (v1.34.300)
+
+Explicit user instruction: closes both of Group 1's remaining items
+(`docs/ROADMAP-2026-07-REMAINING.md`), each needing a real human
+product decision the roadmap's own text flagged and had been waiting
+on since v1.34.299 — both decisions were now given explicitly, and
+both are shipped.
+
+**`Population.carrying_capacity` as a learned regression target.**
+New `hearthmind/ml/carrying_capacity.py`'s `CarryingCapacityModel`
+(L0's `FeatureEncoder`/`MLP`/`train_mlp_sgd`, linear output head like
+`LLMCostRegressor` — an unbounded population-count target, not a
+[0,1] score), same schema-versioned/kind-tagged persistence shape as
+every prior Tier 6 model. Feature schema (`population_k`/`avg_hunger`/
+`avg_energy`/`materials_k`/`currency_k`/`buildings_standing_k`/
+`tech_level_k`) is deliberately restricted to fields both computable
+live inside `Population.carrying_capacity` AND already logged, one row
+per real sim-day, in `SimulationEngine._log_daily_metrics`'s own
+`metrics` table — no new tracked state anywhere. Real self-supervised
+label: `compute_carrying_capacity_label` reads real `avg_hunger` plus
+the real per-day `deaths_starvation` delta and shifts the observed
+population up (comfortable, no starvation — evidence the ceiling
+hasn't been found yet) or down (hungry, starving — evidence of real
+overshoot), bounded by `CAPACITY_LABEL_ADJUST_MAX`. Honest limitation,
+stated in the module's own docstring: `metrics` rows sum every named
+settlement in a world, so a multi-settlement world trains against the
+world-wide aggregate, not any one settlement's own real ceiling — no
+per-settlement metrics time series exists to train against instead.
+
+Real consumption, at `Population.carrying_capacity`'s one call site:
+a loaded model's prediction is applied via `blended_capacity` as a
+bounded RATIO (±`CARRYING_CAPACITY_MODEL_BLEND_MAX`=25%) on top of the
+hand formula's own already-clamped output, BEFORE the final
+`dynamic_population_cap` safety-valve clamp — the learned correction
+can meaningfully move the ceiling once trained but can never override
+the formula's own tuned weights/clamps by more than a modest fraction,
+and can never widen the map-size-derived safety valve at all.
+`carrying_capacity_model=None` (every world until an operator trains
+one) reproduces the exact prior hand-formula output byte-for-byte —
+verified directly against `scripts/verify_replay_hash.py`. Threaded
+through `Population.tick()` -> `World.tick(carrying_capacity_model=
+...)` -> `SimulationEngine._tick_once()`'s own `self._carrying_
+capacity_model` (new `CARRYING_CAPACITY_MODEL_FILENAME`/`_carrying_
+capacity_model_path_for`/`_load_carrying_capacity_model`, same file-
+next-to-`db_path`/never-auto-created discipline as every prior
+optional model). New `scripts/train_carrying_capacity_from_world.py`
+(trains directly from a world's own db/`metrics` history, no recorder
+archive needed, same shape `train_value_model_from_archive.py`
+established) added to `scripts/train_all.py`'s trainer list. README's
+"Local ML training" section gained a full entry (table row, one-at-a-
+time command, tree-diagram line, "a different shape" writeup, wait-
+time bullet).
+
+**Distant-wildlife dormancy — B4.2's last named candidate, closed with
+an explicit, documented departure from B15's `TWO_PART_GUARANTEE`.**
+Every prior B4.2 candidate (idle institutions/unused ideas/forgotten
+traditions/inactive settlements, v1.34.183-.271-.294) only ever gated
+Mind-layer LLM-scheduling attention, staying replay-hash-identical by
+construction; this one had been repeatedly investigated and correctly
+declined for exactly that reason — an exact-replay-preserving skip of
+real per-tick wildlife ticking isn't possible without literally
+replaying every skipped tick. **Explicit user product decision,
+recorded plainly rather than glossed over**: build it anyway, using an
+approximate statistical catch-up instead of lossless replay — per
+CLAUDE.md's own standing workflow rule ("Determinism/reproducibility
+is NOT a requirement... new work should favor whatever produces the
+most interesting emergence") and `docs/CONSTITUTION.md`'s own priority
+order (Emergence > Memory efficiency > Performance > Simplicity >
+Backward compatibility — determinism/replay parity isn't listed at
+all). A living, unattended ecology that can grow, crash, or vanish
+while nobody's watching was judged more valuable than exact replay-
+hash parity for this ONE subsystem; every other Body system in this
+codebase keeps the `TWO_PART_GUARANTEE` exactly as before — this is a
+scoped, named exception, documented as such in `world/wildlife.py`'s
+own module-level comment, this entry, and `docs/DECISIONS.md`, not a
+precedent for loosening it elsewhere.
+
+New `hearthmind/world/wildlife.py` machinery: `WILDLIFE_DORMANCY_
+OBSERVATION_RADIUS` reuses the existing `WILDLIFE_SEARCH_RADIUS`
+constant (a FORAGE agent's own real "how far can I see a herd"
+radius) rather than inventing a second distance figure. `WildlifeGrid.
+tick`'s per-herd loop gained a `dormant_herd_ids` parameter — a herd
+whose id appears there is skipped ENTIRELY (no movement, no reproduce/
+hunt/starve roll, no RNG consumption), `None`/empty reproducing the
+exact prior behavior byte-for-byte, verified directly. `fast_forward_
+wildlife_population` is the real, honestly-non-lossless catch-up: a
+closed-form logistic growth/decline APPROXIMATION toward the herd's
+own real habitat capacity (`habitat_capacity`/`MAX_PREDATOR_PACK`),
+rate parameterized by the real `GRAZER_REPRODUCE_CHANCE` constant the
+live tick mechanic itself uses (halved for predators, whose own real
+reproduce roll is contingent on a successful same-tile hunt) and the
+herd's own real heritable `hardiness` gene, followed by a small
+bounded probabilistic local-extinction roll for a herd that
+fast-forwards to something small and fragile — using a dedicated RNG
+stream (`_wildlife_dormancy_rng`, keyed off seed+herd_id+wake_tick),
+never the shared per-tick wildlife RNG.
+
+`simulation/engine.py`: same `DormancyManager`/fingerprint-and-sleep
+shape as the four Mind-layer siblings, but checked on a real `day_end`
+cadence (not monthly — wildlife moves/reproduces on a faster
+timescale, `WILDLIFE_DORMANCY_IDLE_CHECKS_THRESHOLD`=3 consecutive
+daily "no living agent within observation range" checks). `_update_
+wildlife_dormancy` (new B0.3-style dedicated `TaskRegistry`/
+`Scheduler` pair, `_TICK_JOBS`/`_RUNTIME_SCHEDULED_JOB_SCHEDULERS`/
+`_DAY_END_GATED_JOBS` registration) computes real distance against
+current agent positions; a genuine wake (an agent returns within
+range) calls `_apply_wildlife_wake_catchup`, which logs a real
+`wildlife_dormancy_woken`/`wildlife_dormancy_lapsed` event (🐾-family
+icons, `app.js`) when the catch-up actually changed the herd's count.
+`_dormant_wildlife_herd_ids()` builds the skip set threaded into
+`World.tick(dormant_wildlife_herd_ids=...)` -> `WildlifeGrid.tick`.
+`full_diagnostics()['wildlife_dormancy']` surfaces live tracked/
+dormant herd counts.
+
+Verified: `scripts/verify_carrying_capacity_model.py` (35 checks — pure
+label/blend-function math, round-trip/schema rejection, a real
+production-path parity proof through `Population.carrying_capacity`
+incl. an absurd-prediction-still-bounded proof against both a wildly
+high and wildly negative fake model, all three real engine-loading
+cases, a real `World.tick()`-threaded proof via `_tick_once()`, and a
+full subprocess end-to-end training-script run against a real ~18-
+sim-day ticked world) — all pass. `scripts/verify_wildlife_dormancy.py`
+(27 checks — the closed-form growth/decline curve's direction and
+bounds, hardiness/species-rate scaling, a real statistically-verified
+bounded extinction rate over 400 trials, determinism given identical
+inputs, `dormant_herd_ids=None`/empty parity, a real genuinely-skipped-
+vs-still-ticking proof, a full production-path proof through a real
+`SimulationEngine` — a far-off herd goes dormant after real daily
+checks, its Body state genuinely freezes while asleep, and a real
+wake via agent proximity un-marks it — `full_diagnostics()` surfacing,
+a clean `World.to_dict()`/`from_dict()` round-trip after real dormancy
+activity, and a 4000-tick LLM-disabled soak) — all pass. `pyflakes`
+clean on every touched/new file (only the six known pre-existing
+forward-ref findings in `engine.py`). `scripts/verify_replay_hash.py`
+(800 ticks, seed 777, `--in-process`) and `scripts/verify_native_
+soak.py` (2 seeds x 800 ticks) both re-run and MATCH — confirming the
+DEFAULT (no trained carrying-capacity model, wildlife dormancy running
+with its own deterministic-given-fixed-config decisions) path stays
+byte-identical on same-hardware/same-config replay, the actual claim
+those two scripts prove. **Deliberately NOT re-run for a cross-
+hardware/cross-runtime-decision wildlife-dormancy scenario specifically**
+— that is precisely the scoped, documented exception this pass ships;
+see `scripts/verify_wildlife_dormancy.py`'s own header for why.
+
+**This closes docs/ROADMAP-2026-07-REMAINING.md's Group 1 in full.**
+
 ## Current state (v1.34.299)
 
 Explicit user instruction: "start group 1" — the first, unambiguous

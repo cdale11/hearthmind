@@ -917,6 +917,7 @@ guardrail #3.
 | Dispute / fission / migration / founding | `dispute_policy_weights.json`, `fission_policy_weights.json`, `migration_policy_weights.json`, `founding_policy_weights.json` | **Yes** — real per-site recordings |
 | Law-candidate scorer (which pressured hardship gets asked about) | `law_scorer_weights.json` | **Yes** — real `laws` task recordings |
 | LLM cost regressor (predict a call's latency before issuing it) | `llm_cost_regressor_weights.json` | **Yes** — real recordings across many task types |
+| Carrying-capacity model (bounded correction on `Population.carrying_capacity`'s hand formula) | `carrying_capacity_model_weights.json` | **No** — trains from your world's own `metrics` history |
 
 Everything in the "Yes" column needs the **training recorder** turned
 on for a while first (it's off by default — see `docs/TRAINING_
@@ -934,7 +935,11 @@ model trains from your world's living core cast's own current
 emotional/relationship state; the belief calibrator trains from
 `World.reflection_notebook`'s own real "did this stated belief hold
 up" outcomes (Reflection settles these slowly, over many cycles, by
-design — see "How long should I wait?" below).
+design — see "How long should I wait?" below); the carrying-capacity
+model trains from `SimulationEngine._log_daily_metrics`'s own real
+per-sim-day `population`/`avg_hunger`/`deaths_starvation`/etc. history
+(the `metrics` table, `GET /metrics`), which every world already
+accumulates just by ticking.
 
 ### Training everything in one command
 
@@ -982,6 +987,11 @@ python3 scripts/train_value_model_from_archive.py \
 python3 scripts/train_belief_calibrator_from_archive.py \
     --db-path world.sqlite3 --out-dir .
 
+# Carrying-capacity model — needs only your world's own db (its
+# already-logged metrics history):
+python3 scripts/train_carrying_capacity_from_world.py \
+    --db-path world.sqlite3 --out-dir .
+
 # The four decision-policy sites — trains whichever of the four have
 # enough real recorded examples, skips the rest honestly:
 python3 scripts/train_decision_policies_from_archive.py \
@@ -1014,24 +1024,25 @@ does this for you). `SimulationEngine` looks for it automatically on
 the next server start (or `python3 -m hearthmind.server` restart);
 nothing else needs configuring. To confirm it loaded, check `GET
 /diagnostics` → `goal_policy`/`embedding`/`value_model`/`belief_
-calibrator`/`decision_policies`/`law_scorer`/`llm_cost_regressor`, each
-reporting `{"loaded": true, "path": "..."}`. Delete or rename the file
-to fall back to the original deterministic behavior instantly — no
-other change needed.
+calibrator`/`decision_policies`/`law_scorer`/`llm_cost_regressor`/
+`carrying_capacity_model`, each reporting `{"loaded": true, "path":
+"..."}`. Delete or rename the file to fall back to the original
+deterministic behavior instantly — no other change needed.
 
 ```
 world/
 ├── hearthmind.db
-├── goal_policy_weights.json         # optional — from train_goal_policy_from_archive.py
-├── embedding_weights.json           # optional — from train_embedding_from_world.py
-├── value_model_weights.json         # optional — from train_value_model_from_archive.py
-├── belief_calibrator_weights.json   # optional — from train_belief_calibrator_from_archive.py
-├── dispute_policy_weights.json      # optional — from train_decision_policies_from_archive.py
-├── fission_policy_weights.json      #   "
-├── migration_policy_weights.json    #   "
-├── founding_policy_weights.json     #   "
-├── law_scorer_weights.json          # optional — from train_law_scorer_from_archive.py
-└── llm_cost_regressor_weights.json  # optional — from train_llm_cost_regressor_from_archive.py
+├── goal_policy_weights.json              # optional — from train_goal_policy_from_archive.py
+├── embedding_weights.json                # optional — from train_embedding_from_world.py
+├── value_model_weights.json              # optional — from train_value_model_from_archive.py
+├── belief_calibrator_weights.json        # optional — from train_belief_calibrator_from_archive.py
+├── dispute_policy_weights.json           # optional — from train_decision_policies_from_archive.py
+├── fission_policy_weights.json           #   "
+├── migration_policy_weights.json         #   "
+├── founding_policy_weights.json          #   "
+├── law_scorer_weights.json               # optional — from train_law_scorer_from_archive.py
+├── llm_cost_regressor_weights.json       # optional — from train_llm_cost_regressor_from_archive.py
+└── carrying_capacity_model_weights.json  # optional — from train_carrying_capacity_from_world.py
 ```
 
 ### How long should I wait before training, and do I need to stop the world?
@@ -1049,11 +1060,14 @@ pick up — the currently-running process doesn't notice until then.
 **How long to wait varies a lot by model** — there's no single answer,
 because each one's real data source fills at a different rate:
 
-- **Embedding, value model**: as soon as your world has a *little*
-  real history — a handful of settlements/agents and a few dozen
-  events/memories is already enough (`MIN_EXAMPLES_REQUIRED`/`MIN_
-  SENTENCES_REQUIRED` are both small, deliberately). Minutes to an hour
-  of simulated ticks, even LLM-disabled.
+- **Embedding, value model, carrying-capacity model**: as soon as your
+  world has a *little* real history — a handful of settlements/agents
+  and a few dozen events/memories/sim-days is already enough (`MIN_
+  EXAMPLES_REQUIRED`/`MIN_SENTENCES_REQUIRED` are all small,
+  deliberately). Minutes to an hour of simulated ticks, even
+  LLM-disabled — the carrying-capacity model in particular only needs
+  the world's own `metrics` table, which fills one row per sim-day
+  purely from ticking, no LLM involvement at all.
 - **Belief calibrator**: much slower, by design — `Reflection`'s own
   multi-cycle evidence loop (`_reevaluate_reflection_hypotheses`)
   settles a hypothesis to `"supported"`/`"rejected"` only after
@@ -1191,6 +1205,25 @@ belief_calibrator_from_archive.py`), no recorder archive needed — but
 see "How long should I wait?" above: this one genuinely needs the most
 patience of any locally-trainable model here, since Reflection settles
 hypotheses slowly by design.
+
+### A different shape: the carrying-capacity model
+
+`carrying_capacity_model_weights.json` doesn't replace `Population.
+carrying_capacity`'s hand-tuned formula — it applies a bounded
+correction ON TOP of it (`hearthmind.ml.carrying_capacity.blended_
+capacity`, at most ±25%), so the formula's own safety clamps and the
+map-size-derived `dynamic_population_cap` ceiling stay structurally
+in force regardless of what the model predicts. Trains directly from
+your world's own already-logged `metrics` history (`scripts/train_
+carrying_capacity_from_world.py`), no recorder archive needed — the
+real self-supervised training signal is `hearthmind.ml.carrying_
+capacity.compute_carrying_capacity_label`, which reads real hunger
+and starvation-death deltas already in that history to estimate
+"where did this settlement's growth actually stall" per sim-day. An
+honest limitation, stated in the module's own docstring: `metrics`
+rows sum every named settlement in a world, so a multi-settlement
+world trains against the world-wide aggregate, not any one
+settlement's own real ceiling.
 
 ### What's genuinely NOT available locally
 
