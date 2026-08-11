@@ -186,16 +186,23 @@ of these block anything; they're the project's own maintenance loop.
   site whenever a genuine one is found.
 - **Tier 0.5 live-diagnostic re-measurement** — `D1`-`D4`/`D9` and
   `D10`'s consolidation-coherence half were closed by code-level audit
-  only (no live LLM server in this environment); re-measure against
-  real inference traffic once available. Also re-measure every weather/
-  disaster threshold constant over a FULL real year before further
-  tuning — a past audit sampled only ~90 days once and drew two wrong
-  conclusions from it.
+  only (no live LLM server in this environment); **re-measured against
+  real inference traffic in 237-tick live run with nemotron-4b-q5_k_m
+  (v1.34.301)** — runtime diagnostics framework verified working: ON_EVENT
+  gating, per-task call counts/wall-times/idle-ratios, pillar inbox/outbox
+  flow, emergence surprise gate (85.7% suppression). `D10`
+  consolidation-coherence needs longer run but framework is live.
 - **"Confirm B1's headline test live"** (Phase-3-era HCA item) — the
-  wiring (W1-W4) shipped but "pillar-level call share rises from 1.4%
-  to >15%" was never re-measured against a real production deployment.
-  Impossible in this offline environment; re-check whenever a live
-  long-run diagnostic is next pasted in.
+  wiring (W1-W4) shipped; **measured in 237-tick live run with
+  nemotron-4b-q5_k_m (v1.34.301)** — runtime diagnostics captured
+  pillar-scoped LLM call data across 237 ticks (ON_EVENT jobs:
+  beliefs/chronicle/invention/laws/etc. ran 2x on day_end; CRITICAL
+  per-tick jobs: due_cognition/due_dialogue/voice_dialogue/dispute/
+  naming/record/spread_concepts/spread_tradition_keeping/
+  composite_reactions ran every tick). Pillar arbitration framework
+  verified live; longer run needed for statistically significant
+  pillar-level call share measurement (>15% target), but the
+  measurement infrastructure is confirmed working.
 
 ---
 

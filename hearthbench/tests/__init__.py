@@ -94,9 +94,33 @@ DEFAULT_REGISTRY.register(NO_AMBIENT_FILLER_SCORER)
 # each needs `build_*_judge_scorer(adapter)` called with a real
 # adapter at run time, not a module-import-time registration.
 
+_JUDGE_SCORER_FACTORIES = {
+    "dialogue": build_dialogue_judge_scorer,
+    "personality": build_personality_judge_scorer,
+    "memory": build_memory_judge_scorer,
+    "beliefs": build_beliefs_judge_scorer,
+    "planning": build_planning_judge_scorer,
+    "village_cognition": build_village_cognition_judge_scorer,
+}
+
+
+def build_judge_scorer_for(category_id, adapter):
+    """Build the per-category Tier 2 judge scorer for a subjective
+    category against a live judge `adapter`. The `judge_*` scorers are
+    never auto-registered (they close over a run-time adapter), so a
+    caller names the category and gets the right factory's scorer."""
+    try:
+        return _JUDGE_SCORER_FACTORIES[category_id](adapter)
+    except KeyError:
+        raise ValueError(
+            f"no judge scorer factory for category {category_id!r} — "
+            f"known: {sorted(_JUDGE_SCORER_FACTORIES)}"
+        ) from None
+
+
 __all__ = [
     "Category", "CategoryScoreSummary", "percentile", "summarize_scores",
-    "CATEGORY_REGISTRY",
+    "CATEGORY_REGISTRY", "build_judge_scorer_for",
     "GROUNDING_CATEGORY", "NO_UNSUPPORTED_SPECIFICS_SCORER", "build_grounding_bait_cases",
     "STRUCTURED_OUTPUTS_CATEGORY", "build_structured_output_cases", "score_structured_output_delta",
     "PERFORMANCE_CATEGORY", "summarize_latency",
